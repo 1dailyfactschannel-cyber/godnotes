@@ -2,6 +2,8 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
+import TextStyle from '@tiptap/extension-text-style';
+import { Extension } from '@tiptap/core';
 import { useEffect } from 'react';
 import { useFileSystem } from '@/lib/mock-fs';
 import { 
@@ -15,13 +17,77 @@ import {
   Heading2, 
   Undo, 
   Redo,
-  Download
+  Download,
+  Type
 } from 'lucide-react';
 import { Toggle } from '@/components/ui/toggle';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
+
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    fontSize: {
+      /**
+       * Set the font size
+       */
+      setFontSize: (size: string) => ReturnType,
+      /**
+       * Unset the font size
+       */
+      unsetFontSize: () => ReturnType,
+    }
+  }
+}
+
+// Custom FontSize extension
+const FontSize = Extension.create({
+  name: 'fontSize',
+  addOptions() {
+    return {
+      types: ['textStyle'],
+    };
+  },
+  addAttributes() {
+    return {
+      fontSize: {
+        default: null,
+        parseHTML: element => element.style.fontSize,
+        renderHTML: attributes => {
+          if (!attributes.fontSize) {
+            return {};
+          }
+          return {
+            style: `font-size: ${attributes.fontSize}`,
+          };
+        },
+      },
+    };
+  },
+  addCommands() {
+    return {
+      setFontSize: (fontSize: string) => ({ chain }) => {
+        return chain()
+          .setMark('textStyle', { fontSize })
+          .run();
+      },
+      unsetFontSize: () => ({ chain }) => {
+        return chain()
+          .setMark('textStyle', { fontSize: null })
+          .removeEmptyTextStyle()
+          .run();
+      },
+    };
+  },
+});
 
 export default function TiptapEditor() {
   const { items, activeFileId, updateFileContent } = useFileSystem();
@@ -31,6 +97,8 @@ export default function TiptapEditor() {
     extensions: [
       StarterKit,
       Typography,
+      TextStyle,
+      FontSize,
       Placeholder.configure({
         placeholder: 'Начните писать...',
       }),
@@ -88,11 +156,44 @@ export default function TiptapEditor() {
     );
   }
 
+  const fontSizes = [
+    { label: 'Маленький', value: '12px' },
+    { label: 'Обычный', value: '16px' },
+    { label: 'Средний', value: '20px' },
+    { label: 'Крупный', value: '24px' },
+    { label: 'Огромный', value: '32px' },
+  ];
+
   return (
     <div className="h-full w-full flex flex-col bg-background animate-in fade-in duration-300">
       {/* Toolbar */}
-      <div className="flex items-center gap-1 p-2 border-b border-border bg-sidebar/50 backdrop-blur-sm">
-        <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-1 p-2 border-b border-border bg-sidebar/50 backdrop-blur-sm overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-0.5 shrink-0">
+          <Select
+            onValueChange={(value) => {
+              if (value === 'unsetFontSize') {
+                editor?.chain().focus().unsetFontSize().run();
+              } else {
+                editor?.chain().focus().setFontSize(value).run();
+              }
+            }}
+          >
+            <SelectTrigger className="h-8 w-[130px] text-xs bg-transparent border-none hover:bg-accent focus:ring-0">
+              <Type className="h-3.5 w-3.5 mr-2" />
+              <SelectValue placeholder="Размер" />
+            </SelectTrigger>
+            <SelectContent>
+              {fontSizes.map(size => (
+                <SelectItem key={size.value} value={size.value}>
+                  {size.label}
+                </SelectItem>
+              ))}
+              <SelectItem value="unsetFontSize">Сбросить</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
+        <div className="flex items-center gap-0.5 shrink-0">
           <Toggle 
             size="sm" 
             pressed={editor?.isActive('bold')} 
@@ -118,8 +219,8 @@ export default function TiptapEditor() {
             <Code className="h-4 w-4" />
           </Toggle>
         </div>
-        <Separator orientation="vertical" className="h-4 mx-1" />
-        <div className="flex items-center gap-0.5">
+        <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
+        <div className="flex items-center gap-0.5 shrink-0">
           <Toggle 
             size="sm" 
             pressed={editor?.isActive('heading', { level: 1 })} 
@@ -137,8 +238,8 @@ export default function TiptapEditor() {
             <Heading2 className="h-4 w-4" />
           </Toggle>
         </div>
-        <Separator orientation="vertical" className="h-4 mx-1" />
-        <div className="flex items-center gap-0.5">
+        <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
+        <div className="flex items-center gap-0.5 shrink-0">
           <Toggle 
             size="sm" 
             pressed={editor?.isActive('bulletList')} 
@@ -164,7 +265,7 @@ export default function TiptapEditor() {
             <Quote className="h-4 w-4" />
           </Toggle>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 shrink-0">
           <div className="flex items-center gap-0.5 mr-2">
             <button 
               onClick={() => editor?.chain().focus().undo().run()}
