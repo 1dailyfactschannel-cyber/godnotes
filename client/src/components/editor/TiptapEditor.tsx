@@ -3,8 +3,11 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
 import TextStyle from '@tiptap/extension-text-style';
+import Link from '@tiptap/extension-link';
+import Image from '@tiptap/extension-image';
+import Youtube from '@tiptap/extension-youtube';
 import { Extension } from '@tiptap/core';
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useFileSystem } from '@/lib/mock-fs';
 import { 
   Bold, 
@@ -18,7 +21,10 @@ import {
   Undo, 
   Redo,
   Download,
-  Type
+  Type,
+  Link as LinkIcon,
+  Image as ImageIcon,
+  Video
 } from 'lucide-react';
 import { Toggle } from '@/components/ui/toggle';
 import { Separator } from '@/components/ui/separator';
@@ -36,19 +42,12 @@ import html2pdf from 'html2pdf.js';
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     fontSize: {
-      /**
-       * Set the font size
-       */
       setFontSize: (size: string) => ReturnType,
-      /**
-       * Unset the font size
-       */
       unsetFontSize: () => ReturnType,
     }
   }
 }
 
-// Custom FontSize extension
 const FontSize = Extension.create({
   name: 'fontSize',
   addOptions() {
@@ -99,6 +98,22 @@ export default function TiptapEditor() {
       Typography,
       TextStyle,
       FontSize,
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: {
+          class: 'text-primary underline cursor-pointer',
+        },
+      }),
+      Image.configure({
+        HTMLAttributes: {
+          class: 'rounded-lg max-w-full h-auto my-4',
+        },
+      }),
+      Youtube.configure({
+        HTMLAttributes: {
+          class: 'rounded-lg overflow-hidden my-4',
+        },
+      }),
       Placeholder.configure({
         placeholder: 'Начните писать...',
       }),
@@ -123,6 +138,38 @@ export default function TiptapEditor() {
       }
     }
   }, [activeFileId, editor, activeFile]);
+
+  const setLink = useCallback(() => {
+    const previousUrl = editor?.getAttributes('link').href;
+    const url = window.prompt('URL', previousUrl);
+
+    if (url === null) {
+      return;
+    }
+
+    if (url === '') {
+      editor?.chain().focus().extendMarkRange('link').unsetLink().run();
+      return;
+    }
+
+    editor?.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+  }, [editor]);
+
+  const addImage = useCallback(() => {
+    const url = window.prompt('URL изображения');
+
+    if (url) {
+      editor?.chain().focus().setImage({ src: url }).run();
+    }
+  }, [editor]);
+
+  const addYoutubeVideo = useCallback(() => {
+    const url = window.prompt('URL видео на YouTube');
+
+    if (url) {
+      editor?.chain().focus().setYoutubeVideo({ src: url }).run();
+    }
+  }, [editor]);
 
   const exportToPdf = () => {
     if (!activeFile) return;
@@ -218,6 +265,35 @@ export default function TiptapEditor() {
           >
             <Code className="h-4 w-4" />
           </Toggle>
+          <Toggle 
+            size="sm" 
+            pressed={editor?.isActive('link')} 
+            onPressedChange={setLink}
+            className="h-8 w-8"
+          >
+            <LinkIcon className="h-4 w-4" />
+          </Toggle>
+        </div>
+        <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
+        <div className="flex items-center gap-0.5 shrink-0">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-8 w-8 p-0" 
+            onClick={addImage}
+            title="Добавить изображение"
+          >
+            <ImageIcon className="h-4 w-4" />
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-8 w-8 p-0" 
+            onClick={addYoutubeVideo}
+            title="Добавить YouTube видео"
+          >
+            <Video className="h-4 w-4" />
+          </Button>
         </div>
         <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
         <div className="flex items-center gap-0.5 shrink-0">
