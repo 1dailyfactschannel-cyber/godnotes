@@ -1,7 +1,7 @@
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { FileTree } from '@/components/sidebar/FileTree';
 import TiptapEditor from '@/components/editor/TiptapEditor';
-import { Search, Hash, ChevronRight } from 'lucide-react';
+import { Search, Hash, ChevronRight, Minimize2, Square, X } from 'lucide-react';
 import { useFileSystem } from '@/lib/mock-fs';
 
 export default function AppLayout() {
@@ -11,7 +11,6 @@ export default function AppLayout() {
     ? items.filter(i => i.type === 'file' && i.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
 
-  // Breadcrumbs Calculation
   const getBreadcrumbs = (fileId: string | null) => {
     if (!fileId) return [];
     const breadcrumbs = [];
@@ -30,47 +29,55 @@ export default function AppLayout() {
   const breadcrumbs = getBreadcrumbs(activeFileId);
 
   return (
-    <div className="h-screen w-full bg-background text-foreground overflow-hidden flex flex-col">
-      {/* Top Title Bar (Windows Style) */}
-      <div className="h-9 bg-sidebar border-b border-sidebar-border flex items-center justify-between px-3 select-none shrink-0 drag-region">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 opacity-50 hover:opacity-100 transition-opacity cursor-default">
-            <div className="w-3 h-3 rounded-full bg-red-500/80" />
-            <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
-            <div className="w-3 h-3 rounded-full bg-green-500/80" />
-          </div>
-          
-          {/* Breadcrumbs */}
-          <div className="flex items-center text-xs text-muted-foreground ml-4 font-medium">
-             <span className="text-muted-foreground/50 hover:text-foreground transition-colors cursor-pointer">Vault</span>
-             {breadcrumbs.map((item, index) => (
-                <div key={item.id} className="flex items-center">
-                   <ChevronRight className="h-3 w-3 mx-1 text-muted-foreground/40" />
-                   <span className={index === breadcrumbs.length - 1 ? "text-foreground" : "hover:text-foreground transition-colors cursor-pointer"}>
-                      {item.name}
-                   </span>
-                </div>
-             ))}
-          </div>
+    <div className="h-screen w-full bg-background text-foreground overflow-hidden flex flex-col border border-sidebar-border">
+      {/* Windows Title Bar */}
+      <div className="h-8 bg-[#1e1e1e] flex items-center justify-between select-none shrink-0 drag-region">
+        <div className="flex items-center h-full">
+           <div className="px-3 flex items-center gap-2">
+              <div className="w-4 h-4 bg-primary rounded-sm flex items-center justify-center">
+                 <div className="w-2 h-2 bg-background rotate-45" />
+              </div>
+              <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-tight">Obsidian</span>
+           </div>
+           
+           <div className="flex items-center text-[11px] text-muted-foreground/60 ml-2 border-l border-white/5 pl-4">
+              <span className="hover:text-foreground transition-colors cursor-pointer">Vault</span>
+              {breadcrumbs.map((item, index) => (
+                 <div key={item.id} className="flex items-center">
+                    <ChevronRight className="h-3 w-3 mx-1 opacity-40" />
+                    <span className={index === breadcrumbs.length - 1 ? "text-muted-foreground" : "hover:text-foreground transition-colors cursor-pointer"}>
+                       {item.name}
+                    </span>
+                 </div>
+              ))}
+           </div>
         </div>
         
-        <div className="text-[10px] text-muted-foreground/50 font-mono">
-           obsidian-clone-v1.0.0
+        {/* Windows Control Buttons */}
+        <div className="flex h-full no-drag">
+           <button className="h-full px-4 hover:bg-white/10 transition-colors flex items-center justify-center group">
+              <Minimize2 className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground" />
+           </button>
+           <button className="h-full px-4 hover:bg-white/10 transition-colors flex items-center justify-center group">
+              <Square className="h-3 w-3 text-muted-foreground group-hover:text-foreground" />
+           </button>
+           <button className="h-full px-4 hover:bg-red-500 transition-colors flex items-center justify-center group">
+              <X className="h-4 w-4 text-muted-foreground group-hover:text-white" />
+           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden bg-[#161616]">
         <ResizablePanelGroup direction="horizontal">
-          <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-sidebar/50 border-r border-sidebar-border">
+          <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-sidebar border-r border-sidebar-border/50">
             <div className="h-full flex flex-col">
-              {/* Search Bar */}
-              <div className="p-2 border-b border-sidebar-border/30">
+              <div className="p-2">
                 <div className="relative group">
-                  <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                  <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
                   <input 
                     type="text" 
-                    placeholder="Type to search..." 
-                    className="w-full bg-sidebar-accent/30 hover:bg-sidebar-accent/50 focus:bg-sidebar-accent border border-transparent focus:border-sidebar-border rounded-md py-1.5 pl-8 pr-3 text-xs text-sidebar-foreground focus:outline-none transition-all placeholder:text-muted-foreground/50"
+                    placeholder="Search..." 
+                    className="w-full bg-[#2a2a2a] border border-transparent focus:border-primary/30 rounded py-1 pl-8 pr-3 text-xs focus:outline-none transition-all"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -79,24 +86,19 @@ export default function AppLayout() {
 
               {searchQuery ? (
                  <div className="flex-1 overflow-y-auto p-2">
-                    <div className="text-xs font-semibold text-muted-foreground px-2 mb-2 uppercase tracking-wider">Search Results</div>
-                    {filteredItems.length === 0 ? (
-                      <div className="text-sm text-muted-foreground px-2 py-4 text-center italic opacity-50">No results found</div>
-                    ) : (
-                      filteredItems.map(item => (
-                        <div 
-                          key={item.id}
-                          className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-sidebar-accent/50 cursor-pointer text-sm text-sidebar-foreground group"
-                          onClick={() => {
-                            selectFile(item.id);
-                            setSearchQuery(''); // Clear search on select
-                          }}
-                        >
-                          <Hash className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                          <span className="truncate group-hover:text-foreground transition-colors">{item.name}</span>
-                        </div>
-                      ))
-                    )}
+                    {filteredItems.map(item => (
+                      <div 
+                        key={item.id}
+                        className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-white/5 cursor-pointer text-xs group"
+                        onClick={() => {
+                          selectFile(item.id);
+                          setSearchQuery('');
+                        }}
+                      >
+                        <Hash className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
+                        <span className="truncate">{item.name}</span>
+                      </div>
+                    ))}
                  </div>
               ) : (
                 <FileTree />
@@ -104,7 +106,7 @@ export default function AppLayout() {
             </div>
           </ResizablePanel>
           
-          <ResizableHandle className="bg-sidebar-border hover:bg-primary transition-colors w-[1px]" />
+          <ResizableHandle className="bg-transparent hover:bg-primary/20 w-1 transition-colors" />
           
           <ResizablePanel defaultSize={80}>
             <TiptapEditor />
@@ -112,13 +114,13 @@ export default function AppLayout() {
         </ResizablePanelGroup>
       </div>
       
-      {/* Status Bar */}
-      <div className="h-6 bg-sidebar/80 border-t border-sidebar-border flex items-center justify-between px-3 text-[10px] text-muted-foreground select-none shrink-0 backdrop-blur-sm">
+      {/* Windows Status Bar */}
+      <div className="h-6 bg-[#1e1e1e] border-t border-white/5 flex items-center justify-between px-3 text-[10px] text-muted-foreground/60 select-none shrink-0">
          <div className="flex items-center gap-4">
-            <span className="hover:text-foreground cursor-pointer">Ln 1, Col 1</span>
-            <span className="hover:text-foreground cursor-pointer">{breadcrumbs.length > 0 ? (breadcrumbs[breadcrumbs.length - 1].content?.length || 0) : 0} characters</span>
+            <span className="hover:text-foreground cursor-pointer transition-colors">Ln 1, Col 1</span>
+            <span className="hover:text-foreground cursor-pointer transition-colors">{breadcrumbs.length > 0 ? (breadcrumbs[breadcrumbs.length - 1].content?.length || 0) : 0} chars</span>
          </div>
-         <div className="flex items-center gap-4">
+         <div className="flex items-center gap-4 uppercase tracking-tighter">
            <span className="hover:text-foreground cursor-pointer">Spaces: 2</span>
            <span className="hover:text-foreground cursor-pointer">UTF-8</span>
          </div>
