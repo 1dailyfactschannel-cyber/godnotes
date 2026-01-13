@@ -147,13 +147,15 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   moveItem: (id, newParentId) => {
     set((state) => {
-      // Prevent moving an item into itself or its descendants
+      // Prevent moving an item into itself
       if (id === newParentId) return state;
       
+      // Prevent moving an item into its own descendant
       const isDescendant = (parentId: string, targetId: string): boolean => {
-        if (parentId === targetId) return true;
         const parent = state.items.find(i => i.id === parentId);
-        if (parent?.parentId) return isDescendant(parent.parentId, targetId);
+        if (!parent) return false;
+        if (parent.parentId === targetId) return true;
+        if (parent.parentId) return isDescendant(parent.parentId, targetId);
         return false;
       };
 
