@@ -1,8 +1,19 @@
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { FileTree } from '@/components/sidebar/FileTree';
 import TiptapEditor from '@/components/editor/TiptapEditor';
-import { Search, Hash, ChevronRight, Minimize2, Square, X } from 'lucide-react';
+import { Search, Hash, ChevronRight, Minimize2, Square, X, Settings } from 'lucide-react';
 import { useFileSystem } from '@/lib/mock-fs';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuPortal,
+} from "@/components/ui/dropdown-menu";
 
 export default function AppLayout() {
   const { items, searchQuery, setSearchQuery, selectFile, activeFileId } = useFileSystem();
@@ -103,6 +114,39 @@ export default function AppLayout() {
               ) : (
                 <FileTree />
               )}
+
+              {/* Sidebar Bottom Actions */}
+              <div className="mt-auto p-2 border-t border-white/5 flex items-center">
+                 <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                       <button className="p-1.5 hover:bg-white/5 rounded-md text-muted-foreground hover:text-foreground transition-colors">
+                          <Settings className="h-4 w-4" />
+                       </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="right" align="end" className="w-56 bg-popover/95 backdrop-blur-sm">
+                       <DropdownMenuItem>
+                          Общие настройки
+                       </DropdownMenuItem>
+                       <DropdownMenuSeparator />
+                       <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                             Выбор темы
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuPortal>
+                             <DropdownMenuSubContent className="bg-popover/95 backdrop-blur-sm">
+                                <DropdownMenuItem>Obsidian Dark (Текущая)</DropdownMenuItem>
+                                <DropdownMenuItem>Midnight Blue</DropdownMenuItem>
+                                <DropdownMenuItem>Graphite</DropdownMenuItem>
+                                <DropdownMenuItem>Light Mode</DropdownMenuItem>
+                             </DropdownMenuSubContent>
+                          </DropdownMenuPortal>
+                       </DropdownMenuSub>
+                       <DropdownMenuItem>Плагины</DropdownMenuItem>
+                       <DropdownMenuSeparator />
+                       <DropdownMenuItem className="text-muted-foreground/50">Версия 1.0.0</DropdownMenuItem>
+                    </DropdownMenuContent>
+                 </DropdownMenu>
+              </div>
             </div>
           </ResizablePanel>
           
