@@ -4,13 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { KeyRound, Mail, Minimize2, Square, X, UserPlus, ArrowLeft } from 'lucide-react';
+import { KeyRound, Mail, Minimize2, Square, X, UserPlus, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function LoginPage() {
   const { login, theme } = useFileSystem();
   const [email, setEmail] = useState('demo@obsidian.com');
   const [password, setPassword] = useState('password');
+  const [showPassword, setShowPassword] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [name, setName] = useState('');
 
@@ -95,12 +96,19 @@ export default function LoginPage() {
                   <KeyRound className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input 
                     id="password" 
-                    type="password" 
-                    className="pl-10 bg-background/50"
+                    type={showPassword ? "text" : "password"} 
+                    className="pl-10 pr-10 bg-background/50"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-3 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
               <Button type="submit" className="w-full font-semibold py-6 text-lg shadow-lg hover:shadow-primary/20 transition-all mt-6">
