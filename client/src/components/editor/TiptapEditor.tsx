@@ -24,7 +24,8 @@ import {
   Type,
   Link as LinkIcon,
   Image as ImageIcon,
-  Video
+  Video,
+  BookOpen
 } from 'lucide-react';
 import { Toggle } from '@/components/ui/toggle';
 import { Separator } from '@/components/ui/separator';
@@ -39,7 +40,15 @@ import {
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
-// Custom FontSize extension with inline styles
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    fontSize: {
+      setFontSize: (size: string) => ReturnType,
+      unsetFontSize: () => ReturnType,
+    }
+  }
+}
+
 const FontSize = Extension.create({
   name: 'fontSize',
   addOptions() {
@@ -80,7 +89,7 @@ const FontSize = Extension.create({
   },
 });
 
-export default function TiptapEditor() {
+export default function TiptapEditor({ isReadOnly = false }: { isReadOnly?: boolean }) {
   const { items, activeFileId, updateFileContent } = useFileSystem();
   const activeFile = items.find(i => i.id === activeFileId);
 
@@ -121,7 +130,14 @@ export default function TiptapEditor() {
         updateFileContent(activeFileId, editor.getHTML());
       }
     },
+    editable: !isReadOnly,
   });
+
+  useEffect(() => {
+    if (editor) {
+      editor.setEditable(!isReadOnly);
+    }
+  }, [isReadOnly, editor]);
 
   useEffect(() => {
     if (editor && activeFile) {
@@ -205,173 +221,188 @@ export default function TiptapEditor() {
 
   return (
     <div className="h-full w-full flex flex-col bg-background animate-in fade-in duration-300">
-      {/* Toolbar */}
-      <div className="flex items-center gap-1 p-2 border-b border-border bg-sidebar/50 backdrop-blur-sm overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-0.5 shrink-0">
-          <Select
-            onValueChange={(value) => {
-              if (value === 'unsetFontSize') {
-                (editor?.chain().focus() as any).unsetFontSize().run();
-              } else {
-                (editor?.chain().focus() as any).setFontSize(value).run();
-              }
-            }}
-          >
-            <SelectTrigger className="h-8 w-[130px] text-xs bg-transparent border-none hover:bg-accent focus:ring-0">
-              <Type className="h-3.5 w-3.5 mr-2" />
-              <SelectValue placeholder="Размер" />
-            </SelectTrigger>
-            <SelectContent>
-              {fontSizes.map(size => (
-                <SelectItem key={size.value} value={size.value}>
-                  {size.label}
-                </SelectItem>
-              ))}
-              <SelectItem value="unsetFontSize">Сбросить</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
-        <div className="flex items-center gap-0.5 shrink-0">
-          <Toggle 
-            size="sm" 
-            pressed={editor?.isActive('bold')} 
-            onPressedChange={() => editor?.chain().focus().toggleBold().run()}
-            className="h-8 w-8"
-          >
-            <Bold className="h-4 w-4" />
-          </Toggle>
-          <Toggle 
-            size="sm" 
-            pressed={editor?.isActive('italic')} 
-            onPressedChange={() => editor?.chain().focus().toggleItalic().run()}
-            className="h-8 w-8"
-          >
-            <Italic className="h-4 w-4" />
-          </Toggle>
-          <Toggle 
-            size="sm" 
-            pressed={editor?.isActive('code')} 
-            onPressedChange={() => editor?.chain().focus().toggleCode().run()}
-            className="h-8 w-8"
-          >
-            <Code className="h-4 w-4" />
-          </Toggle>
-          <Toggle 
-            size="sm" 
-            pressed={editor?.isActive('link')} 
-            onPressedChange={setLink}
-            className="h-8 w-8"
-          >
-            <LinkIcon className="h-4 w-4" />
-          </Toggle>
-        </div>
-        <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
-        <div className="flex items-center gap-0.5 shrink-0">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="h-8 w-8 p-0" 
-            onClick={addImage}
-            title="Добавить изображение"
-          >
-            <ImageIcon className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="h-8 w-8 p-0" 
-            onClick={addYoutubeVideo}
-            title="Добавить YouTube видео"
-          >
-            <Video className="h-4 w-4" />
-          </Button>
-        </div>
-        <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
-        <div className="flex items-center gap-0.5 shrink-0">
-          <Toggle 
-            size="sm" 
-            pressed={editor?.isActive('heading', { level: 1 })} 
-            onPressedChange={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
-            className="h-8 w-8"
-          >
-            <Heading1 className="h-4 w-4" />
-          </Toggle>
-          <Toggle 
-            size="sm" 
-            pressed={editor?.isActive('heading', { level: 2 })} 
-            onPressedChange={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
-            className="h-8 w-8"
-          >
-            <Heading2 className="h-4 w-4" />
-          </Toggle>
-        </div>
-        <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
-        <div className="flex items-center gap-0.5 shrink-0">
-          <Toggle 
-            size="sm" 
-            pressed={editor?.isActive('bulletList')} 
-            onPressedChange={() => editor?.chain().focus().toggleBulletList().run()}
-            className="h-8 w-8"
-          >
-            <List className="h-4 w-4" />
-          </Toggle>
-          <Toggle 
-            size="sm" 
-            pressed={editor?.isActive('orderedList')} 
-            onPressedChange={() => editor?.chain().focus().toggleOrderedList().run()}
-            className="h-8 w-8"
-          >
-            <ListOrdered className="h-4 w-4" />
-          </Toggle>
-          <Toggle 
-            size="sm" 
-            pressed={editor?.isActive('blockquote')} 
-            onPressedChange={() => editor?.chain().focus().toggleBlockquote().run()}
-            className="h-8 w-8"
-          >
-            <Quote className="h-4 w-4" />
-          </Toggle>
-        </div>
-        <div className="ml-auto flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-0.5 mr-2">
-            <button 
-              onClick={() => editor?.chain().focus().undo().run()}
-              disabled={!editor?.can().undo()}
-              className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded disabled:opacity-30 transition-colors"
-              title="Отменить"
-            >
-              <Undo className="h-4 w-4" />
-            </button>
-            <button 
-              onClick={() => editor?.chain().focus().redo().run()}
-              disabled={!editor?.can().redo()}
-              className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded disabled:opacity-30 transition-colors"
-              title="Вернуть"
-            >
-              <Redo className="h-4 w-4" />
-            </button>
+      {/* Reading Mode Overlay */}
+      {isReadOnly && (
+        <div className="absolute top-12 right-12 z-10 animate-in fade-in zoom-in duration-300">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary border border-primary/20 rounded-full text-[10px] font-bold uppercase tracking-widest backdrop-blur-md">
+            <BookOpen className="h-3 w-3" /> Режим чтения
           </div>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="h-8 gap-2 text-xs"
-            onClick={exportToPdf}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Экспорт PDF
-          </Button>
         </div>
-      </div>
+      )}
+
+      {/* Toolbar */}
+      {!isReadOnly && (
+        <div className="flex items-center gap-1 p-2 border-b border-border bg-sidebar/50 backdrop-blur-sm overflow-x-auto no-scrollbar animate-in slide-in-from-top duration-300">
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Select
+              onValueChange={(value) => {
+                if (value === 'unsetFontSize') {
+                  (editor?.chain().focus() as any).unsetFontSize().run();
+                } else {
+                  (editor?.chain().focus() as any).setFontSize(value).run();
+                }
+              }}
+            >
+              <SelectTrigger className="h-8 w-[130px] text-xs bg-transparent border-none hover:bg-accent focus:ring-0">
+                <Type className="h-3.5 w-3.5 mr-2" />
+                <SelectValue placeholder="Размер" />
+              </SelectTrigger>
+              <SelectContent>
+                {fontSizes.map(size => (
+                  <SelectItem key={size.value} value={size.value}>
+                    {size.label}
+                  </SelectItem>
+                ))}
+                <SelectItem value="unsetFontSize">Сбросить</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive('bold')} 
+              onPressedChange={() => editor?.chain().focus().toggleBold().run()}
+              className="h-8 w-8"
+            >
+              <Bold className="h-4 w-4" />
+            </Toggle>
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive('italic')} 
+              onPressedChange={() => editor?.chain().focus().toggleItalic().run()}
+              className="h-8 w-8"
+            >
+              <Italic className="h-4 w-4" />
+            </Toggle>
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive('code')} 
+              onPressedChange={() => editor?.chain().focus().toggleCode().run()}
+              className="h-8 w-8"
+            >
+              <Code className="h-4 w-4" />
+            </Toggle>
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive('link')} 
+              onPressedChange={setLink}
+              className="h-8 w-8"
+            >
+              <LinkIcon className="h-4 w-4" />
+            </Toggle>
+          </div>
+          <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0" 
+              onClick={addImage}
+              title="Добавить изображение"
+            >
+              <ImageIcon className="h-4 w-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0" 
+              onClick={addYoutubeVideo}
+              title="Добавить YouTube видео"
+            >
+              <Video className="h-4 w-4" />
+            </Button>
+          </div>
+          <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive('heading', { level: 1 })} 
+              onPressedChange={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+              className="h-8 w-8"
+            >
+              <Heading1 className="h-4 w-4" />
+            </Toggle>
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive('heading', { level: 2 })} 
+              onPressedChange={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+              className="h-8 w-8"
+            >
+              <Heading2 className="h-4 w-4" />
+            </Toggle>
+          </div>
+          <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive('bulletList')} 
+              onPressedChange={() => editor?.chain().focus().toggleBulletList().run()}
+              className="h-8 w-8"
+            >
+              <List className="h-4 w-4" />
+            </Toggle>
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive('orderedList')} 
+              onPressedChange={() => editor?.chain().focus().toggleOrderedList().run()}
+              className="h-8 w-8"
+            >
+              <ListOrdered className="h-4 w-4" />
+            </Toggle>
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive('blockquote')} 
+              onPressedChange={() => editor?.chain().focus().toggleBlockquote().run()}
+              className="h-8 w-8"
+            >
+              <Quote className="h-4 w-4" />
+            </Toggle>
+          </div>
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-0.5 mr-2">
+              <button 
+                onClick={() => editor?.chain().focus().undo().run()}
+                disabled={!editor?.can().undo()}
+                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded disabled:opacity-30 transition-colors"
+                title="Отменить"
+              >
+                <Undo className="h-4 w-4" />
+              </button>
+              <button 
+                onClick={() => editor?.chain().focus().redo().run()}
+                disabled={!editor?.can().redo()}
+                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded disabled:opacity-30 transition-colors"
+                title="Вернуть"
+              >
+                <Redo className="h-4 w-4" />
+              </button>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-8 gap-2 text-xs"
+              onClick={exportToPdf}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Экспорт PDF
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Editor Content */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <div className="max-w-3xl mx-auto py-12">
+        <div className={cn("max-w-3xl mx-auto py-12 transition-all duration-500", isReadOnly ? "opacity-100 scale-100" : "")}>
           <input
             type="text"
             value={activeFile.name}
+            readOnly={isReadOnly}
             onChange={(e) => useFileSystem.getState().renameItem(activeFile.id, e.target.value)}
-            className="text-4xl font-bold bg-transparent border-none outline-none w-full mb-8 text-foreground placeholder:text-muted-foreground/30 px-8"
+            className={cn(
+              "text-4xl font-bold bg-transparent border-none outline-none w-full mb-8 text-foreground placeholder:text-muted-foreground/30 px-8 transition-all",
+              isReadOnly ? "cursor-default select-none" : ""
+            )}
             placeholder="Без названия"
           />
           <EditorContent editor={editor} />
