@@ -10,6 +10,7 @@ export type FileSystemItem = {
   parentId: string | null;
   content?: string;
   createdAt: number;
+  isPinned?: boolean;
 };
 
 interface FileSystemState {
@@ -32,14 +33,15 @@ interface FileSystemState {
   setTheme: (theme: ThemeType) => void;
   login: () => void;
   logout: () => void;
+  togglePin: (id: string) => void;
 }
 
 const initialItems: FileSystemItem[] = [
-  { id: '1', name: 'Личное', type: 'folder', parentId: null, createdAt: Date.now() },
+  { id: '1', name: 'Личное', type: 'folder', parentId: null, createdAt: Date.now(), isPinned: true },
   { id: '2', name: 'Работа', type: 'folder', parentId: null, createdAt: Date.now() },
   { id: '3', name: 'Мой дневник', type: 'file', parentId: '1', content: '<h1>Мой дневник</h1><p>Сегодня был отличный день. Я начал работу над новым проектом.</p>', createdAt: Date.now() },
   { id: '4', name: 'Идеи проектов', type: 'file', parentId: '2', content: '<h1>Идеи проектов</h1><ul><li>Собрать клон Obsidian</li><li>Изучить Rust</li><li>Пойти на пробежку</li></ul>', createdAt: Date.now() },
-  { id: '5', name: 'Добро пожаловать', type: 'file', parentId: null, content: '<h1>Добро пожаловать в заметки</h1><p>Это простой клон Obsidian. Вы можете создавать папки, файлы и писать в Markdown.</p><h2>Возможности</h2><ul><li>Полноценный текстовый редактор</li><li>Папки и вложенные файлы</li><li>Темная тема по умолчанию</li><li>Быстрый поиск</li></ul>', createdAt: Date.now() },
+  { id: '5', name: 'Добро пожаловать', type: 'file', parentId: null, content: '<h1>Добро пожаловать в заметки</h1><p>Это простой клон Obsidian. Вы можете создавать папки, файлы и писать в Markdown.</p><h2>Возможности</h2><ul><li>Полноценный текстовый редактор</li><li>Папки и вложенные файлы</li><li>Темная тема по умолчанию</li><li>Быстрый поиск</li></ul>', createdAt: Date.now(), isPinned: true },
 ];
 
 export const useFileSystem = create<FileSystemState>((set, get) => ({
@@ -135,4 +137,10 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   login: () => set({ isAuthenticated: true }),
   logout: () => set({ isAuthenticated: false }),
+  
+  togglePin: (id) => {
+    set((state) => ({
+      items: state.items.map(i => i.id === id ? { ...i, isPinned: !i.isPinned } : i),
+    }));
+  },
 }));

@@ -10,7 +10,9 @@ import {
   Trash2, 
   Edit2,
   FilePlus,
-  FolderPlus
+  FolderPlus,
+  Pin,
+  PinOff
 } from 'lucide-react';
 import { useFileSystem, FileSystemItem } from '@/lib/mock-fs';
 import { cn } from '@/lib/utils';
@@ -25,8 +27,14 @@ import { Button } from '@/components/ui/button';
 export function FileTree() {
   const { items, expandedFolders, toggleFolder, activeFileId, selectFile, addFile, addFolder } = useFileSystem();
   
-  // Get root items
-  const rootItems = items.filter(i => i.parentId === null);
+  // Get root items, sorted by pinned first
+  const rootItems = items
+    .filter(i => i.parentId === null)
+    .sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return a.name.localeCompare(b.name);
+    });
 
   return (
     <div className="h-full flex flex-col select-none">
@@ -51,13 +59,21 @@ export function FileTree() {
 }
 
 function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) {
-  const { items, expandedFolders, toggleFolder, activeFileId, selectFile, deleteItem, addFile, addFolder, renameItem } = useFileSystem();
+  const { items, expandedFolders, toggleFolder, activeFileId, selectFile, deleteItem, addFile, addFolder, renameItem, togglePin } = useFileSystem();
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(item.name);
 
   const isExpanded = expandedFolders.has(item.id);
   const isActive = activeFileId === item.id;
-  const children = items.filter(i => i.parentId === item.id);
+  
+  // Children sorted by pinned first
+  const children = items
+    .filter(i => i.parentId === item.id)
+    .sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return a.name.localeCompare(b.name);
+    });
   
   const handleRename = () => {
     if (editName.trim()) {
@@ -93,8 +109,9 @@ function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) 
             <span className="text-muted-foreground/50 shrink-0">
               {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
             </span>
-            <span className="text-muted-foreground shrink-0">
+            <span className="text-muted-foreground shrink-0 flex items-center gap-1">
                {isExpanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
+               {item.isPinned && <Pin className="h-2 w-2 text-primary fill-primary" />}
             </span>
             {isEditing ? (
               <input
@@ -124,6 +141,10 @@ function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) 
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => addFolder(item.id)}>
                 <FolderPlus className="mr-2 h-4 w-4" /> Новая папка
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => togglePin(item.id)}>
+                {item.isPinned ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />}
+                {item.isPinned ? 'Открепить' : 'Закрепить'}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setIsEditing(true)}>
                 <Edit2 className="mr-2 h-4 w-4" /> Переименовать
@@ -166,10 +187,13 @@ function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) 
       onClick={() => selectFile(item.id)}
     >
       <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
-        <File className={cn(
-          "h-3.5 w-3.5 shrink-0 transition-colors", 
-          isActive ? "text-primary" : "text-muted-foreground/50 group-hover:text-muted-foreground"
-        )} />
+        <div className="flex items-center gap-1 shrink-0">
+          <File className={cn(
+            "h-3.5 w-3.5 transition-colors", 
+            isActive ? "text-primary" : "text-muted-foreground/50 group-hover:text-muted-foreground"
+          )} />
+          {item.isPinned && <Pin className="h-2 w-2 text-primary fill-primary" />}
+        </div>
         {isEditing ? (
           <input
             autoFocus
@@ -201,6 +225,10 @@ function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) 
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48 bg-popover/95 backdrop-blur-sm border-sidebar-border shadow-xl">
+           <DropdownMenuItem onClick={() => togglePin(item.id)}>
+              {item.isPinned ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />}
+              {item.isPinned ? 'Открепить' : 'Закрепить'}
+           </DropdownMenuItem>
            <DropdownMenuItem onClick={() => setIsEditing(true)}>
             <Edit2 className="mr-2 h-4 w-4" /> Переименовать
           </DropdownMenuItem>
