@@ -34,6 +34,7 @@ interface FileSystemState {
   login: () => void;
   logout: () => void;
   togglePin: (id: string) => void;
+  moveItem: (id: string, newParentId: string | null) => void;
 }
 
 const initialItems: FileSystemItem[] = [
@@ -142,5 +143,27 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     set((state) => ({
       items: state.items.map(i => i.id === id ? { ...i, isPinned: !i.isPinned } : i),
     }));
+  },
+
+  moveItem: (id, newParentId) => {
+    set((state) => {
+      // Prevent moving an item into itself or its descendants
+      if (id === newParentId) return state;
+      
+      const isDescendant = (parentId: string, targetId: string): boolean => {
+        if (parentId === targetId) return true;
+        const parent = state.items.find(i => i.id === parentId);
+        if (parent?.parentId) return isDescendant(parent.parentId, targetId);
+        return false;
+      };
+
+      if (newParentId && isDescendant(newParentId, id)) {
+        return state;
+      }
+
+      return {
+        items: state.items.map(i => i.id === id ? { ...i, parentId: newParentId } : i),
+      };
+    });
   },
 }));
