@@ -14,10 +14,14 @@ import {
   Heading1, 
   Heading2, 
   Undo, 
-  Redo 
+  Redo,
+  Download
 } from 'lucide-react';
 import { Toggle } from '@/components/ui/toggle';
 import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+// @ts-ignore
+import html2pdf from 'html2pdf.js';
 
 export default function TiptapEditor() {
   const { items, activeFileId, updateFileContent } = useFileSystem();
@@ -51,6 +55,30 @@ export default function TiptapEditor() {
       }
     }
   }, [activeFileId, editor, activeFile]);
+
+  const exportToPdf = () => {
+    if (!activeFile) return;
+    
+    const element = document.createElement('div');
+    element.innerHTML = `
+      <div style="padding: 40px; font-family: sans-serif;">
+        <h1 style="font-size: 32px; margin-bottom: 20px;">${activeFile.name}</h1>
+        <div style="font-size: 16px; line-height: 1.6;">
+          ${activeFile.content || ''}
+        </div>
+      </div>
+    `;
+
+    const opt = {
+      margin:       10,
+      filename:     `${activeFile.name}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2 },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    html2pdf().set(opt).from(element).save();
+  };
 
   if (!activeFile) {
     return (
@@ -136,21 +164,34 @@ export default function TiptapEditor() {
             <Quote className="h-4 w-4" />
           </Toggle>
         </div>
-        <div className="ml-auto flex items-center gap-0.5">
-          <button 
-            onClick={() => editor?.chain().focus().undo().run()}
-            disabled={!editor?.can().undo()}
-            className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded disabled:opacity-30 transition-colors"
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-0.5 mr-2">
+            <button 
+              onClick={() => editor?.chain().focus().undo().run()}
+              disabled={!editor?.can().undo()}
+              className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded disabled:opacity-30 transition-colors"
+              title="Отменить"
+            >
+              <Undo className="h-4 w-4" />
+            </button>
+            <button 
+              onClick={() => editor?.chain().focus().redo().run()}
+              disabled={!editor?.can().redo()}
+              className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded disabled:opacity-30 transition-colors"
+              title="Вернуть"
+            >
+              <Redo className="h-4 w-4" />
+            </button>
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-8 gap-2 text-xs"
+            onClick={exportToPdf}
           >
-            <Undo className="h-4 w-4" />
-          </button>
-          <button 
-            onClick={() => editor?.chain().focus().redo().run()}
-            disabled={!editor?.can().redo()}
-            className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded disabled:opacity-30 transition-colors"
-          >
-            <Redo className="h-4 w-4" />
-          </button>
+            <Download className="h-3.5 w-3.5" />
+            Экспорт PDF
+          </Button>
         </div>
       </div>
 
