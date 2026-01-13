@@ -39,16 +39,7 @@ import {
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
-declare module '@tiptap/core' {
-  interface Commands<ReturnType> {
-    fontSize: {
-      setFontSize: (size: string) => ReturnType,
-      unsetFontSize: () => ReturnType,
-    }
-  }
-}
-
-// Custom FontSize extension
+// Custom FontSize extension with inline styles
 const FontSize = Extension.create({
   name: 'fontSize',
   addOptions() {
@@ -60,7 +51,7 @@ const FontSize = Extension.create({
     return {
       fontSize: {
         default: null,
-        parseHTML: element => element.style.fontSize,
+        parseHTML: element => element.style.fontSize?.replace(/['"]+/g, ''),
         renderHTML: attributes => {
           if (!attributes.fontSize) {
             return {};
@@ -220,9 +211,9 @@ export default function TiptapEditor() {
           <Select
             onValueChange={(value) => {
               if (value === 'unsetFontSize') {
-                editor?.chain().focus().unsetFontSize().run();
+                (editor?.chain().focus() as any).unsetFontSize().run();
               } else {
-                editor?.chain().focus().setFontSize(value).run();
+                (editor?.chain().focus() as any).setFontSize(value).run();
               }
             }}
           >
