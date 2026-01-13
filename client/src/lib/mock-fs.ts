@@ -18,6 +18,7 @@ interface FileSystemState {
   expandedFolders: Set<string>;
   searchQuery: string;
   theme: ThemeType;
+  isAuthenticated: boolean;
   
   // Actions
   addFile: (parentId: string | null, name?: string) => void;
@@ -29,6 +30,8 @@ interface FileSystemState {
   toggleFolder: (id: string) => void;
   setSearchQuery: (query: string) => void;
   setTheme: (theme: ThemeType) => void;
+  login: () => void;
+  logout: () => void;
 }
 
 const initialItems: FileSystemItem[] = [
@@ -45,6 +48,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   expandedFolders: new Set(['1', '2']),
   searchQuery: '',
   theme: 'obsidian-dark',
+  isAuthenticated: false,
 
   addFile: (parentId, name = 'Untitled Note') => {
     const newFile: FileSystemItem = {
@@ -128,4 +132,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   setTheme: (theme) => {
     set({ theme });
   },
+
+  login: () => set({ isAuthenticated: true }),
+  logout: () => set({ isAuthenticated: false }),
 }));
