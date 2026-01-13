@@ -33,7 +33,7 @@ export default function TiptapEditor() {
     ],
     editorProps: {
       attributes: {
-        class: 'prose prose-invert max-w-none focus:outline-none min-h-[calc(100vh-250px)] px-8 py-4 text-lg leading-relaxed',
+        class: 'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[calc(100vh-250px)] px-8 py-4 text-lg leading-relaxed',
       },
     },
     content: activeFile?.content || '',
@@ -54,16 +54,16 @@ export default function TiptapEditor() {
 
   if (!activeFile) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-muted-foreground bg-[#161616]">
+      <div className="flex flex-col items-center justify-center h-full text-muted-foreground bg-background">
         <p className="text-sm opacity-50">Выберите или создайте заметку</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#161616] animate-in fade-in duration-300">
+    <div className="h-full w-full flex flex-col bg-background animate-in fade-in duration-300">
       {/* Toolbar */}
-      <div className="flex items-center gap-1 p-2 border-b border-white/5 bg-[#1a1a1a]">
+      <div className="flex items-center gap-1 p-2 border-b border-border bg-sidebar/50 backdrop-blur-sm">
         <div className="flex items-center gap-0.5">
           <Toggle 
             size="sm" 
@@ -90,7 +90,7 @@ export default function TiptapEditor() {
             <Code className="h-4 w-4" />
           </Toggle>
         </div>
-        <Separator orientation="vertical" className="h-4 mx-1 bg-white/10" />
+        <Separator orientation="vertical" className="h-4 mx-1" />
         <div className="flex items-center gap-0.5">
           <Toggle 
             size="sm" 
@@ -109,7 +109,7 @@ export default function TiptapEditor() {
             <Heading2 className="h-4 w-4" />
           </Toggle>
         </div>
-        <Separator orientation="vertical" className="h-4 mx-1 bg-white/10" />
+        <Separator orientation="vertical" className="h-4 mx-1" />
         <div className="flex items-center gap-0.5">
           <Toggle 
             size="sm" 
@@ -140,14 +140,14 @@ export default function TiptapEditor() {
           <button 
             onClick={() => editor?.chain().focus().undo().run()}
             disabled={!editor?.can().undo()}
-            className="h-8 w-8 flex items-center justify-center hover:bg-white/5 rounded disabled:opacity-30 transition-colors"
+            className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded disabled:opacity-30 transition-colors"
           >
             <Undo className="h-4 w-4" />
           </button>
           <button 
             onClick={() => editor?.chain().focus().redo().run()}
             disabled={!editor?.can().redo()}
-            className="h-8 w-8 flex items-center justify-center hover:bg-white/5 rounded disabled:opacity-30 transition-colors"
+            className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded disabled:opacity-30 transition-colors"
           >
             <Redo className="h-4 w-4" />
           </button>
