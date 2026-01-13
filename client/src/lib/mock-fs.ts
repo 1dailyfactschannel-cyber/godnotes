@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 
+export type ThemeType = 'obsidian-dark' | 'midnight-blue' | 'graphite' | 'light-mode';
+
 export type FileSystemItem = {
   id: string;
   name: string;
@@ -15,6 +17,7 @@ interface FileSystemState {
   activeFileId: string | null;
   expandedFolders: Set<string>;
   searchQuery: string;
+  theme: ThemeType;
   
   // Actions
   addFile: (parentId: string | null, name?: string) => void;
@@ -25,6 +28,7 @@ interface FileSystemState {
   selectFile: (id: string) => void;
   toggleFolder: (id: string) => void;
   setSearchQuery: (query: string) => void;
+  setTheme: (theme: ThemeType) => void;
 }
 
 const initialItems: FileSystemItem[] = [
@@ -40,6 +44,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   activeFileId: '5',
   expandedFolders: new Set(['1', '2']),
   searchQuery: '',
+  theme: 'obsidian-dark',
 
   addFile: (parentId, name = 'Untitled Note') => {
     const newFile: FileSystemItem = {
@@ -72,8 +77,6 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   deleteItem: (id) => {
     set((state) => {
-      // Recursive delete would be better, but simple filter is okay for now if we don't have deep nesting
-      // Better: find all descendants
       const getAllDescendants = (itemId: string): string[] => {
         const children = state.items.filter(i => i.parentId === itemId);
         return [itemId, ...children.flatMap(c => getAllDescendants(c.id))];
@@ -81,8 +84,6 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       
       const idsToDelete = new Set(getAllDescendants(id));
       const newItems = state.items.filter(i => !idsToDelete.has(i.id));
-      
-      // If active file is deleted, clear selection
       const newActiveId = idsToDelete.has(state.activeFileId || '') ? null : state.activeFileId;
 
       return {
@@ -122,5 +123,9 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   setSearchQuery: (query) => {
     set({ searchQuery: query });
+  },
+
+  setTheme: (theme) => {
+    set({ theme });
   },
 }));

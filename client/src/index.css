@@ -60,37 +60,28 @@
   --radius: 0.5rem;
 }
 
-/* OBSIDIAN-LIKE DARK THEME (Default) */
 :root {
-  --background: 220 13% 10%; /* Very dark grey/blue */
-  --foreground: 220 10% 85%; /* Off-white text */
-
-  --card: 220 13% 14%; /* Slightly lighter panel background */
+  /* Default: Obsidian Dark */
+  --background: 220 13% 10%;
+  --foreground: 220 10% 85%;
+  --card: 220 13% 14%;
   --card-foreground: 220 10% 85%;
-
   --popover: 220 13% 12%;
   --popover-foreground: 220 10% 85%;
-
-  --primary: 265 80% 65%; /* Obsidian Purple */
+  --primary: 265 80% 65%;
   --primary-foreground: 210 40% 98%;
-
   --secondary: 220 13% 20%;
   --secondary-foreground: 220 10% 90%;
-
   --muted: 220 13% 20%;
   --muted-foreground: 220 10% 60%;
-
   --accent: 220 13% 25%;
   --accent-foreground: 220 10% 95%;
-
   --destructive: 0 62% 30%;
   --destructive-foreground: 210 40% 98%;
-
   --border: 220 13% 20%;
   --input: 220 13% 20%;
   --ring: 265 80% 65%;
-
-  --sidebar: 220 13% 10%; /* Match background for seamless look or slightly darker */
+  --sidebar: 220 13% 10%;
   --sidebar-foreground: 220 10% 70%;
   --sidebar-primary: 265 80% 65%;
   --sidebar-primary-foreground: 0 0% 100%;
@@ -98,12 +89,69 @@
   --sidebar-accent-foreground: 220 10% 90%;
   --sidebar-border: 220 13% 20%;
   --sidebar-ring: 265 80% 65%;
+}
 
-  --chart-1: 265 80% 65%;
-  --chart-2: 180 80% 50%;
-  --chart-3: 45 80% 50%;
-  --chart-4: 330 80% 60%;
-  --chart-5: 220 80% 60%;
+.theme-midnight-blue {
+  --background: 222 47% 11%;
+  --foreground: 214 32% 91%;
+  --card: 222 47% 15%;
+  --card-foreground: 214 32% 91%;
+  --popover: 222 47% 13%;
+  --popover-foreground: 214 32% 91%;
+  --primary: 199 89% 48%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 222 47% 20%;
+  --secondary-foreground: 214 32% 91%;
+  --muted: 222 47% 20%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 217 91% 60%;
+  --accent-foreground: 210 40% 98%;
+  --border: 222 47% 20%;
+  --input: 222 47% 20%;
+  --ring: 199 89% 48%;
+  --sidebar: 222 47% 8%;
+}
+
+.theme-graphite {
+  --background: 0 0% 15%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 20%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 18%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 70%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 25%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 25%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 30%;
+  --accent-foreground: 0 0% 95%;
+  --border: 0 0% 25%;
+  --input: 0 0% 25%;
+  --ring: 0 0% 70%;
+  --sidebar: 0 0% 12%;
+}
+
+.theme-light-mode {
+  --background: 0 0% 98%;
+  --foreground: 220 13% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 13% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 13% 10%;
+  --primary: 265 80% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 13% 90%;
+  --secondary-foreground: 220 13% 20%;
+  --muted: 220 13% 95%;
+  --muted-foreground: 220 13% 40%;
+  --accent: 220 13% 85%;
+  --accent-foreground: 220 13% 10%;
+  --border: 220 13% 90%;
+  --input: 220 13% 90%;
+  --ring: 265 80% 50%;
+  --sidebar: 220 13% 95%;
 }
 
 @layer base {
@@ -111,11 +159,10 @@
     @apply border-border;
   }
   body {
-    @apply font-sans antialiased bg-background text-foreground;
+    @apply font-sans antialiased bg-background text-foreground transition-colors duration-300;
   }
 }
 
-/* Custom Scrollbar for that "App" feel */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -130,7 +177,6 @@
   @apply bg-muted-foreground/50;
 }
 
-/* Tiptap Editor Styles */
 .ProseMirror {
   @apply outline-none min-h-[500px] px-8 py-4 text-lg leading-relaxed max-w-3xl mx-auto;
 }
@@ -159,7 +205,7 @@
   @apply border-l-4 border-primary pl-4 italic my-4 text-muted-foreground;
 }
 .ProseMirror code {
-  @apply font-mono bg-secondary px-1.5 py-0.5 rounded text-sm text-primary-foreground;
+  @apply font-mono bg-secondary px-1.5 py-0.5 rounded text-sm;
 }
 .ProseMirror pre {
   @apply bg-secondary p-4 rounded-lg my-4 overflow-x-auto;

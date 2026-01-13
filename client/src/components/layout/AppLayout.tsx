@@ -1,8 +1,9 @@
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { FileTree } from '@/components/sidebar/FileTree';
 import TiptapEditor from '@/components/editor/TiptapEditor';
-import { Search, Hash, ChevronRight, Minimize2, Square, X, Settings } from 'lucide-react';
-import { useFileSystem } from '@/lib/mock-fs';
+import { Search, Hash, ChevronRight, Minimize2, Square, X, Settings, Check } from 'lucide-react';
+import { useFileSystem, ThemeType } from '@/lib/mock-fs';
+import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export default function AppLayout() {
-  const { items, searchQuery, setSearchQuery, selectFile, activeFileId } = useFileSystem();
+  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme } = useFileSystem();
 
   const filteredItems = searchQuery 
     ? items.filter(i => i.type === 'file' && i.name.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -39,14 +40,16 @@ export default function AppLayout() {
 
   const breadcrumbs = getBreadcrumbs(activeFileId);
 
+  const themeClass = theme === 'obsidian-dark' ? '' : `theme-${theme}`;
+
   return (
-    <div className="h-screen w-full bg-background text-foreground overflow-hidden flex flex-col border border-sidebar-border">
+    <div className={cn("h-screen w-full bg-background text-foreground overflow-hidden flex flex-col border border-sidebar-border", themeClass)}>
       {/* Windows Title Bar */}
-      <div className="h-8 bg-[#1e1e1e] flex items-center justify-between select-none shrink-0 drag-region">
+      <div className="h-8 bg-sidebar flex items-center justify-between select-none shrink-0 drag-region">
         <div className="flex items-center h-full">
            <div className="px-3 flex items-center gap-2">
               <div className="w-4 h-4 bg-primary rounded-sm flex items-center justify-center">
-                 <div className="w-2 h-2 bg-background rotate-45" />
+                 <div className="w-2 h-2 bg-primary-foreground rotate-45" />
               </div>
               <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-tight">Obsidian</span>
            </div>
@@ -78,7 +81,7 @@ export default function AppLayout() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden bg-[#161616]">
+      <div className="flex-1 overflow-hidden">
         <ResizablePanelGroup direction="horizontal">
           <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-sidebar border-r border-sidebar-border/50">
             <div className="h-full flex flex-col">
@@ -88,7 +91,7 @@ export default function AppLayout() {
                   <input 
                     type="text" 
                     placeholder="Search..." 
-                    className="w-full bg-[#2a2a2a] border border-transparent focus:border-primary/30 rounded py-1 pl-8 pr-3 text-xs focus:outline-none transition-all"
+                    className="w-full bg-accent/30 border border-transparent focus:border-primary/30 rounded py-1 pl-8 pr-3 text-xs focus:outline-none transition-all"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -116,10 +119,10 @@ export default function AppLayout() {
               )}
 
               {/* Sidebar Bottom Actions */}
-              <div className="mt-auto p-2 border-t border-white/5 flex items-center">
+              <div className="mt-auto p-2 border-t border-sidebar-border flex items-center">
                  <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                       <button className="p-1.5 hover:bg-white/5 rounded-md text-muted-foreground hover:text-foreground transition-colors">
+                       <button className="p-1.5 hover:bg-accent/50 rounded-md text-muted-foreground hover:text-foreground transition-colors">
                           <Settings className="h-4 w-4" />
                        </button>
                     </DropdownMenuTrigger>
@@ -134,10 +137,26 @@ export default function AppLayout() {
                           </DropdownMenuSubTrigger>
                           <DropdownMenuPortal>
                              <DropdownMenuSubContent className="bg-popover/95 backdrop-blur-sm">
-                                <DropdownMenuItem>Obsidian Dark (Текущая)</DropdownMenuItem>
-                                <DropdownMenuItem>Midnight Blue</DropdownMenuItem>
-                                <DropdownMenuItem>Graphite</DropdownMenuItem>
-                                <DropdownMenuItem>Light Mode</DropdownMenuItem>
+                                <ThemeMenuItem 
+                                  label="Obsidian Dark" 
+                                  active={theme === 'obsidian-dark'} 
+                                  onClick={() => setTheme('obsidian-dark')} 
+                                />
+                                <ThemeMenuItem 
+                                  label="Midnight Blue" 
+                                  active={theme === 'midnight-blue'} 
+                                  onClick={() => setTheme('midnight-blue')} 
+                                />
+                                <ThemeMenuItem 
+                                  label="Graphite" 
+                                  active={theme === 'graphite'} 
+                                  onClick={() => setTheme('graphite')} 
+                                />
+                                <ThemeMenuItem 
+                                  label="Light Mode" 
+                                  active={theme === 'light-mode'} 
+                                  onClick={() => setTheme('light-mode')} 
+                                />
                              </DropdownMenuSubContent>
                           </DropdownMenuPortal>
                        </DropdownMenuSub>
@@ -159,7 +178,7 @@ export default function AppLayout() {
       </div>
       
       {/* Windows Status Bar */}
-      <div className="h-6 bg-[#1e1e1e] border-t border-white/5 flex items-center justify-between px-3 text-[10px] text-muted-foreground/60 select-none shrink-0">
+      <div className="h-6 bg-sidebar border-t border-sidebar-border flex items-center justify-between px-3 text-[10px] text-muted-foreground/60 select-none shrink-0">
          <div className="flex items-center gap-4">
             <span className="hover:text-foreground cursor-pointer transition-colors">Ln 1, Col 1</span>
             <span className="hover:text-foreground cursor-pointer transition-colors">{breadcrumbs.length > 0 ? (breadcrumbs[breadcrumbs.length - 1].content?.length || 0) : 0} chars</span>
@@ -170,5 +189,14 @@ export default function AppLayout() {
          </div>
       </div>
     </div>
+  );
+}
+
+function ThemeMenuItem({ label, active, onClick }: { label: string, active: boolean, onClick: () => void }) {
+  return (
+    <DropdownMenuItem onClick={onClick} className="flex items-center justify-between">
+      {label}
+      {active && <Check className="h-3 w-3 text-primary" />}
+    </DropdownMenuItem>
   );
 }
