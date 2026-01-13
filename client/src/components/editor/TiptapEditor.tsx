@@ -48,6 +48,7 @@ declare module '@tiptap/core' {
   }
 }
 
+// Custom FontSize extension
 const FontSize = Extension.create({
   name: 'fontSize',
   addOptions() {
