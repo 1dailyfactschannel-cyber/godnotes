@@ -55,7 +55,7 @@ export default function AppLayout() {
            </div>
            
            <div className="flex items-center text-[11px] text-muted-foreground/60 ml-2 border-l border-white/5 pl-4">
-              <span className="hover:text-foreground transition-colors cursor-pointer">Vault</span>
+              <span className="hover:text-foreground transition-colors cursor-pointer">Хранилище</span>
               {breadcrumbs.map((item, index) => (
                  <div key={item.id} className="flex items-center">
                     <ChevronRight className="h-3 w-3 mx-1 opacity-40" />
@@ -90,7 +90,7 @@ export default function AppLayout() {
                   <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
                   <input 
                     type="text" 
-                    placeholder="Search..." 
+                    placeholder="Поиск..." 
                     className="w-full bg-accent/30 border border-transparent focus:border-primary/30 rounded py-1 pl-8 pr-3 text-xs focus:outline-none transition-all"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -100,19 +100,24 @@ export default function AppLayout() {
 
               {searchQuery ? (
                  <div className="flex-1 overflow-y-auto p-2">
-                    {filteredItems.map(item => (
-                      <div 
-                        key={item.id}
-                        className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-white/5 cursor-pointer text-xs group"
-                        onClick={() => {
-                          selectFile(item.id);
-                          setSearchQuery('');
-                        }}
-                      >
-                        <Hash className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
-                        <span className="truncate">{item.name}</span>
-                      </div>
-                    ))}
+                    <div className="text-[10px] font-bold text-muted-foreground px-2 mb-2 uppercase tracking-widest">Результаты поиска</div>
+                    {filteredItems.length === 0 ? (
+                      <div className="text-xs text-muted-foreground/50 px-2 py-4 text-center italic">Ничего не найдено</div>
+                    ) : (
+                      filteredItems.map(item => (
+                        <div 
+                          key={item.id}
+                          className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-white/5 cursor-pointer text-xs group"
+                          onClick={() => {
+                            selectFile(item.id);
+                            setSearchQuery('');
+                          }}
+                        >
+                          <Hash className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
+                          <span className="truncate">{item.name}</span>
+                        </div>
+                      ))
+                    )}
                  </div>
               ) : (
                 <FileTree />
@@ -122,7 +127,7 @@ export default function AppLayout() {
               <div className="mt-auto p-2 border-t border-sidebar-border flex items-center">
                  <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                       <button className="p-1.5 hover:bg-accent/50 rounded-md text-muted-foreground hover:text-foreground transition-colors">
+                       <button className="p-1.5 hover:bg-accent/50 rounded-md text-muted-foreground hover:text-foreground transition-colors" title="Настройки">
                           <Settings className="h-4 w-4" />
                        </button>
                     </DropdownMenuTrigger>
@@ -138,22 +143,22 @@ export default function AppLayout() {
                           <DropdownMenuPortal>
                              <DropdownMenuSubContent className="bg-popover/95 backdrop-blur-sm">
                                 <ThemeMenuItem 
-                                  label="Obsidian Dark" 
+                                  label="Тёмная (Obsidian)" 
                                   active={theme === 'obsidian-dark'} 
                                   onClick={() => setTheme('obsidian-dark')} 
                                 />
                                 <ThemeMenuItem 
-                                  label="Midnight Blue" 
+                                  label="Полночная синяя" 
                                   active={theme === 'midnight-blue'} 
                                   onClick={() => setTheme('midnight-blue')} 
                                 />
                                 <ThemeMenuItem 
-                                  label="Graphite" 
+                                  label="Графитовая" 
                                   active={theme === 'graphite'} 
                                   onClick={() => setTheme('graphite')} 
                                 />
                                 <ThemeMenuItem 
-                                  label="Light Mode" 
+                                  label="Светлая тема" 
                                   active={theme === 'light-mode'} 
                                   onClick={() => setTheme('light-mode')} 
                                 />
@@ -162,7 +167,7 @@ export default function AppLayout() {
                        </DropdownMenuSub>
                        <DropdownMenuItem>Плагины</DropdownMenuItem>
                        <DropdownMenuSeparator />
-                       <DropdownMenuItem className="text-muted-foreground/50">Версия 1.0.0</DropdownMenuItem>
+                       <DropdownMenuItem className="text-muted-foreground/50 text-[10px]">Версия 1.0.0</DropdownMenuItem>
                     </DropdownMenuContent>
                  </DropdownMenu>
               </div>
@@ -180,11 +185,11 @@ export default function AppLayout() {
       {/* Windows Status Bar */}
       <div className="h-6 bg-sidebar border-t border-sidebar-border flex items-center justify-between px-3 text-[10px] text-muted-foreground/60 select-none shrink-0">
          <div className="flex items-center gap-4">
-            <span className="hover:text-foreground cursor-pointer transition-colors">Ln 1, Col 1</span>
-            <span className="hover:text-foreground cursor-pointer transition-colors">{breadcrumbs.length > 0 ? (breadcrumbs[breadcrumbs.length - 1].content?.length || 0) : 0} chars</span>
+            <span className="hover:text-foreground cursor-pointer transition-colors">Стр 1, Кол 1</span>
+            <span className="hover:text-foreground cursor-pointer transition-colors">{breadcrumbs.length > 0 ? (breadcrumbs[breadcrumbs.length - 1].content?.length || 0) : 0} симв.</span>
          </div>
          <div className="flex items-center gap-4 uppercase tracking-tighter">
-           <span className="hover:text-foreground cursor-pointer">Spaces: 2</span>
+           <span className="hover:text-foreground cursor-pointer">Пробелы: 2</span>
            <span className="hover:text-foreground cursor-pointer">UTF-8</span>
          </div>
       </div>

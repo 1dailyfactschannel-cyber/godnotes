@@ -31,12 +31,12 @@ export function FileTree() {
   return (
     <div className="h-full flex flex-col select-none">
       <div className="p-2 flex items-center justify-between group">
-        <span className="text-xs font-bold text-muted-foreground px-2 uppercase tracking-widest">Files</span>
+        <span className="text-[10px] font-bold text-muted-foreground px-2 uppercase tracking-widest">Файлы</span>
         <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => addFile(null)} title="New File">
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => addFile(null)} title="Новая заметка">
             <FilePlus className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => addFolder(null)} title="New Folder">
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => addFolder(null)} title="Новая папка">
             <FolderPlus className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -120,16 +120,16 @@ function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) 
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48 bg-popover/95 backdrop-blur-sm border-sidebar-border shadow-xl">
               <DropdownMenuItem onClick={() => addFile(item.id)}>
-                <FilePlus className="mr-2 h-4 w-4" /> New File
+                <FilePlus className="mr-2 h-4 w-4" /> Новый файл
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => addFolder(item.id)}>
-                <FolderPlus className="mr-2 h-4 w-4" /> New Folder
+                <FolderPlus className="mr-2 h-4 w-4" /> Новая папка
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setIsEditing(true)}>
-                <Edit2 className="mr-2 h-4 w-4" /> Rename
+                <Edit2 className="mr-2 h-4 w-4" /> Переименовать
               </DropdownMenuItem>
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => deleteItem(item.id)}>
-                <Trash2 className="mr-2 h-4 w-4" /> Delete
+                <Trash2 className="mr-2 h-4 w-4" /> Удалить
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -142,10 +142,10 @@ function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) 
             ))}
             {children.length === 0 && (
               <div 
-                className="text-xs text-muted-foreground/50 py-0.5 italic"
+                className="text-[10px] text-muted-foreground/50 py-0.5 italic"
                 style={{ paddingLeft: `${(level + 1) * 12 + 22}px` }}
               >
-                Empty
+                Пусто
               </div>
             )}
           </div>
@@ -202,10 +202,10 @@ function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) 
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48 bg-popover/95 backdrop-blur-sm border-sidebar-border shadow-xl">
            <DropdownMenuItem onClick={() => setIsEditing(true)}>
-            <Edit2 className="mr-2 h-4 w-4" /> Rename
+            <Edit2 className="mr-2 h-4 w-4" /> Переименовать
           </DropdownMenuItem>
           <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => deleteItem(item.id)}>
-            <Trash2 className="mr-2 h-4 w-4" /> Delete
+            <Trash2 className="mr-2 h-4 w-4" /> Удалить
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -35,11 +35,11 @@ interface FileSystemState {
 }
 
 const initialItems: FileSystemItem[] = [
-  { id: '1', name: 'Personal', type: 'folder', parentId: null, createdAt: Date.now() },
-  { id: '2', name: 'Work', type: 'folder', parentId: null, createdAt: Date.now() },
-  { id: '3', name: 'Journal', type: 'file', parentId: '1', content: '<h1>My Journal</h1><p>Today was a good day. I started working on a new project.</p>', createdAt: Date.now() },
-  { id: '4', name: 'Project Ideas', type: 'file', parentId: '2', content: '<h1>Project Ideas</h1><ul><li>Build a clone of Obsidian</li><li>Learn Rust</li><li>Go for a run</li></ul>', createdAt: Date.now() },
-  { id: '5', name: 'Welcome', type: 'file', parentId: null, content: '<h1>Welcome to Your Notes</h1><p>This is a simple clone of Obsidian. You can create folders, files, and write in Markdown.</p><h2>Features</h2><ul><li>Full text editing</li><li>Folders and nested files</li><li>Dark mode by default</li><li>Fast search</li></ul>', createdAt: Date.now() },
+  { id: '1', name: 'Личное', type: 'folder', parentId: null, createdAt: Date.now() },
+  { id: '2', name: 'Работа', type: 'folder', parentId: null, createdAt: Date.now() },
+  { id: '3', name: 'Мой дневник', type: 'file', parentId: '1', content: '<h1>Мой дневник</h1><p>Сегодня был отличный день. Я начал работу над новым проектом.</p>', createdAt: Date.now() },
+  { id: '4', name: 'Идеи проектов', type: 'file', parentId: '2', content: '<h1>Идеи проектов</h1><ul><li>Собрать клон Obsidian</li><li>Изучить Rust</li><li>Пойти на пробежку</li></ul>', createdAt: Date.now() },
+  { id: '5', name: 'Добро пожаловать', type: 'file', parentId: null, content: '<h1>Добро пожаловать в заметки</h1><p>Это простой клон Obsidian. Вы можете создавать папки, файлы и писать в Markdown.</p><h2>Возможности</h2><ul><li>Полноценный текстовый редактор</li><li>Папки и вложенные файлы</li><li>Темная тема по умолчанию</li><li>Быстрый поиск</li></ul>', createdAt: Date.now() },
 ];
 
 export const useFileSystem = create<FileSystemState>((set, get) => ({
@@ -50,7 +50,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   theme: 'obsidian-dark',
   isAuthenticated: false,
 
-  addFile: (parentId, name = 'Untitled Note') => {
+  addFile: (parentId, name = 'Новая заметка') => {
     const newFile: FileSystemItem = {
       id: uuidv4(),
       name,
@@ -65,7 +65,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }));
   },
 
-  addFolder: (parentId, name = 'New Folder') => {
+  addFolder: (parentId, name = 'Новая папка') => {
     const newFolder: FileSystemItem = {
       id: uuidv4(),
       name,
