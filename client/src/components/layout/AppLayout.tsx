@@ -245,26 +245,51 @@ export default function AppLayout() {
                            <DropdownMenuItem className="text-muted-foreground/50 text-[10px]">Версия 1.0.0</DropdownMenuItem>
                          </DropdownMenuContent>
                          <DialogContent>
-                           <DialogHeader>
-                             <DialogTitle>Общие настройки</DialogTitle>
-                             <DialogDescription>
-                               Настройте приложение под себя.
-                             </DialogDescription>
-                           </DialogHeader>
-                           <div className="mt-4 space-y-4 text-sm">
-                             <div className="flex items-center justify-between">
-                               <span>Автофокус на последней заметке</span>
-                               <Switch disabled />
-                             </div>
-                             <div className="flex items-center justify-between">
-                               <span>Открывать последнее состояние дерева папок</span>
-                               <Switch disabled />
-                             </div>
-                             <div className="flex items-center justify-between">
-                               <span>Размер шрифта редактора по умолчанию</span>
-                               <span className="text-xs text-muted-foreground">Настраивается в панели редактора</span>
-                             </div>
-                           </div>
+                          <DialogHeader>
+                            <DialogTitle>Общие настройки</DialogTitle>
+                            <DialogDescription>
+                              Настройте приложение под себя.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="mt-4 space-y-4 text-sm">
+                            <div className="flex items-center justify-between">
+                              <span>Автофокус на последней заметке</span>
+                              <Switch disabled />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Открывать последнее состояние дерева папок</span>
+                              <Switch disabled />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Размер шрифта редактора по умолчанию</span>
+                              <span className="text-xs text-muted-foreground">Настраивается в панели редактора</span>
+                            </div>
+                            <div className="pt-3 border-t border-border/40">
+                              <div className="text-xs font-semibold mb-2">Горячие клавиши редактора</div>
+                              <div className="space-y-1 text-xs text-muted-foreground">
+                                <div className="flex items-center justify-between">
+                                  <span>Жирный</span>
+                                  <span>Ctrl+B</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Курсив</span>
+                                  <span>Ctrl+I</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Ссылка</span>
+                                  <span>Ctrl+K</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Нумерованный список</span>
+                                  <span>Ctrl+Shift+7</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Меню быстрых вставок</span>
+                                  <span>/</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                          </DialogContent>
                        </Dialog>
                      </DropdownMenu>

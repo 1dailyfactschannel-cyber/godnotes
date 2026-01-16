@@ -110,6 +110,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [isSlashMenuOpen, setIsSlashMenuOpen] = useState(false);
+  const [slashMenuPosition, setSlashMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
 
   const editor = useEditor({
@@ -155,6 +156,11 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       },
       handleTextInput(view, from, to, text) {
         if (text === '/') {
+          const coords = view.coordsAtPos(from);
+          setSlashMenuPosition({
+            top: coords.bottom,
+            left: coords.left,
+          });
           setIsSlashMenuOpen(true);
         }
         return false;
@@ -162,6 +168,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       handleKeyDown(view, event) {
         if (event.key === 'Escape' && isSlashMenuOpen) {
           setIsSlashMenuOpen(false);
+          setSlashMenuPosition(null);
           return true;
         }
         const isMod = event.metaKey || event.ctrlKey;
@@ -231,6 +238,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       if (!slashMenuRef.current) return;
       if (!slashMenuRef.current.contains(event.target as Node)) {
         setIsSlashMenuOpen(false);
+        setSlashMenuPosition(null);
       }
     };
     if (isSlashMenuOpen) {
@@ -244,6 +252,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
   const applySlashCommand = (command: string) => {
     if (!editor) return;
     setIsSlashMenuOpen(false);
+    setSlashMenuPosition(null);
     const chain = editor.chain().focus();
     if (command === 'heading1') {
       chain.toggleHeading({ level: 1 }).run();
@@ -843,8 +852,16 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             )}
             placeholder="Без названия"
           />
-          {isSlashMenuOpen && !isReadOnly && (
-            <div className="px-8 mb-3" ref={slashMenuRef}>
+          {isSlashMenuOpen && !isReadOnly && slashMenuPosition && (
+            <div
+              ref={slashMenuRef}
+              className="z-20"
+              style={{
+                position: 'fixed',
+                top: slashMenuPosition.top,
+                left: slashMenuPosition.left,
+              }}
+            >
               <div className="inline-flex flex-col rounded-md border bg-popover shadow-md text-xs">
                 <button
                   className="px-3 py-1.5 text-left hover:bg-accent"
