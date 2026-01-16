@@ -15,16 +15,35 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuPortal,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 import { useState } from 'react';
+import { useLocation } from "wouter";
 
 export default function AppLayout() {
-  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme } = useFileSystem();
+  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders } = useFileSystem();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [, setLocation] = useLocation();
+  const [searchHighlight, setSearchHighlight] = useState('');
 
   const filteredItems = searchQuery 
-    ? items.filter(i => i.type === 'file' && i.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    ? items.filter(i => {
+        if (i.type !== 'file') return false;
+        const query = searchQuery.toLowerCase();
+        const nameMatch = i.name.toLowerCase().includes(query);
+        const contentMatch = (i.content || '').toLowerCase().includes(query);
+        return nameMatch || contentMatch;
+      })
     : [];
 
   const getBreadcrumbs = (fileId: string | null) => {
@@ -70,11 +89,32 @@ export default function AppLayout() {
               >
                 <Sidebar className="h-3 w-3" />
               </button>
-              <span className="hover:text-foreground transition-colors cursor-pointer">Хранилище</span>
+              <span className="hover:text-foreground transition-colors cursor-pointer no-drag">Хранилище</span>
               {breadcrumbs.map((item, index) => (
                  <div key={item.id} className="flex items-center">
                     <ChevronRight className="h-3 w-3 mx-1 opacity-40" />
-                    <span className={index === breadcrumbs.length - 1 ? "text-muted-foreground" : "hover:text-foreground transition-colors cursor-pointer"}>
+                    <span
+                      className={
+                        index === breadcrumbs.length - 1
+                          ? "text-muted-foreground no-drag"
+                          : "hover:text-foreground transition-colors cursor-pointer no-drag"
+                      }
+                      onClick={() => {
+                        if (index === breadcrumbs.length - 1) {
+                          if (item.type === 'file') {
+                            selectFile(item.id);
+                          }
+                          return;
+                        }
+                        if (item.type === 'folder') {
+                          if (!expandedFolders.has(item.id)) {
+                            toggleFolder(item.id);
+                          }
+                        } else {
+                          selectFile(item.id);
+                        }
+                      }}
+                    >
                        {item.name}
                     </span>
                  </div>
@@ -126,99 +166,107 @@ export default function AppLayout() {
                   </div>
 
                   <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    {searchQuery ? (
-                       <div className="p-2">
-                          <div className="text-[10px] font-bold text-muted-foreground px-2 mb-2 uppercase tracking-widest">Результаты поиска</div>
-                          {filteredItems.length === 0 ? (
-                            <div className="text-xs text-muted-foreground/50 px-2 py-4 text-center italic">Ничего не найдено</div>
-                          ) : (
-                            filteredItems.map(item => (
-                              <div 
-                                key={item.id}
-                                className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-white/5 cursor-pointer text-xs group"
-                                onClick={() => {
-                                  selectFile(item.id);
-                                  setSearchQuery('');
-                                }}
-                              >
-                                <Hash className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
-                                <span className="truncate">{item.name}</span>
-                              </div>
-                            ))
-                          )}
-                       </div>
-                    ) : (
-                      <>
-                        <div className="px-2 py-2">
-                          <div className="text-[10px] font-bold text-muted-foreground px-2 mb-2 uppercase tracking-widest flex items-center gap-2">
-                            <Clock className="h-3 w-3" /> Недавние
-                          </div>
-                          {recentFiles.map(file => (
+                    {searchQuery && (
+                      <div className="p-2">
+                        <div className="text-[10px] font-bold text-muted-foreground px-2 mb-2 uppercase tracking-widest">Результаты поиска</div>
+                        {filteredItems.length === 0 ? (
+                          <div className="text-xs text-muted-foreground/50 px-2 py-4 text-center italic">Ничего не найдено</div>
+                        ) : (
+                          filteredItems.map(item => (
                             <div 
-                              key={file.id}
-                              className={cn(
-                                "flex items-center gap-2 py-1 px-2 rounded-sm cursor-pointer text-xs mb-0.5 transition-all",
-                                activeFileId === file.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/50 hover:text-sidebar-foreground"
-                              )}
-                              onClick={() => selectFile(file.id)}
+                              key={item.id}
+                              className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-white/5 cursor-pointer text-xs group"
+                              onClick={() => {
+                                setSearchHighlight(searchQuery);
+                                selectFile(item.id);
+                                setSearchQuery('');
+                              }}
                             >
-                              <span className="truncate flex-1">{file.name}</span>
-                              <span className="text-[9px] opacity-40">{format(file.createdAt, 'HH:mm')}</span>
+                              <Hash className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
+                              <span className="truncate">{item.name}</span>
                             </div>
-                          ))}
-                        </div>
-                        <DropdownMenuSeparator className="bg-white/5 mx-2 my-2" />
-                        <FileTree />
-                      </>
+                          ))
+                        )}
+                      </div>
                     )}
+                    <FileTree />
                   </div>
 
-                  {/* Sidebar Bottom Actions */}
                   <div className="mt-auto p-2 border-t border-sidebar-border flex items-center justify-between">
                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                       <Dialog>
+                         <DropdownMenuTrigger asChild>
                            <button className="p-1.5 hover:bg-accent/50 rounded-md text-muted-foreground hover:text-foreground transition-colors" title="Настройки">
-                              <Settings className="h-4 w-4" />
+                             <Settings className="h-4 w-4" />
                            </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent side="right" align="end" className="w-56 bg-popover/95 backdrop-blur-sm">
-                           <DropdownMenuItem>
-                              Общие настройки
+                         </DropdownMenuTrigger>
+                         <DropdownMenuContent side="right" align="end" className="w-56 bg-popover/95 backdrop-blur-sm">
+                           <DropdownMenuItem onClick={() => setLocation('/profile')}>
+                             Профиль
                            </DropdownMenuItem>
                            <DropdownMenuSeparator />
+                           <DialogTrigger asChild>
+                             <DropdownMenuItem>
+                               Общие настройки
+                             </DropdownMenuItem>
+                           </DialogTrigger>
+                           <DropdownMenuSeparator />
                            <DropdownMenuSub>
-                              <DropdownMenuSubTrigger>
-                                 Выбор темы
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuPortal>
-                                 <DropdownMenuSubContent className="bg-popover/95 backdrop-blur-sm">
-                                    <ThemeMenuItem 
-                                      label="Тёмная (Obsidian)" 
-                                      active={theme === 'obsidian-dark'} 
-                                      onClick={() => setTheme('obsidian-dark')} 
-                                    />
-                                    <ThemeMenuItem 
-                                      label="Полночная синяя" 
-                                      active={theme === 'midnight-blue'} 
-                                      onClick={() => setTheme('midnight-blue')} 
-                                    />
-                                    <ThemeMenuItem 
-                                      label="Графитовая" 
-                                      active={theme === 'graphite'} 
-                                      onClick={() => setTheme('graphite')} 
-                                    />
-                                    <ThemeMenuItem 
-                                      label="Светлая тема" 
-                                      active={theme === 'light-mode'} 
-                                      onClick={() => setTheme('light-mode')} 
-                                    />
-                                 </DropdownMenuSubContent>
-                              </DropdownMenuPortal>
+                             <DropdownMenuSubTrigger>
+                               Выбор темы
+                             </DropdownMenuSubTrigger>
+                             <DropdownMenuPortal>
+                               <DropdownMenuSubContent className="bg-popover/95 backdrop-blur-sm">
+                                 <ThemeMenuItem 
+                                   label="Тёмная (Obsidian)" 
+                                   active={theme === 'obsidian-dark'} 
+                                   onClick={() => setTheme('obsidian-dark')} 
+                                 />
+                                 <ThemeMenuItem 
+                                   label="Полночная синяя" 
+                                   active={theme === 'midnight-blue'} 
+                                   onClick={() => setTheme('midnight-blue')} 
+                                 />
+                                 <ThemeMenuItem 
+                                   label="Графитовая" 
+                                   active={theme === 'graphite'} 
+                                   onClick={() => setTheme('graphite')} 
+                                 />
+                                 <ThemeMenuItem 
+                                   label="Светлая тема" 
+                                   active={theme === 'light-mode'} 
+                                   onClick={() => setTheme('light-mode')} 
+                                 />
+                               </DropdownMenuSubContent>
+                             </DropdownMenuPortal>
                            </DropdownMenuSub>
                            <DropdownMenuItem>Плагины</DropdownMenuItem>
                            <DropdownMenuSeparator />
                            <DropdownMenuItem className="text-muted-foreground/50 text-[10px]">Версия 1.0.0</DropdownMenuItem>
-                        </DropdownMenuContent>
+                         </DropdownMenuContent>
+                         <DialogContent>
+                           <DialogHeader>
+                             <DialogTitle>Общие настройки</DialogTitle>
+                             <DialogDescription>
+                               Настройте приложение под себя.
+                             </DialogDescription>
+                           </DialogHeader>
+                           <div className="mt-4 space-y-4 text-sm">
+                             <div className="flex items-center justify-between">
+                               <span>Автофокус на последней заметке</span>
+                               <Switch disabled />
+                             </div>
+                             <div className="flex items-center justify-between">
+                               <span>Открывать последнее состояние дерева папок</span>
+                               <Switch disabled />
+                             </div>
+                             <div className="flex items-center justify-between">
+                               <span>Размер шрифта редактора по умолчанию</span>
+                               <span className="text-xs text-muted-foreground">Настраивается в панели редактора</span>
+                             </div>
+                           </div>
+                         </DialogContent>
+                       </Dialog>
                      </DropdownMenu>
                      
                      <div className="flex items-center gap-1">
@@ -237,7 +285,7 @@ export default function AppLayout() {
           )}
           
           <ResizablePanel defaultSize={80}>
-            <TiptapEditor isReadOnly={isReadOnly} />
+            <TiptapEditor isReadOnly={isReadOnly} searchTerm={searchHighlight} />
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>

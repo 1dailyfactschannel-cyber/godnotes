@@ -7,18 +7,22 @@ import { Link } from '@tiptap/extension-link';
 import { Image } from '@tiptap/extension-image';
 import { Youtube } from '@tiptap/extension-youtube';
 import { Extension } from '@tiptap/core';
-import { useEffect, useCallback } from 'react';
+import TaskList from '@tiptap/extension-task-list';
+import TaskItem from '@tiptap/extension-task-item';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { useFileSystem } from '@/lib/mock-fs';
+import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 import { 
-  Bold, 
-  Italic, 
-  List, 
-  ListOrdered, 
-  Quote, 
-  Code, 
-  Heading1, 
-  Heading2, 
-  Undo, 
+  Bold,
+  Italic,
+  List,
+  ListOrdered,
+  Quote,
+  Code,
+  Heading1,
+  Heading2,
+  Undo,
   Redo,
   Download,
   Type,
@@ -40,6 +44,8 @@ import {
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     fontSize: {
@@ -56,28 +62,32 @@ const FontSize = Extension.create({
       types: ['textStyle'],
     };
   },
-  addAttributes() {
-    return {
-      fontSize: {
-        default: null,
-        parseHTML: element => element.style.fontSize?.replace(/['"]+/g, ''),
-        renderHTML: attributes => {
-          if (!attributes.fontSize) {
-            return {};
-          }
-          return {
-            style: `font-size: ${attributes.fontSize}`,
-          };
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['textStyle'],
+        attributes: {
+          fontSize: {
+            default: null,
+            parseHTML: (element: HTMLElement) =>
+              element.style.fontSize?.replace(/['"]+/g, '') ?? null,
+            renderHTML: (attributes: Record<string, any>) => {
+              if (!attributes.fontSize) {
+                return {};
+              }
+              return {
+                style: `font-size: ${attributes.fontSize}`,
+              };
+            },
+          },
         },
       },
-    };
+    ];
   },
   addCommands() {
     return {
       setFontSize: (fontSize: string) => ({ chain }) => {
-        return chain()
-          .setMark('textStyle', { fontSize })
-          .run();
+        return chain().setMark('textStyle', { fontSize }).run();
       },
       unsetFontSize: () => ({ chain }) => {
         return chain()
@@ -89,16 +99,36 @@ const FontSize = Extension.create({
   },
 });
 
-export default function TiptapEditor({ isReadOnly = false }: { isReadOnly?: boolean }) {
+export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { isReadOnly?: boolean; searchTerm?: string }) {
   const { items, activeFileId, updateFileContent } = useFileSystem();
   const activeFile = items.find(i => i.id === activeFileId);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const [isLinkEditing, setIsLinkEditing] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const linkInputRef = useRef<HTMLInputElement | null>(null);
+  const dropZoneRef = useRef<HTMLDivElement | null>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [isSlashMenuOpen, setIsSlashMenuOpen] = useState(false);
+  const slashMenuRef = useRef<HTMLDivElement | null>(null);
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        // На некоторых версиях StarterKit уже включает link,
+        // поэтому явно отключаем его, чтобы не было дубля.
+        link: false as any,
+      }),
       Typography,
       TextStyle,
       FontSize,
+      TaskList,
+      TaskItem.configure({
+        nested: true,
+        HTMLAttributes: {
+          class: 'flex items-center gap-2 my-1',
+        },
+      }),
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
@@ -123,6 +153,45 @@ export default function TiptapEditor({ isReadOnly = false }: { isReadOnly?: bool
       attributes: {
         class: 'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[calc(100vh-250px)] px-8 py-4 text-lg leading-relaxed',
       },
+      handleTextInput(view, from, to, text) {
+        if (text === '/') {
+          setIsSlashMenuOpen(true);
+        }
+        return false;
+      },
+      handleKeyDown(view, event) {
+        if (event.key === 'Escape' && isSlashMenuOpen) {
+          setIsSlashMenuOpen(false);
+          return true;
+        }
+        const isMod = event.metaKey || event.ctrlKey;
+        if (isMod && event.key.toLowerCase() === 'b') {
+          view.state.tr.setMeta('shortcut', true);
+          editor?.chain().focus().toggleBold().run();
+          event.preventDefault();
+          return true;
+        }
+        if (isMod && event.key.toLowerCase() === 'i') {
+          editor?.chain().focus().toggleItalic().run();
+          event.preventDefault();
+          return true;
+        }
+        if (isMod && event.key.toLowerCase() === 'k') {
+          if (editor?.isActive('link')) {
+            editor?.chain().focus().extendMarkRange('link').unsetLink().run();
+          } else {
+            setIsLinkEditing(true);
+          }
+          event.preventDefault();
+          return true;
+        }
+        if (isMod && event.shiftKey && event.key === '7') {
+          editor?.chain().focus().toggleOrderedList().run();
+          event.preventDefault();
+          return true;
+        }
+        return false;
+      },
     },
     content: activeFile?.content || '',
     onUpdate: ({ editor }) => {
@@ -132,6 +201,230 @@ export default function TiptapEditor({ isReadOnly = false }: { isReadOnly?: bool
     },
     editable: !isReadOnly,
   });
+
+  const embedImageInline = useCallback(
+    (file: File) => {
+      if (!editor) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result === "string") {
+          editor.chain().focus().setImage({ src: result }).run();
+        }
+      };
+      reader.readAsDataURL(file);
+    },
+    [editor],
+  );
+
+  useEffect(() => {
+    if (!editor || !searchTerm) return;
+    const win: any = window;
+    if (typeof win.find === 'function') {
+      editor.commands.focus('start');
+      win.find(searchTerm, false, false, true, false, false, false);
+    }
+  }, [editor, searchTerm, activeFileId]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!slashMenuRef.current) return;
+      if (!slashMenuRef.current.contains(event.target as Node)) {
+        setIsSlashMenuOpen(false);
+      }
+    };
+    if (isSlashMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isSlashMenuOpen]);
+
+  const applySlashCommand = (command: string) => {
+    if (!editor) return;
+    setIsSlashMenuOpen(false);
+    const chain = editor.chain().focus();
+    if (command === 'heading1') {
+      chain.toggleHeading({ level: 1 }).run();
+      return;
+    }
+    if (command === 'heading2') {
+      chain.toggleHeading({ level: 2 }).run();
+      return;
+    }
+    if (command === 'bulletList') {
+      chain.toggleBulletList().run();
+      return;
+    }
+    if (command === 'orderedList') {
+      chain.toggleOrderedList().run();
+      return;
+    }
+    if (command === 'blockquote') {
+      chain.toggleBlockquote().run();
+      return;
+    }
+    if (command === 'codeBlock') {
+      chain.toggleCodeBlock().run();
+      return;
+    }
+    if (command === 'todo') {
+      chain.toggleTaskList().run();
+      return;
+    }
+    if (command === 'divider') {
+      chain.setHorizontalRule().run();
+      return;
+    }
+    if (command === 'image') {
+      addImage();
+      return;
+    }
+  };
+
+  useEffect(() => {
+    if (!editor || !dropZoneRef.current) return;
+
+    const handleDragOver = (event: DragEvent) => {
+      if (!event.dataTransfer) return;
+      const hasFiles = Array.from(event.dataTransfer.items).some(
+        (item) => item.kind === 'file' && item.type.startsWith('image/')
+      );
+      if (!hasFiles) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      setIsDraggingOver(true);
+    };
+
+    const handleDragLeave = (event: DragEvent) => {
+      if (!dropZoneRef.current) return;
+      if (!dropZoneRef.current.contains(event.relatedTarget as Node)) {
+        setIsDraggingOver(false);
+      }
+    };
+
+    const handleDrop = async (event: DragEvent) => {
+      if (!event.dataTransfer) return;
+      const files = Array.from(event.dataTransfer.files).filter((file) =>
+        file.type.startsWith('image/')
+      );
+      if (files.length === 0) {
+        setIsDraggingOver(false);
+        return;
+      }
+      event.preventDefault();
+      setIsDraggingOver(false);
+
+      for (const file of files) {
+        if (file.size > MAX_IMAGE_SIZE) {
+          toast({
+            variant: "destructive",
+            title: "Слишком большой файл",
+            description: "Максимальный размер изображения 20 МБ",
+          });
+          console.error("Image upload skipped: file too large", {
+            name: file.name,
+            size: file.size,
+          });
+          continue;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        console.log("Starting image upload", {
+          name: file.name,
+          size: file.size,
+        });
+
+        await new Promise<void>((resolve) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/uploads');
+          xhr.withCredentials = true;
+
+          xhr.upload.onprogress = (progressEvent) => {
+            if (progressEvent.lengthComputable) {
+              const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+              setUploadProgress(percent);
+            }
+          };
+
+          xhr.onload = () => {
+            console.log("Image upload response", {
+              status: xhr.status,
+              responseText: xhr.responseText,
+            });
+
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const data = JSON.parse(xhr.responseText || '{}');
+                if (data.url) {
+                  editor.chain().focus().setImage({ src: data.url }).run();
+                } else {
+                  console.error("Image upload: no url in response", data);
+                  embedImageInline(file);
+                }
+              } catch (e) {
+                console.error("Image upload: failed to parse JSON", e, xhr.responseText);
+                embedImageInline(file);
+              }
+            } else {
+              try {
+                const data = JSON.parse(xhr.responseText || '{}');
+                const message = typeof data.message === 'string'
+                  ? data.message
+                  : "Не удалось загрузить изображение";
+                console.error("Image upload failed", {
+                  status: xhr.status,
+                  data,
+                });
+                toast({
+                  variant: "destructive",
+                  title: "Ошибка загрузки",
+                  description: message,
+                });
+                embedImageInline(file);
+              } catch (e) {
+                console.error("Image upload failed, response parse error", e, xhr.responseText);
+                embedImageInline(file);
+              }
+            }
+            setUploadProgress(null);
+            resolve();
+          };
+
+          xhr.onerror = () => {
+            console.error("Image upload network error", {
+              status: xhr.status,
+            });
+            toast({
+              variant: "destructive",
+              title: "Ошибка сети",
+              description: "Не удалось загрузить изображение",
+            });
+            embedImageInline(file);
+            setUploadProgress(null);
+            resolve();
+          };
+
+          setUploadProgress(0);
+          xhr.send(formData);
+        });
+      }
+    };
+
+    const element = dropZoneRef.current;
+    element.addEventListener('dragover', handleDragOver);
+    element.addEventListener('dragleave', handleDragLeave);
+    element.addEventListener('drop', handleDrop);
+
+    return () => {
+      element.removeEventListener('dragover', handleDragOver);
+      element.removeEventListener('dragleave', handleDragLeave);
+      element.removeEventListener('drop', handleDrop);
+    };
+  }, [editor]);
 
   useEffect(() => {
     if (editor) {
@@ -147,21 +440,36 @@ export default function TiptapEditor({ isReadOnly = false }: { isReadOnly?: bool
     }
   }, [activeFileId, editor, activeFile]);
 
-  const setLink = useCallback(() => {
-    const previousUrl = editor?.getAttributes('link').href;
-    const url = window.prompt('URL', previousUrl);
-
-    if (url === null) {
-      return;
+  useEffect(() => {
+    if (!editor || !activeFileId || isReadOnly) return;
+    const { lastCreatedFileId } = useFileSystem.getState();
+    if (lastCreatedFileId === activeFileId) {
+      if (titleInputRef.current) {
+        titleInputRef.current.focus();
+        titleInputRef.current.select();
+      }
+      useFileSystem.setState({ lastCreatedFileId: null });
+    } else {
+      editor.commands.focus('end');
     }
+  }, [editor, activeFileId, isReadOnly]);
 
-    if (url === '') {
-      editor?.chain().focus().extendMarkRange('link').unsetLink().run();
-      return;
+  const applyLink = useCallback(() => {
+    if (!editor) return;
+    const url = linkUrl.trim();
+    if (!url) {
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    } else {
+      editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
     }
+    setIsLinkEditing(false);
+    setLinkUrl('');
+  }, [editor, linkUrl]);
 
-    editor?.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
-  }, [editor]);
+  const cancelLinkEditing = useCallback(() => {
+    setIsLinkEditing(false);
+    setLinkUrl('');
+  }, []);
 
   const addImage = useCallback(() => {
     const url = window.prompt('URL изображения');
@@ -195,12 +503,76 @@ export default function TiptapEditor({ isReadOnly = false }: { isReadOnly?: bool
     const opt = {
       margin:       10,
       filename:     `${activeFile.name}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
+      image:        { type: 'jpeg' as const, quality: 0.98 },
       html2canvas:  { scale: 2 },
       jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
+    } as const;
 
     html2pdf().set(opt).from(element).save();
+  };
+
+  const exportToMarkdown = () => {
+    if (!activeFile) return;
+    const container = document.createElement('div');
+    container.innerHTML = activeFile.content || '';
+    const lines: string[] = [];
+    const walk = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent || '';
+        if (text.trim()) {
+          lines.push(text);
+        }
+        return;
+      }
+      if (!(node instanceof HTMLElement)) {
+        node.childNodes.forEach(walk);
+        return;
+      }
+      const tag = node.tagName.toLowerCase();
+      if (tag === 'li' && node.getAttribute('data-type') === 'taskItem') {
+        const checkbox = node.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+        const checked = checkbox?.checked;
+        const text = node.textContent || '';
+        lines.push(`- [${checked ? 'x' : ' '}] ${text}`);
+      } else if (tag === 'h1') {
+        lines.push('# ' + node.textContent);
+      } else if (tag === 'h2') {
+        lines.push('## ' + node.textContent);
+      } else if (tag === 'h3') {
+        lines.push('### ' + node.textContent);
+      } else if (tag === 'li') {
+        lines.push('- ' + node.textContent);
+      } else if (tag === 'blockquote') {
+        const text = node.textContent || '';
+        lines.push('> ' + text);
+      } else if (tag === 'code' || tag === 'pre') {
+        const text = node.textContent || '';
+        lines.push('```');
+        lines.push(text);
+        lines.push('```');
+      } else if (tag === 'p') {
+        const text = node.textContent || '';
+        if (text.trim()) {
+          lines.push(text);
+          lines.push('');
+        }
+      } else {
+        node.childNodes.forEach(walk);
+        return;
+      }
+      node.childNodes.forEach(walk);
+    };
+    container.childNodes.forEach(walk);
+    const markdown = lines.join('\n');
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeFile.name || 'note'}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   if (!activeFile) {
@@ -285,13 +657,57 @@ export default function TiptapEditor({ isReadOnly = false }: { isReadOnly?: bool
             </Toggle>
             <Toggle 
               size="sm" 
-              pressed={editor?.isActive('link')} 
-              onPressedChange={setLink}
+              pressed={editor?.isActive('link') || isLinkEditing} 
+              onPressedChange={() => {
+                if (!editor) return;
+                if (editor.isActive('link')) {
+                  editor.chain().focus().extendMarkRange('link').unsetLink().run();
+                  cancelLinkEditing();
+                  return;
+                }
+                const previousUrl = editor.getAttributes('link').href || '';
+                setLinkUrl(previousUrl);
+                setIsLinkEditing(true);
+                setTimeout(() => {
+                  if (linkInputRef.current) {
+                    linkInputRef.current.focus();
+                    linkInputRef.current.select();
+                  }
+                }, 0);
+              }}
               className="h-8 w-8"
             >
               <LinkIcon className="h-4 w-4" />
             </Toggle>
           </div>
+          {isLinkEditing && (
+            <div className="flex items-center gap-1 ml-2">
+              <input
+                ref={linkInputRef}
+                type="text"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    applyLink();
+                  }
+                  if (e.key === 'Escape') {
+                    cancelLinkEditing();
+                  }
+                }}
+                className="h-8 w-48 text-xs px-2 py-1 rounded border border-border bg-background outline-none focus:border-primary"
+                placeholder="Вставьте ссылку"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={applyLink}
+              >
+                ОК
+              </Button>
+            </div>
+          )}
           <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
           <div className="flex items-center gap-0.5 shrink-0">
             <Button 
@@ -378,6 +794,12 @@ export default function TiptapEditor({ isReadOnly = false }: { isReadOnly?: bool
                 <Redo className="h-4 w-4" />
               </button>
             </div>
+            <div className="hidden md:flex items-center gap-2 text-[10px] text-muted-foreground mr-4">
+              <span>Ctrl+B</span>
+              <span>Ctrl+I</span>
+              <span>Ctrl+K</span>
+              <span>Ctrl+Shift+7</span>
+            </div>
             <Button 
               variant="outline" 
               size="sm" 
@@ -387,24 +809,107 @@ export default function TiptapEditor({ isReadOnly = false }: { isReadOnly?: bool
               <Download className="h-3.5 w-3.5" />
               Экспорт PDF
             </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-8 gap-2 text-xs"
+              onClick={exportToMarkdown}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Экспорт MD
+            </Button>
           </div>
         </div>
       )}
 
       {/* Editor Content */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
+      <div
+        ref={dropZoneRef}
+        className={cn(
+          "flex-1 overflow-y-auto custom-scrollbar transition-colors",
+          isDraggingOver ? "bg-primary/5" : ""
+        )}
+      >
         <div className={cn("max-w-3xl mx-auto py-12 transition-all duration-500", isReadOnly ? "opacity-100 scale-100" : "")}>
           <input
+            ref={titleInputRef}
             type="text"
             value={activeFile.name}
             readOnly={isReadOnly}
             onChange={(e) => useFileSystem.getState().renameItem(activeFile.id, e.target.value)}
             className={cn(
-              "text-4xl font-bold bg-transparent border-none outline-none w-full mb-8 text-foreground placeholder:text-muted-foreground/30 px-8 transition-all",
+              "text-4xl font-bold bg-transparent border-none outline-none w-full mb-4 text-foreground placeholder:text-muted-foreground/30 px-8 transition-all",
               isReadOnly ? "cursor-default select-none" : ""
             )}
             placeholder="Без названия"
           />
+          {isSlashMenuOpen && !isReadOnly && (
+            <div className="px-8 mb-3" ref={slashMenuRef}>
+              <div className="inline-flex flex-col rounded-md border bg-popover shadow-md text-xs">
+                <button
+                  className="px-3 py-1.5 text-left hover:bg-accent"
+                  onClick={() => applySlashCommand('heading1')}
+                >
+                  Заголовок 1
+                </button>
+                <button
+                  className="px-3 py-1.5 text-left hover:bg-accent"
+                  onClick={() => applySlashCommand('heading2')}
+                >
+                  Заголовок 2
+                </button>
+                <button
+                  className="px-3 py-1.5 text-left hover:bg-accent"
+                  onClick={() => applySlashCommand('bulletList')}
+                >
+                  Маркированный список
+                </button>
+                <button
+                  className="px-3 py-1.5 text-left hover:bg-accent"
+                  onClick={() => applySlashCommand('orderedList')}
+                >
+                  Нумерованный список
+                </button>
+                <button
+                  className="px-3 py-1.5 text-left hover:bg-accent"
+                  onClick={() => applySlashCommand('blockquote')}
+                >
+                  Цитата
+                </button>
+                <button
+                  className="px-3 py-1.5 text-left hover:bg-accent"
+                  onClick={() => applySlashCommand('codeBlock')}
+                >
+                  Код
+                </button>
+                <button
+                  className="px-3 py-1.5 text-left hover:bg-accent"
+                  onClick={() => applySlashCommand('divider')}
+                >
+                  Разделитель
+                </button>
+                <button
+                  className="px-3 py-1.5 text-left hover:bg-accent"
+                  onClick={() => applySlashCommand('image')}
+                >
+                  Изображение
+                </button>
+              </div>
+            </div>
+          )}
+          {uploadProgress !== null && (
+            <div className="px-8 mb-4">
+              <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Загрузка изображения: {uploadProgress}%
+              </p>
+            </div>
+          )}
           <EditorContent editor={editor} />
         </div>
       </div>

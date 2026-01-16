@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   ChevronRight, 
   ChevronDown, 
@@ -25,17 +25,22 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from '@/components/ui/button';
 
+function sortItems(a: FileSystemItem, b: FileSystemItem) {
+  if (a.isPinned && !b.isPinned) return -1;
+  if (!a.isPinned && b.isPinned) return 1;
+  if (a.type !== b.type) {
+    if (a.type === 'folder') return -1;
+    if (b.type === 'folder') return 1;
+  }
+  return a.name.localeCompare(b.name);
+}
+
 export function FileTree() {
   const { items, addFile, addFolder, moveItem } = useFileSystem();
   
-  // Get root items, sorted by pinned first
   const rootItems = items
     .filter(i => i.parentId === null)
-    .sort((a, b) => {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
-      return a.name.localeCompare(b.name);
-    });
+    .sort(sortItems);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -75,22 +80,17 @@ export function FileTree() {
 }
 
 function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) {
-  const { items, expandedFolders, toggleFolder, activeFileId, selectFile, deleteItem, addFile, addFolder, renameItem, togglePin, moveItem } = useFileSystem();
-  const [isEditing, setIsEditing] = useState(false);
+  const { items, expandedFolders, toggleFolder, activeFileId, selectFile, deleteItem, addFile, addFolder, renameItem, togglePin, moveItem, lastCreatedFolderId } = useFileSystem();
+  const [isEditing, setIsEditing] = useState(item.type === 'folder' && item.id === lastCreatedFolderId);
   const [editName, setEditName] = useState(item.name);
   const [isDragOver, setIsDragOver] = useState(false);
 
   const isExpanded = expandedFolders.has(item.id);
   const isActive = activeFileId === item.id;
   
-  // Children sorted by pinned first
   const children = items
     .filter(i => i.parentId === item.id)
-    .sort((a, b) => {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
-      return a.name.localeCompare(b.name);
-    });
+    .sort(sortItems);
   
   const handleRename = () => {
     if (editName.trim()) {
@@ -135,6 +135,12 @@ function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) 
       if (!isExpanded) toggleFolder(item.id);
     }
   };
+
+  useEffect(() => {
+    if (item.type === 'folder' && item.id === lastCreatedFolderId && isEditing) {
+      useFileSystem.setState({ lastCreatedFolderId: null });
+    }
+  }, [item.id, item.type, lastCreatedFolderId, isEditing]);
 
   const itemContent = (
     <div 
@@ -236,14 +242,6 @@ function FileTreeItem({ item, level }: { item: FileSystemItem, level: number }) 
           {children.map(child => (
             <FileTreeItem key={child.id} item={child} level={level + 1} />
           ))}
-          {children.length === 0 && (
-            <div 
-              className="text-[10px] text-muted-foreground/50 py-0.5 italic"
-              style={{ paddingLeft: `${(level + 1) * 12 + 22}px` }}
-            >
-              Пусто
-            </div>
-          )}
         </div>
       )}
     </div>

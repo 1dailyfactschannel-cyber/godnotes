@@ -6,18 +6,43 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { KeyRound, Mail, Minimize2, Square, X, UserPlus, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { apiRequest } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
 
 export default function LoginPage() {
-  const { login, theme } = useFileSystem();
+  const { theme, checkAuth } = useFileSystem();
   const [email, setEmail] = useState('demo@obsidian.com');
   const [password, setPassword] = useState('password');
   const [showPassword, setShowPassword] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [name, setName] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useToast();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    login();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        username: email,
+        password,
+        name: isRegistering ? name : undefined,
+      };
+      const url = isRegistering ? "/api/auth/register" : "/api/auth/login";
+      await apiRequest("POST", url, payload);
+      await checkAuth();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Не удалось выполнить запрос";
+      toast({
+        variant: "destructive",
+        title: "Ошибка входа",
+        description: message,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const themeClass = theme === 'obsidian-dark' ? '' : `theme-${theme}`;
@@ -111,7 +136,11 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
-              <Button type="submit" className="w-full font-semibold py-6 text-lg shadow-lg hover:shadow-primary/20 transition-all mt-6">
+              <Button
+                type="submit"
+                className="w-full font-semibold py-6 text-lg shadow-lg hover:shadow-primary/20 transition-all mt-6"
+                disabled={isSubmitting}
+              >
                 {isRegistering ? 'Зарегистрироваться' : 'Войти в хранилище'}
               </Button>
             </form>
