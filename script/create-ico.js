@@ -57,38 +57,9 @@ const bgB = 0x2A; // #0F172A
 const bgG = 0x17;
 const bgR = 0x0F;
 
-const lightningB = 0x00; // #FFD700 (Gold) -> 00 D7 FF
-const lightningG = 0xD7;
+const lightningB = 0xFF; // White for the G
+const lightningG = 0xFF;
 const lightningR = 0xFF;
-
-// Helper: Point in Polygon
-function insidePolygon(point, vs) {
-    // ray-casting algorithm based on
-    // https://github.com/substack/point-in-polygon
-    var x = point[0], y = point[1];
-    var inside = false;
-    for (var i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-        var xi = vs[i][0], yi = vs[i][1];
-        var xj = vs[j][0], yj = vs[j][1];
-        var intersect = ((yi > y) != (yj > y))
-            && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-        if (intersect) inside = !inside;
-    }
-    return inside;
-};
-
-// Lightning Bolt Polygon (Normalized 0-100)
-// A thicker, more prominent bolt
-const boltPolygon = [
-    [55, 10], // Top Leftish
-    [90, 10], // Top Right
-    [60, 55], // Middle Right (Inner)
-    [85, 55], // Middle Right (Outer)
-    [40, 95], // Bottom Tip
-    [55, 50], // Middle Left (Inner)
-    [25, 50], // Middle Left (Outer)
-    [55, 10]  // Back to start
-];
 
 for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -101,18 +72,10 @@ for (let y = 0; y < height; y++) {
 
         // 1. Background: Full Rounded Square
         // Radius ~ 20%
-        // Check corners
         const rPercent = 20;
         let inCorner = false;
         
-        // Check 4 corners
-        if (nx < rPercent && ny < rPercent) { // Bottom Left (ICO is bottom-up? No, ny is 0-100 based on y loop. y=0 is bottom usually in BMP, but let's check loop)
-             // Standard loop 0..height is usually top-down in memory, but BMP stores bottom-up.
-             // Wait, standard BMP is bottom-up.
-             // So y=0 is BOTTOM.
-             // If I use standard ny = y/height*100, then ny=0 is BOTTOM.
-             
-             // Distance from center of corner circle
+        if (nx < rPercent && ny < rPercent) { // Bottom Left
              const cx = rPercent;
              const cy = rPercent;
              const dist = Math.sqrt(Math.pow(nx - cx, 2) + Math.pow(ny - cy, 2));
@@ -138,17 +101,30 @@ for (let y = 0; y < height; y++) {
             // Inside Background
             r = bgR; g = bgG; b = bgB; a = 255;
             
-            // 2. Add subtle gradient/border for depth?
-            // Simple border
+            // 2. Simple border
             if (nx < 3 || nx > 97 || ny < 3 || ny > 97) {
-                 // Slightly lighter border
                  r = Math.min(255, bgR + 20);
                  g = Math.min(255, bgG + 20);
                  b = Math.min(255, bgB + 20);
             }
 
-            // 3. Lightning Bolt
-            if (insidePolygon([nx, ny], boltPolygon)) {
+            // 3. Square G Logic (Bottom-Up coordinates)
+            // Thickness ~ 12%
+            // Top Bar: y ~ 80. x: 16 -> 84
+            // Bottom Bar: y ~ 20. x: 16 -> 84
+            // Left Bar: x ~ 16. y: 20 -> 80
+            // Right Bar: x ~ 84. y: 20 -> 50
+            // Middle Bar: y ~ 50. x: 50 -> 84
+
+            const t = 6; // Half thickness
+            
+            const isTop = (ny >= 80 - t && ny <= 80 + t) && (nx >= 16 - t && nx <= 84 + t);
+            const isBottom = (ny >= 20 - t && ny <= 20 + t) && (nx >= 16 - t && nx <= 84 + t);
+            const isLeft = (nx >= 16 - t && nx <= 16 + t) && (ny >= 20 - t && ny <= 80 + t);
+            const isRight = (nx >= 84 - t && nx <= 84 + t) && (ny >= 20 - t && ny <= 50 + t);
+            const isMiddle = (ny >= 50 - t && ny <= 50 + t) && (nx >= 50 - t && nx <= 84 + t);
+
+            if (isTop || isBottom || isLeft || isRight || isMiddle) {
                 r = lightningR; g = lightningG; b = lightningB;
             }
         }

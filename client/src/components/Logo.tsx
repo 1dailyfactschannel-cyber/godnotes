@@ -12,14 +12,12 @@ export function Logo({ className }: LogoProps) {
         viewBox="0 0 24 24" 
         fill="none" 
         stroke="currentColor" 
-        strokeWidth="2" 
+        strokeWidth="3" 
         strokeLinecap="round" 
         strokeLinejoin="round"
         className="w-full h-full"
       >
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-        <path d="M13 7L9 13h4l-2 6" />
+        <path d="M20 5H4v14h16v-7h-8" />
       </svg>
     </div>
   );
