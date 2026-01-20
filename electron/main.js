@@ -81,34 +81,32 @@ log.transports.file.level = 'info';
 autoUpdater.logger = log;
 
 // Start server in production
-if (app.isPackaged) {
-  try {
-    // Attempt to load .env from resources path (where app is running)
-    const envPath = path.join(process.resourcesPath, '..', '.env');
-    log.info(`Attempting to load .env from ${envPath}`);
-    require('dotenv').config({ path: envPath });
+// if (app.isPackaged) {
+//   try {
+//     // Attempt to load .env from resources path (where app is running)
+//     const envPath = path.join(process.resourcesPath, '..', '.env');
+//     log.info(`Attempting to load .env from ${envPath}`);
+//     require('dotenv').config({ path: envPath });
 
-    // Also try to load from inside the app (in case it's packed)
-    const internalEnvPath = path.join(app.getAppPath(), '.env');
-    require('dotenv').config({ path: internalEnvPath });
+//     // Also try to load from inside the app (in case it's packed)
+//     const internalEnvPath = path.join(app.getAppPath(), '.env');
+//     require('dotenv').config({ path: internalEnvPath });
 
-    const serverPath = path.join(__dirname, '../dist/index.cjs');
-    log.info(`Starting server from ${serverPath}`);
+//     const serverPath = path.join(__dirname, '../dist/index.cjs');
+//     log.info(`Starting server from ${serverPath}`);
     
-    // Set environment variables for production if not set
-    if (!process.env.DATABASE_URL) {
-      // In a real desktop app, you might use SQLite or a local Postgres instance.
-      // For now, we'll try to use the same env if it exists, or log an error.
-      log.warn('DATABASE_URL is not set in production. Database connection may fail.');
-    }
+//     // Set environment variables for production if not set
+//     if (!process.env.DATABASE_URL) {
+//       // In a real desktop app, you might use SQLite or a local Postgres instance.
+//       // For now, we'll try to use the same env if it exists, or log an error.
+//       log.warn('DATABASE_URL is not set in production. Database connection may fail.');
+//     }
     
-    require(serverPath);
-  } catch (err) {
-    log.error('Failed to start server:', err);
-  }
-}
-
-// Prevent multiple instances
+//     // require(serverPath); // Legacy server removed
+//   } catch (err) {
+//     log.error('Failed to start server:', err);
+//   }
+// }
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
@@ -134,16 +132,6 @@ if (!gotTheLock) {
     // Explicitly set icon (sometimes needed)
     mainWindow.setIcon(path.join(__dirname, '../client/public/icon.ico'));
 
-    // In production, we might want to load a local file, 
-    // but since this app depends on the Express server for API,
-    // we will stick to loading localhost even in "desktop" mode for now,
-    // assuming the server is started alongside.
-    // 
-    // However, for a true build, we should start the server process here.
-    
-    const isDev = process.env.NODE_ENV !== 'production';
-    const PORT = process.env.PORT || 5000;
-
     // Load the app
     const loadURLWithRetry = (url, retries = 10) => {
       if (!mainWindow) return;
@@ -158,7 +146,15 @@ if (!gotTheLock) {
       });
     };
 
-    loadURLWithRetry(`http://localhost:${PORT}`);
+    if (app.isPackaged) {
+       // In production, load the local bundled file
+       const indexPath = path.join(__dirname, '../dist/public/index.html');
+       mainWindow.loadFile(indexPath).catch(e => log.error('Failed to load index.html:', e));
+    } else {
+       // In dev, load localhost
+       const PORT = process.env.PORT || 5001;
+       loadURLWithRetry(`http://localhost:${PORT}`);
+    }
 
     // Open external links in default browser, not Electron
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
