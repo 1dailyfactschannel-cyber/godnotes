@@ -10,5 +10,7 @@ contextBridge.exposeInMainWorld('electron', {
     readFile: (path) => ipcRenderer.invoke('fs-read-file', path),
     exists: (path) => ipcRenderer.invoke('fs-exists', path),
     deleteFile: (path) => ipcRenderer.invoke('fs-delete-file', path),
-  }
+    readdir: (path) => ipcRenderer.invoke('fs-readdir', path),
+  },
+  telegramRequest: (url, options) => ipcRenderer.invoke('telegram-request', url, options),
 });

@@ -8,11 +8,12 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { LogOut, User as UserIcon, RefreshCw } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { LogOut, User as UserIcon, RefreshCw, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useFileSystem } from "@/lib/mock-fs";
 import { isElectron } from "@/lib/electron";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface UserProfileDialogProps {
   open: boolean;
@@ -21,8 +22,16 @@ interface UserProfileDialogProps {
 
 export function UserProfileDialog({ open, onOpenChange }: UserProfileDialogProps) {
   const { toast } = useToast();
-  const { user, logout, downloadAllFiles } = useFileSystem();
+  const { user, logout, downloadAllFiles, updateUserPrefs } = useFileSystem();
   const [isSyncing, setIsSyncing] = useState(false);
+  const [telegram, setTelegram] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (open && user) {
+      setTelegram(user.prefs?.telegram || '');
+    }
+  }, [open, user]);
 
   const handleLogout = async () => {
     await logout();
@@ -31,6 +40,26 @@ export function UserProfileDialog({ open, onOpenChange }: UserProfileDialogProps
       description: "Вы успешно вышли из аккаунта",
     });
     onOpenChange(false);
+  };
+
+  const handleSaveTelegram = async () => {
+    if (!user) return;
+    setIsSaving(true);
+    try {
+      await updateUserPrefs({ telegram });
+      toast({
+        title: "Профиль обновлен",
+        description: "Ваш Telegram успешно сохранен",
+      });
+    } catch (e) {
+      toast({
+        title: "Ошибка обновления",
+        description: "Не удалось сохранить Telegram",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSync = async () => {
@@ -82,6 +111,21 @@ export function UserProfileDialog({ open, onOpenChange }: UserProfileDialogProps
               <Label htmlFor="email" className="text-muted-foreground text-xs uppercase tracking-wider">Email</Label>
               <div className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
                 {user.email}
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="telegram" className="text-muted-foreground text-xs uppercase tracking-wider">Telegram</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="telegram"
+                  value={telegram}
+                  onChange={(e) => setTelegram(e.target.value)}
+                  placeholder="@username"
+                  className="flex-1"
+                />
+                <Button size="icon" variant="ghost" onClick={handleSaveTelegram} disabled={isSaving}>
+                  {isSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                </Button>
               </div>
             </div>
              <div className="grid gap-2">

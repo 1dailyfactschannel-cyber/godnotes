@@ -11,7 +11,9 @@ declare global {
         readFile: (path: string) => Promise<{ success: boolean; content?: string; error?: string }>;
         exists: (path: string) => Promise<boolean>;
         deleteFile: (path: string) => Promise<{ success: boolean; error?: string }>;
+        readdir: (path: string) => Promise<{ success: boolean; entries?: { name: string; isDirectory: boolean }[]; error?: string }>;
       };
+      telegramRequest: (url: string, options?: RequestInit) => Promise<{ success: boolean; data?: any; error?: string }>;
     };
   }
 }
@@ -21,6 +23,19 @@ export const isElectron = () => {
 };
 
 export const electron = window.electron;
+
+export const telegramRequest = async (url: string, options?: RequestInit) => {
+  if (isElectron() && electron) {
+    const res = await electron.telegramRequest(url, options);
+    if (!res.success) throw new Error(res.error || 'Telegram request failed');
+    return res.data;
+  } else {
+    // Fallback for web (might still fail CORS if not proxied)
+    const res = await fetch(url, options);
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    return await res.json();
+  }
+};
 
 export const selectDirectory = async () => {
   if (!electron) return null;

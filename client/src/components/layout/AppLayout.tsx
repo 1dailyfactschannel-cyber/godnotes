@@ -1,7 +1,7 @@
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { useLocation } from "wouter";
-import { selectDirectory, getStoreValue, setStoreValue } from '@/lib/electron';
+import { useLocation, Link } from "wouter";
+import { selectDirectory, getStoreValue, setStoreValue, telegramRequest } from '@/lib/electron';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,9 +14,11 @@ import { CommandPalette } from '@/components/CommandPalette';
 import { FileTree } from '@/components/sidebar/FileTree';
 import { FavoritesDialog } from '@/components/favorites/FavoritesDialog';
 import { UserProfileDialog } from '@/components/user/UserProfileDialog';
+import { SettingsDialog } from '@/components/settings/SettingsDialog';
 const TiptapEditor = lazy(() => import('@/components/editor/TiptapEditor'));
-import { Search, Hash, ChevronRight, Minimize2, Square, X, Settings, Check, Clock, Star, Trash2, Sidebar, BookOpen, PenLine, FolderOpen, Plus, CheckCircle2, User, ChevronsUpDown, PanelLeft } from 'lucide-react';
+import { Search, Hash, ChevronRight, Minimize2, Square, X, Settings, Check, Clock, Star, Trash2, Sidebar, BookOpen, PenLine, FolderOpen, Plus, CheckCircle2, User, ChevronsUpDown, PanelLeft, Calendar as CalendarIcon, ListTodo, Send, Loader2, Unplug } from 'lucide-react';
 import { useFileSystem, ThemeType } from '@/lib/mock-fs';
+import { useTasks } from '@/lib/tasks-store';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -43,10 +45,11 @@ import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 
 export default function AppLayout() {
-  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync } = useFileSystem();
+  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs } = useFileSystem();
+  const { telegramConfig, setTelegramConfig } = useTasks();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isReadOnly, setIsReadOnly] = useState(false);
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [searchHighlight, setSearchHighlight] = useState('');
   const [storagePath, setStoragePath] = useState<string>('');
   const [spaces, setSpaces] = useState<{ id: string; name: string; path: string }[]>([]);
@@ -54,10 +57,137 @@ export default function AppLayout() {
   const [trashOpen, setTrashOpen] = useState(false);
   const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [userProfileOpen, setUserProfileOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [spaceNameDialogOpen, setSpaceNameDialogOpen] = useState(false);
   const [pendingSpacePath, setPendingSpacePath] = useState<string | null>(null);
   const [spaceNameInput, setSpaceNameInput] = useState('');
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const handleConnectTelegram = async () => {
+    if (!telegramConfig.botToken) {
+      toast({ variant: "destructive", title: "Ошибка", description: "Bot Token не задан" });
+      return;
+    }
+    setIsConnecting(true);
+    const code = crypto.randomUUID().split('-')[0];
+    const botUrl = `https://t.me/godnotes_bot?start=${code}`;
+    window.open(botUrl, '_blank');
+
+    const start = Date.now();
+    const token = telegramConfig.botToken;
+    let connected = false;
+
+    // Poll for update
+    while (Date.now() - start < 60000 && !connected) { // 1 min timeout
+      try {
+        const data = await telegramRequest(`https://api.telegram.org/bot${token}/getUpdates?limit=10`);
+        if (data.ok) {
+          const update = data.result.find((u: any) => u.message?.text === `/start ${code}`);
+          if (update) {
+            const chatId = update.message.chat.id.toString();
+            const username = update.message.from.username;
+
+            setTelegramConfig({ ...telegramConfig, chatId });
+            
+            if (username) {
+               try {
+                 await updateUserPrefs({ telegram: username });
+               } catch(e) { console.error('Failed to update profile', e); }
+            }
+
+            await telegramRequest(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: '✅ GodNotes: Уведомления успешно подключены!',
+              }),
+            });
+
+            toast({ title: "Успех", description: "Telegram уведомления подключены" });
+            connected = true;
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      if (!connected) await new Promise(r => setTimeout(r, 2000));
+    }
+
+    setIsConnecting(false);
+    if (!connected) {
+      toast({ title: "Ошибка", description: "Не удалось подключить Telegram (таймаут)", variant: "destructive" });
+    }
+  };
+
+  const handleDisconnectTelegram = () => {
+    setTelegramConfig({ ...telegramConfig, chatId: '' });
+    toast({ title: "Отключено", description: "Telegram уведомления отключены" });
+  };
+
+
+  const testTelegram = async () => {
+    if (!telegramConfig.botToken || !telegramConfig.chatId) {
+      toast({ variant: "destructive", title: "Ошибка", description: "Заполните Bot Token и Chat ID" });
+      return;
+    }
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: telegramConfig.chatId,
+          text: '🔔 Тестовое уведомление от GodNotes',
+        }),
+      });
+      if (res.ok) {
+        toast({ title: "Успех", description: "Тестовое сообщение отправлено" });
+      } else {
+        throw new Error('Failed to send');
+      }
+    } catch (e) {
+      toast({ variant: "destructive", title: "Ошибка", description: "Не удалось отправить сообщение" });
+    }
+  };
+
+  useEffect(() => {
+    // Check for notifications
+    const checkNotifications = async () => {
+      const now = Date.now();
+      const { tasks, markNotified, telegramConfig } = useTasks.getState();
+      
+      if (!telegramConfig.botToken || !telegramConfig.chatId) return;
+
+      const tasksToNotify = tasks.filter(t => 
+        t.notify && 
+        !t.isNotified && 
+        t.dueDate && 
+        t.dueDate <= now
+      );
+
+      for (const task of tasksToNotify) {
+        try {
+          await telegramRequest(`https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: telegramConfig.chatId,
+              text: `🔔 Напоминание: ${task.content}`,
+            }),
+          });
+          markNotified(task.id);
+          toast({ title: "Уведомление отправлено", description: task.content });
+        } catch (e) {
+          console.error('Failed to send telegram notification', e);
+        }
+      }
+    };
+
+    const interval = setInterval(checkNotifications, 60000); // Check every minute
+    checkNotifications(); // Check immediately on mount
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     // Initialize local file system for sync
@@ -192,6 +322,7 @@ export default function AppLayout() {
     <div className={cn("h-screen w-full bg-background text-foreground overflow-hidden flex flex-col border border-sidebar-border transition-all duration-500", themeClass)}>
       
       <UserProfileDialog open={userProfileOpen} onOpenChange={setUserProfileOpen} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
       <Dialog open={spaceNameDialogOpen} onOpenChange={setSpaceNameDialogOpen}>
         <DialogContent>
@@ -295,6 +426,17 @@ export default function AppLayout() {
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => setIsReadOnly(!isReadOnly)} title={isReadOnly ? "Режим редактирования" : "Режим чтения"}>
                          {isReadOnly ? <PenLine className="h-4 w-4" /> : <BookOpen className="h-4 w-4" />}
                       </Button>
+                      <div className="h-4 w-px bg-border mx-1" />
+                      <Link href="/calendar">
+                         <Button variant="ghost" size="icon" className={cn("h-7 w-7", location === '/calendar' ? "text-primary bg-primary/10" : "text-muted-foreground")} title="Календарь">
+                           <CalendarIcon className="h-4 w-4" />
+                         </Button>
+                      </Link>
+                      <Link href="/todo">
+                         <Button variant="ghost" size="icon" className={cn("h-7 w-7", location === '/todo' ? "text-primary bg-primary/10" : "text-muted-foreground")} title="Задачи">
+                           <ListTodo className="h-4 w-4" />
+                         </Button>
+                      </Link>
                     </div>
                   </div>
 
@@ -314,6 +456,7 @@ export default function AppLayout() {
                     )}
                   </div>
                 </div>
+                
                 <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
                   {searchQuery ? (
                     <FileTree items={filteredItems} />
@@ -325,7 +468,6 @@ export default function AppLayout() {
                 {/* Sidebar Footer */}
                 <div className="p-3 border-t border-sidebar-border bg-sidebar/50 flex flex-col gap-3">
                   <div className="flex items-center justify-between">
-                    <Dialog>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                          <button className="flex items-center gap-2 hover:bg-white/5 p-1.5 rounded-md text-xs font-medium transition-colors w-full text-left">
@@ -334,136 +476,24 @@ export default function AppLayout() {
                          </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start" className="w-48">
-                         <DropdownMenuItem onSelect={() => setUserProfileOpen(true)}>
+                         <DropdownMenuItem onSelect={(e) => {
+                           e.preventDefault();
+                           setUserProfileOpen(true);
+                         }}>
                             <User className="mr-2 h-3.5 w-3.5" />
                             <span>Профиль</span>
                          </DropdownMenuItem>
                          <DropdownMenuSeparator />
-                         <DropdownMenuSub>
-                           <DropdownMenuSubTrigger>
-                             <Check className="mr-2 h-3.5 w-3.5" /> Тема оформления
-                           </DropdownMenuSubTrigger>
-                           <DropdownMenuPortal>
-                             <DropdownMenuSubContent>
-                               <ThemeMenuItem label="Obsidian Dark" active={theme === 'obsidian-dark'} onClick={() => setTheme('obsidian-dark')} />
-                               <ThemeMenuItem label="Midnight Blue" active={theme === 'midnight-blue'} onClick={() => setTheme('midnight-blue')} />
-                               <ThemeMenuItem label="Graphite" active={theme === 'graphite'} onClick={() => setTheme('graphite')} />
-                               <ThemeMenuItem label="Light Mode" active={theme === 'light-mode'} onClick={() => setTheme('light-mode')} />
-                             </DropdownMenuSubContent>
-                           </DropdownMenuPortal>
-                         </DropdownMenuSub>
-                         <DropdownMenuItem>Плагины</DropdownMenuItem>
-                         <DropdownMenuSeparator />
-                         <DropdownMenuItem className="text-muted-foreground/50 text-[10px]">Версия 1.0.0</DropdownMenuItem>
-                         <DropdownMenuSeparator />
-                         <DialogTrigger asChild>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                         <DropdownMenuItem onSelect={(e) => {
+                           e.preventDefault();
+                           setSettingsOpen(true);
+                         }}>
                               <Settings className="mr-2 h-3.5 w-3.5" /> Общие настройки
-                            </DropdownMenuItem>
-                         </DialogTrigger>
+                         </DropdownMenuItem>
+                         <DropdownMenuSeparator />
+                         <DropdownMenuItem className="text-muted-foreground/50 text-[10px]">Версия 1.1.0</DropdownMenuItem>
                        </DropdownMenuContent>
                      </DropdownMenu>
-                       <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Общие настройки</DialogTitle>
-                          <DialogDescription>
-                            Настройте приложение под себя.
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="mt-4 space-y-4 text-sm">
-                          <div className="flex items-center justify-between">
-                            <span>Автофокус на последней заметке</span>
-                            <Switch disabled />
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span>Открывать последнее состояние дерева папок</span>
-                            <Switch disabled />
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span>Размер шрифта редактора по умолчанию</span>
-                            <span className="text-xs text-muted-foreground">Настраивается в панели редактора</span>
-                          </div>
-
-                          <div className="pt-3 border-t border-border/40">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="text-xs font-semibold">Пространства</div>
-                              <Button variant="ghost" size="icon" className="h-5 w-5" onClick={handleAddSpace} title="Добавить пространство">
-                                <Plus className="h-3 w-3" />
-                              </Button>
-                            </div>
-                            <div className="space-y-2">
-                              {spaces.length === 0 ? (
-                                <div className="text-xs text-muted-foreground italic">Нет добавленных пространств</div>
-                              ) : (
-                                spaces.map(space => (
-                                  <div key={space.id} className={cn(
-                                    "flex items-center justify-between p-2 rounded-md border text-xs transition-colors",
-                                    storagePath === space.path ? "bg-primary/10 border-primary/20" : "bg-background/50 border-border/50 hover:bg-accent/50"
-                                  )}>
-                                    <div className="flex items-center gap-2 overflow-hidden flex-1 cursor-pointer" onClick={() => handleSwitchSpace(space)}>
-                                      {storagePath === space.path ? (
-                                        <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                                      ) : (
-                                        <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                      )}
-                                      <div className="flex flex-col overflow-hidden">
-                                        <span className="font-medium truncate">{space.name}</span>
-                                        <span className="text-[10px] text-muted-foreground truncate opacity-70" title={space.path}>{space.path}</span>
-                                      </div>
-                                    </div>
-                                    
-                                    <div className="flex items-center gap-1">
-                                      {storagePath !== space.path && (
-                                        <Button 
-                                          variant="ghost" 
-                                          size="icon" 
-                                          className="h-6 w-6 hover:bg-destructive/10 hover:text-destructive" 
-                                          onClick={(e) => handleRemoveSpace(space.id, e)}
-                                          title="Удалить пространство"
-                                        >
-                                          <Trash2 className="h-3 w-3" />
-                                        </Button>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          </div>
-
-                            <div className="pt-3 border-t border-border/40">
-                              <div className="text-xs font-semibold mb-2">Настройка горячих клавиш</div>
-                              <div className="space-y-2 text-xs text-muted-foreground">
-                                <HotkeySetting 
-                                  label="Командная панель" 
-                                  value={hotkeys.commandPalette || 'Ctrl+K'} 
-                                  onChange={(v) => setHotkey('commandPalette', v)} 
-                                />
-                                <HotkeySetting 
-                                  label="Жирный (Bold)" 
-                                  value={hotkeys.bold || 'Ctrl+B'} 
-                                  onChange={(v) => setHotkey('bold', v)} 
-                                />
-                                <HotkeySetting 
-                                  label="Курсив (Italic)" 
-                                  value={hotkeys.italic || 'Ctrl+I'} 
-                                  onChange={(v) => setHotkey('italic', v)} 
-                                />
-                                <HotkeySetting 
-                                  label="Вставить ссылку" 
-                                  value={hotkeys.link || 'Ctrl+K'} 
-                                  onChange={(v) => setHotkey('link', v)} 
-                                />
-                                <HotkeySetting 
-                                  label="Список задач" 
-                                  value={hotkeys.taskList || 'Ctrl+Shift+9'} 
-                                  onChange={(v) => setHotkey('taskList', v)} 
-                                />
-                              </div>
-                            </div>
-                        </div>
-                       </DialogContent>
-                     </Dialog>
                    
                    <div className="flex items-center gap-1">
                       <button 
@@ -546,65 +576,5 @@ export default function AppLayout() {
     <FavoritesDialog open={favoritesOpen} onOpenChange={setFavoritesOpen} />
     <CommandPalette />
   </div>
-  );
-}
-
-function ThemeMenuItem({ label, active, onClick }: { label: string, active: boolean, onClick: () => void }) {
-  return (
-    <DropdownMenuItem onClick={onClick} className="flex items-center justify-between">
-      {label}
-      {active && <Check className="h-3 w-3 text-primary" />}
-    </DropdownMenuItem>
-  );
-}
-
-function HotkeySetting({ label, value, onChange }: { label: string, value: string, onChange: (v: string) => void }) {
-  const [isRecording, setIsRecording] = useState(false);
-
-  useEffect(() => {
-    if (!isRecording) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const modifiers = [];
-      if (e.ctrlKey || e.metaKey) modifiers.push('Ctrl');
-      if (e.shiftKey) modifiers.push('Shift');
-      if (e.altKey) modifiers.push('Alt');
-
-      let key = '';
-      if (e.code.startsWith('Key')) {
-        key = e.code.replace('Key', '');
-      } else if (e.code.startsWith('Digit')) {
-        key = e.code.replace('Digit', '');
-      } else {
-        key = e.key.toUpperCase();
-      }
-      
-      if (['CONTROL', 'SHIFT', 'ALT', 'META'].includes(key)) return;
-
-      const shortcut = [...modifiers, key].join('+');
-      onChange(shortcut);
-      setIsRecording(false);
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [isRecording, onChange]);
-
-  return (
-    <div className="flex items-center justify-between">
-      <span>{label}</span>
-      <button 
-        className={cn(
-            "px-2 py-1 rounded text-xs border min-w-[60px] text-center transition-colors",
-            isRecording ? "bg-primary text-primary-foreground border-primary" : "bg-muted border-border hover:bg-muted/80"
-        )}
-        onClick={() => setIsRecording(true)}
-      >
-        {isRecording ? "Нажмите..." : value}
-      </button>
-    </div>
   );
 }

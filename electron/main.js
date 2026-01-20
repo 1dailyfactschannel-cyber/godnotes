@@ -68,12 +68,38 @@ ipcMain.handle('fs-delete-file', async (event, filePath) => {
   }
 });
 
+ipcMain.handle('fs-readdir', async (event, dirPath) => {
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    return {
+      success: true,
+      entries: entries.map(e => ({
+        name: e.name,
+        isDirectory: e.isDirectory(),
+      }))
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('get-store-value', (event, key) => {
   return store.get(key);
 });
 
 ipcMain.handle('set-store-value', (event, key, value) => {
   store.set(key, value);
+});
+
+ipcMain.handle('telegram-request', async (event, url, options) => {
+  try {
+    const response = await fetch(url, options);
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error) {
+    log.error('telegram-request error:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // Configure logging

@@ -10,6 +10,36 @@ export type ThemeType = 'obsidian-dark' | 'midnight-blue' | 'graphite' | 'light-
 
 export type SortOrder = 'name-asc' | 'name-desc' | 'date-newest' | 'date-oldest';
 
+// Custom equality function to ignore 'content' changes
+export function compareItems(prev: FileSystemItem[], next: FileSystemItem[]) {
+  if (prev === next) return true;
+  if (prev.length !== next.length) return false;
+  
+  for (let i = 0; i < prev.length; i++) {
+    const a = prev[i];
+    const b = next[i];
+    
+    if (a === b) continue;
+    
+    // Check all properties except content
+    if (a.id !== b.id || 
+        a.name !== b.name || 
+        a.type !== b.type || 
+        a.parentId !== b.parentId || 
+        a.isPinned !== b.isPinned || 
+        a.isFavorite !== b.isFavorite || 
+        a.createdAt !== b.createdAt ||
+        a.updatedAt !== b.updatedAt) {
+      return false;
+    }
+    
+    // Deep compare tags if needed
+    if (JSON.stringify(a.tags) !== JSON.stringify(b.tags)) return false;
+  }
+  
+  return true;
+}
+
 export type FileSystemItem = {
   id: string;
   name: string;
@@ -43,7 +73,10 @@ interface FileSystemState {
   localDocumentsPath: string | null;
   syncManifest: Record<string, number>;
   syncInterval: NodeJS.Timeout | null;
+  isOfflineMode: boolean;
   
+  toggleOfflineMode: () => void;
+  updateUserPrefs: (prefs: Record<string, any>) => Promise<void>;
   initLocalFs: () => Promise<void>;
   fetchFolders: () => Promise<void>;
   fetchNotes: () => Promise<void>;
@@ -102,6 +135,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   localDocumentsPath: null,
   syncManifest: {},
   syncInterval: null,
+  isOfflineMode: localStorage.getItem('isOfflineMode') === 'true',
   hotkeys: (() => {
     try {
       const saved = localStorage.getItem('hotkeys');
@@ -122,6 +156,26 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       };
     }
   })(),
+
+  toggleOfflineMode: () => {
+    const newValue = !get().isOfflineMode;
+    localStorage.setItem('isOfflineMode', String(newValue));
+    set({ isOfflineMode: newValue });
+  },
+
+  updateUserPrefs: async (prefs) => {
+    const user = get().user;
+    if (!user) return;
+    try {
+      const currentPrefs = user.prefs || {};
+      const newPrefs = { ...currentPrefs, ...prefs };
+      const updatedUser = await account.updatePrefs(newPrefs);
+      set({ user: updatedUser });
+    } catch (error) {
+      console.error('Failed to update user prefs:', error);
+      throw error;
+    }
+  },
 
   initLocalFs: async () => {
     if (isElectron()) {
@@ -310,6 +364,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       set({ isAuthenticated: true, user });
       await Promise.all([get().fetchFolders(), get().fetchNotes()]);
     } catch (error) {
+      console.error("checkAuth failed:", error);
       set({ isAuthenticated: false, user: null, items: initialItems, activeFileId: '5' });
     } finally {
       set({ isAuthChecking: false });
@@ -705,15 +760,15 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       clearTimeout(existingTimeout);
     }
 
-    // Save to local FS immediately (if Electron)
-    if (state.localDocumentsPath && isElectron() && fs) {
-        const localPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
-        // Fire and forget or await? Better not to block UI.
-        fs.writeFile(localPath, content).catch(e => console.error('Failed to save locally:', e));
-    }
-
     const timeoutId = setTimeout(async () => {
       try {
+        // Save to local FS (if Electron) - Debounced
+        if (state.localDocumentsPath && isElectron() && fs) {
+            const localPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
+            // Fire and forget or await? Await is safer here since we are in async timeout
+            await fs.writeFile(localPath, content).catch(e => console.error('Failed to save locally:', e));
+        }
+
         await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { content });
       } catch (error) {
         console.error('Failed to update note content:', error);
@@ -972,6 +1027,9 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   login: async (email, password) => {
     await account.createEmailPasswordSession(email, password);
     await get().checkAuth();
+    if (!get().isAuthenticated) {
+        throw new Error("Вход выполнен, но проверка сессии не удалась. Возможно, ваш браузер блокирует cookies или домен не добавлен в Appwrite.");
+    }
   },
 
   register: async (email, password, name) => {

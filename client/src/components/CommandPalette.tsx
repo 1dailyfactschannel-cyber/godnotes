@@ -26,13 +26,24 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command"
-import { useFileSystem, ThemeType } from "@/lib/mock-fs"
+import { useFileSystem, ThemeType, compareItems } from "@/lib/mock-fs"
 import { DialogProps } from "@radix-ui/react-dialog"
 import { isHotkeyMatch } from "@/lib/utils"
 
 export function CommandPalette() {
   const [open, setOpen] = React.useState(false)
-  const { items, selectFile, addFile, addFolder, setTheme, theme, hotkeys, activeFileId } = useFileSystem()
+  
+  // Optimized selectors to prevent re-renders on content change
+  const items = useFileSystem(state => state.items, compareItems)
+  const hotkeys = useFileSystem(state => state.hotkeys)
+  const activeFileId = useFileSystem(state => state.activeFileId)
+  
+  // Actions are stable, can be read from state or picked
+  const selectFile = useFileSystem(state => state.selectFile)
+  const addFile = useFileSystem(state => state.addFile)
+  const addFolder = useFileSystem(state => state.addFolder)
+  const setTheme = useFileSystem(state => state.setTheme)
+  const theme = useFileSystem(state => state.theme)
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -55,18 +66,10 @@ export function CommandPalette() {
 
   const getActiveParentId = () => {
     const activeItem = items.find(i => i.id === activeFileId);
-    console.log('[CommandPalette] getActiveParentId - activeFileId:', activeFileId, 'activeItem:', activeItem ? activeItem.name : 'null');
-    
     if (activeItem) {
-      if (activeItem.type === 'folder') {
-          console.log('[CommandPalette] Returning folder id:', activeItem.id);
-          return activeItem.id;
-      } else {
-          console.log('[CommandPalette] Returning parent id:', activeItem.parentId);
-          return activeItem.parentId;
-      }
+      if (activeItem.type === 'folder') return activeItem.id;
+      return activeItem.parentId;
     }
-    console.log('[CommandPalette] Returning null (no active item)');
     return null;
   };
 

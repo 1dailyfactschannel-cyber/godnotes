@@ -11,6 +11,8 @@ import { getStoreValue } from "@/lib/electron";
 const Home = lazy(() => import("@/pages/Home"));
 const Login = lazy(() => import("@/pages/Login"));
 const Profile = lazy(() => import("@/pages/Profile"));
+const CalendarPage = lazy(() => import("@/pages/CalendarPage"));
+const TodoPage = lazy(() => import("@/pages/Todo"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function AppRoutes() {
@@ -31,6 +33,12 @@ function AppRoutes() {
         </Route>
         <Route path="/profile">
           {isAuthenticated ? <Profile /> : <Redirect to="/login" />}
+        </Route>
+        <Route path="/calendar">
+          {isAuthenticated ? <CalendarPage /> : <Redirect to="/login" />}
+        </Route>
+        <Route path="/todo">
+          {isAuthenticated ? <TodoPage /> : <Redirect to="/login" />}
         </Route>
         <Route path="/">
           {isAuthenticated ? <Home /> : <Redirect to="/login" />}

@@ -17,6 +17,8 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight';
+import Highlight from '@tiptap/extension-highlight';
+import { Color } from '@tiptap/extension-color';
 import { common, createLowlight } from 'lowlight';
 import { WikiLinkExtension, WikiLinkList } from '@/lib/tiptap-extensions/wiki-link';
 import { MermaidExtension } from '@/lib/tiptap-extensions/mermaid';
@@ -49,13 +51,16 @@ import {
   Plus,
   Trash2,
   CheckSquare,
-  Folder as FolderIcon
+  Folder as FolderIcon,
+  PaintBucket,
+  Palette
 } from 'lucide-react';
 
 const lowlight = createLowlight(common);
 import { Toggle } from '@/components/ui/toggle';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -179,7 +184,9 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       }),
       Typography,
       TextStyle,
+      Color,
       FontSize,
+      Highlight.configure({ multicolor: true }),
       TaskList,
       TaskItem.configure({
         nested: true,
@@ -595,7 +602,14 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       }
       useFileSystem.setState({ lastCreatedFileId: null });
     } else {
-      editor.commands.focus('end');
+      // Ensure editor is ready and not destroyed before focusing
+      if (editor && !editor.isDestroyed) {
+        try {
+          editor.commands.focus('end');
+        } catch (e) {
+          console.warn('Editor focus failed:', e);
+        }
+      }
     }
   }, [editor, activeFileId, isReadOnly]);
 
@@ -799,6 +813,77 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             >
               <Code className="h-4 w-4" />
             </Toggle>
+            
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn("h-8 w-8 p-0", editor?.getAttributes('textStyle').color ? "bg-accent" : "")}
+                  title="Цвет текста"
+                >
+                  <Palette className="h-4 w-4" style={{ color: editor?.getAttributes('textStyle').color }} />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-2" align="start">
+                <div className="flex gap-1 flex-wrap max-w-[160px]">
+                  {['#000000', '#64748b', '#ef4444', '#f97316', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', 'reset'].map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => {
+                        if (color === 'reset') {
+                          editor?.chain().focus().unsetColor().run();
+                        } else {
+                          editor?.chain().focus().setColor(color).run();
+                        }
+                      }}
+                      className={cn(
+                        "w-6 h-6 rounded border cursor-pointer hover:scale-110 transition-transform",
+                        color === 'reset' ? "bg-background relative after:content-[''] after:absolute after:inset-0 after:m-auto after:w-full after:h-[1px] after:bg-red-500 after:rotate-45" : ""
+                      )}
+                      style={{ backgroundColor: color !== 'reset' ? color : undefined }}
+                      title={color === 'reset' ? "Сбросить цвет" : color}
+                    />
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn("h-8 w-8 p-0", editor?.isActive('highlight') ? "text-yellow-500 bg-accent" : "")}
+                  title="Цвет выделения"
+                >
+                  <PaintBucket className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-2" align="start">
+                <div className="flex gap-1">
+                  {['#fef08a', '#bbf7d0', '#bfdbfe', '#fbcfe8', '#ddd6fe', 'transparent'].map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => {
+                        if (color === 'transparent') {
+                          editor?.chain().focus().unsetHighlight().run();
+                        } else {
+                          editor?.chain().focus().toggleHighlight({ color }).run();
+                        }
+                      }}
+                      className={cn(
+                        "w-6 h-6 rounded border cursor-pointer hover:scale-110 transition-transform",
+                        color === 'transparent' ? "bg-background relative after:content-[''] after:absolute after:inset-0 after:m-auto after:w-full after:h-[1px] after:bg-red-500 after:rotate-45" : ""
+                      )}
+                      style={{ backgroundColor: color !== 'transparent' ? color : undefined }}
+                      title={color === 'transparent' ? "Убрать выделение" : color}
+                    />
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('link') || isLinkEditing} 

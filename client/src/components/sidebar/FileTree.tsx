@@ -19,7 +19,7 @@ import {
   Check, 
   CloudDownload 
 } from 'lucide-react';
-import { useFileSystem, FileSystemItem, SortOrder } from '@/lib/mock-fs';
+import { useFileSystem, FileSystemItem, SortOrder, compareItems } from '@/lib/mock-fs';
 import { cn } from '@/lib/utils';
 import { TagsDialog } from '@/components/tags/TagsDialog';
 import {
@@ -214,10 +214,13 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
 }
 
 const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, level: number, onOpenTags: () => void }) => {
+  const expandedFolders = useFileSystem(state => state.expandedFolders);
+  const activeFileId = useFileSystem(state => state.activeFileId);
+  const lastCreatedFolderId = useFileSystem(state => state.lastCreatedFolderId);
+  const lastCreatedFileId = useFileSystem(state => state.lastCreatedFileId);
+
   const { 
-    expandedFolders, 
     toggleFolder, 
-    activeFileId, 
     selectFile, 
     deleteItem, 
     addFile, 
@@ -226,10 +229,8 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
     togglePin, 
     toggleFavorite, 
     moveItem, 
-    lastCreatedFolderId, 
-    lastCreatedFileId, 
     fetchContent 
-  } = useFileSystem();
+  } = useFileSystem.getState();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(item.name);
