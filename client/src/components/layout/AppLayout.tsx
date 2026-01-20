@@ -1,5 +1,5 @@
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useLocation } from "wouter";
 import { selectDirectory, getStoreValue, setStoreValue } from '@/lib/electron';
 import { useToast } from '@/hooks/use-toast';
@@ -14,7 +14,7 @@ import { CommandPalette } from '@/components/CommandPalette';
 import { FileTree } from '@/components/sidebar/FileTree';
 import { FavoritesDialog } from '@/components/favorites/FavoritesDialog';
 import { UserProfileDialog } from '@/components/user/UserProfileDialog';
-import TiptapEditor from '@/components/editor/TiptapEditor';
+const TiptapEditor = lazy(() => import('@/components/editor/TiptapEditor'));
 import { Search, Hash, ChevronRight, Minimize2, Square, X, Settings, Check, Clock, Star, Trash2, Sidebar, BookOpen, PenLine, FolderOpen, Plus, CheckCircle2, User, ChevronsUpDown, PanelLeft } from 'lucide-react';
 import { useFileSystem, ThemeType } from '@/lib/mock-fs';
 import { cn } from '@/lib/utils';
@@ -522,7 +522,9 @@ export default function AppLayout() {
               </div>
             )}
             <div className="flex-1 overflow-hidden">
-              <TiptapEditor isReadOnly={isReadOnly} searchTerm={searchHighlight} />
+              <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">Загрузка редактора...</div>}>
+                <TiptapEditor isReadOnly={isReadOnly} searchTerm={searchHighlight} />
+              </Suspense>
             </div>
           </div>
         </ResizablePanel>

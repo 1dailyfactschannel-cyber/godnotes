@@ -1,25 +1,23 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
 import { 
   ChevronRight, 
   ChevronDown, 
   File, 
   Folder, 
   FolderOpen, 
-  Plus, 
+  FilePlus, 
+  FolderPlus, 
+  Pin, 
+  PinOff, 
   MoreHorizontal, 
   Trash2, 
-  Edit2,
-  FilePlus,
-  FolderPlus,
-  Pin,
-  PinOff,
-  GripVertical,
-  Star,
-  StarOff,
-  Tag,
-  ArrowUpDown,
-  Check,
-  CloudDownload
+  Edit2, 
+  Star, 
+  StarOff, 
+  Tag, 
+  ArrowUpDown, 
+  Check, 
+  CloudDownload 
 } from 'lucide-react';
 import { useFileSystem, FileSystemItem, SortOrder } from '@/lib/mock-fs';
 import { cn } from '@/lib/utils';
@@ -38,6 +36,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Button } from '@/components/ui/button';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 
 function getSortFunction(order: SortOrder) {
   return (a: FileSystemItem, b: FileSystemItem) => {
@@ -63,35 +62,68 @@ function getSortFunction(order: SortOrder) {
   };
 }
 
+// Flatten the tree into a list of visible items
+const useVisibleItems = (
+  items: FileSystemItem[], 
+  expandedFolders: Set<string>, 
+  sortOrder: SortOrder, 
+  isSearch: boolean
+) => {
+  return useMemo(() => {
+    if (isSearch) {
+      return items.map(item => ({ item, level: 0 }));
+    }
+
+    const result: { item: FileSystemItem; level: number }[] = [];
+    const getChildren = (parentId: string | null) => 
+      items.filter(i => i.parentId === parentId).sort(getSortFunction(sortOrder));
+
+    const traverse = (parentId: string | null, level: number) => {
+      const children = getChildren(parentId);
+      for (const child of children) {
+        result.push({ item: child, level });
+        if (child.type === 'folder' && expandedFolders.has(child.id)) {
+          traverse(child.id, level + 1);
+        }
+      }
+    };
+
+    traverse(null, 0);
+    return result;
+  }, [items, expandedFolders, sortOrder, isSearch]);
+};
+
 export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
-  // Select items directly from the store to ensure reactivity if propItems is not provided
   const storeItems = useFileSystem(state => state.items);
-  const { addFile, addFolder, moveItem, sortOrder, setSortOrder, downloadAllFiles, activeFileId } = useFileSystem();
+  const expandedFolders = useFileSystem(state => state.expandedFolders);
+  const sortOrder = useFileSystem(state => state.sortOrder);
+  const { addFile, addFolder, moveItem, setSortOrder, downloadAllFiles, activeFileId, lastCreatedFileId, lastCreatedFolderId } = useFileSystem();
+  const [taggingItemId, setTaggingItemId] = useState<string | null>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   
   const items = propItems || storeItems;
   const isSearch = !!propItems;
 
-  // Log items length on every render to verify if store update reached the component
-  // console.log(`[FileTree] Render. Items count: ${items.length}. IsSearch: ${isSearch}`);
+  const visibleItems = useVisibleItems(items, expandedFolders, sortOrder, isSearch);
 
-  const rootItems = items
-    .filter(i => !i.parentId)
-    .sort(getSortFunction(sortOrder));
+  // Auto-scroll to newly created item
+  useEffect(() => {
+    if (lastCreatedFileId || lastCreatedFolderId) {
+      const idToFind = lastCreatedFileId || lastCreatedFolderId;
+      const index = visibleItems.findIndex(x => x.item.id === idToFind);
+      if (index !== -1 && virtuosoRef.current) {
+        virtuosoRef.current.scrollToIndex({ index, align: 'center' });
+      }
+    }
+  }, [lastCreatedFileId, lastCreatedFolderId, visibleItems]);
 
   const handleCreateFile = () => {
     const state = useFileSystem.getState();
     const activeItem = state.items.find(i => i.id === state.activeFileId);
-    
     let parentId = null;
-
     if (activeItem) {
-      if (activeItem.type === 'folder') {
-        parentId = activeItem.id;
-      } else {
-        parentId = activeItem.parentId;
-      }
+      parentId = activeItem.type === 'folder' ? activeItem.id : activeItem.parentId;
     }
-    
     addFile(parentId);
   };
 
@@ -99,11 +131,7 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
     const activeItem = storeItems.find(i => i.id === activeFileId);
     let parentId = null;
     if (activeItem) {
-      if (activeItem.type === 'folder') {
-        parentId = activeItem.id;
-      } else {
-        parentId = activeItem.parentId;
-      }
+      parentId = activeItem.type === 'folder' ? activeItem.id : activeItem.parentId;
     }
     addFolder(parentId);
   };
@@ -125,7 +153,7 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      <div className="p-2 flex items-center justify-between group">
+      <div className="p-2 flex items-center justify-between group shrink-0">
         <span className="text-[10px] font-bold text-muted-foreground px-2 uppercase tracking-widest">Файлы</span>
         <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
           <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={handleCreateFile} title="Новая заметка">
@@ -160,31 +188,87 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
           </DropdownMenu>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-2 pb-4">
-        {rootItems.map(item => (
-          <FileTreeItem key={item.id} item={item} level={0} isSearch={isSearch} />
-        ))}
+      
+      <div className="flex-1 overflow-hidden px-2 pb-4">
+        <Virtuoso
+          ref={virtuosoRef}
+          data={visibleItems}
+          computeItemKey={(index, item) => item.item.id}
+          itemContent={(index, { item, level }) => (
+            <FileTreeRow 
+              item={item} 
+              level={level} 
+              onOpenTags={() => setTaggingItemId(item.id)}
+            />
+          )}
+        />
       </div>
+      
+      <TagsDialog 
+        itemId={taggingItemId || ''} 
+        open={!!taggingItemId} 
+        onOpenChange={(open) => !open && setTaggingItemId(null)} 
+      />
     </div>
   );
 }
 
-function FileTreeItem({ item, level, isSearch }: { item: FileSystemItem, level: number, isSearch: boolean }) {
-  const { items: allItems } = useFileSystem(); // ALWAYS use full store items for children lookup
-  const { expandedFolders, toggleFolder, activeFileId, selectFile, deleteItem, addFile, addFolder, renameItem, togglePin, toggleFavorite, moveItem, lastCreatedFolderId, lastCreatedFileId, sortOrder, fetchContent } = useFileSystem();
-  const [isEditing, setIsEditing] = useState(
-    (item.type === 'folder' && item.id === lastCreatedFolderId) || 
-    (item.type === 'file' && item.id === lastCreatedFileId)
-  );
-  const [isTagsOpen, setIsTagsOpen] = useState(false);
+const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, level: number, onOpenTags: () => void }) => {
+  const { 
+    expandedFolders, 
+    toggleFolder, 
+    activeFileId, 
+    selectFile, 
+    deleteItem, 
+    addFile, 
+    addFolder, 
+    renameItem, 
+    togglePin, 
+    toggleFavorite, 
+    moveItem, 
+    lastCreatedFolderId, 
+    lastCreatedFileId, 
+    fetchContent 
+  } = useFileSystem();
+
+  const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(item.name);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Sync editName when item name changes (e.g. from external update)
+  useEffect(() => {
+    if (!isEditing) {
+      setEditName(item.name);
+    }
+  }, [item.name, isEditing]);
+
+  // Handle auto-edit for new items
+  useEffect(() => {
+    const isNewFolder = item.type === 'folder' && item.id === lastCreatedFolderId;
+    const isNewFile = item.type === 'file' && item.id === lastCreatedFileId;
+    
+    if (isNewFolder || isNewFile) {
+      setIsEditing(true);
+      setEditName(item.name);
+      
+      // Clear the "last created" flag immediately to prevent re-triggering
+      if (isNewFolder) useFileSystem.setState({ lastCreatedFolderId: null });
+      if (isNewFile) useFileSystem.setState({ lastCreatedFileId: null });
+      
+      // We use a small timeout to ensure focus happens
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      }, 50);
+    }
+  }, [item.id, item.type, item.name, lastCreatedFolderId, lastCreatedFileId]);
+
   const isExpanded = expandedFolders.has(item.id);
   const isActive = activeFileId === item.id;
-  
   const isNotLoaded = item.type === 'file' && item.content === undefined;
 
   const handleManualDownload = async (e: React.MouseEvent) => {
@@ -200,12 +284,6 @@ function FileTreeItem({ item, level, isSearch }: { item: FileSystemItem, level: 
       setIsDownloading(false);
     }
   };
-  
-  const children = isSearch ? [] : allItems
-    .filter(i => {
-       return i.parentId === item.id;
-    })
-    .sort(getSortFunction(sortOrder));
 
   const handleRename = () => {
     if (editName.trim()) {
@@ -227,7 +305,6 @@ function FileTreeItem({ item, level, isSearch }: { item: FileSystemItem, level: 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('text/plain', item.id);
     e.dataTransfer.effectAllowed = 'move';
-    // Add a visual preview if needed, but default is fine
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -256,18 +333,16 @@ function FileTreeItem({ item, level, isSearch }: { item: FileSystemItem, level: 
     if (isEditing) {
       if (inputRef.current) {
         inputRef.current.focus();
-        inputRef.current.select();
-      }
-      if (item.type === 'folder' && item.id === lastCreatedFolderId) {
-        useFileSystem.setState({ lastCreatedFolderId: null });
-      }
-      if (item.type === 'file' && item.id === lastCreatedFileId) {
-        useFileSystem.setState({ lastCreatedFileId: null });
+        // Only select if it's not currently focused (prevent re-selection loops)
+        if (document.activeElement !== inputRef.current) {
+           inputRef.current.select();
+        }
       }
     }
-  }, [item.id, item.type, lastCreatedFolderId, lastCreatedFileId, isEditing]);
+  }, [isEditing]);
 
-  const itemContent = (
+  return (
+    <div className="py-0.5">
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div 
@@ -277,7 +352,7 @@ function FileTreeItem({ item, level, isSearch }: { item: FileSystemItem, level: 
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={cn(
-            "group flex items-center justify-between py-1 px-2 rounded-sm cursor-pointer transition-all text-sm mb-0.5",
+            "group flex items-center justify-between py-1 px-2 rounded-sm cursor-pointer transition-all text-sm",
             isActive 
               ? "bg-primary/20 text-primary-foreground" 
               : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
@@ -285,7 +360,6 @@ function FileTreeItem({ item, level, isSearch }: { item: FileSystemItem, level: 
           )}
           style={{ paddingLeft: `${level * 12 + (item.type === 'folder' ? 4 : 20)}px` }}
           onClick={(e) => {
-            // Only toggle/select if clicking the item content, not if clicking children container (which shouldn't bubble here anyway)
             if (item.type === 'folder') {
               toggleFolder(item.id);
               selectFile(item.id);
@@ -294,8 +368,6 @@ function FileTreeItem({ item, level, isSearch }: { item: FileSystemItem, level: 
             }
           }}
           onContextMenu={(e) => {
-            // Prevent default context menu and select the file if it's not selected
-            // e.preventDefault(); // handled by ContextMenuTrigger
             if (!isActive) {
               selectFile(item.id);
             }
@@ -393,7 +465,7 @@ function FileTreeItem({ item, level, isSearch }: { item: FileSystemItem, level: 
                     {item.isFavorite ? <StarOff className="mr-2 h-4 w-4" /> : <Star className="mr-2 h-4 w-4" />}
                     {item.isFavorite ? 'Убрать из избранного' : 'В избранное'}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setIsTagsOpen(true)}>
+                <DropdownMenuItem onClick={onOpenTags}>
                   <Tag className="mr-2 h-4 w-4" /> Теги
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsEditing(true)}>
@@ -433,7 +505,7 @@ function FileTreeItem({ item, level, isSearch }: { item: FileSystemItem, level: 
             {item.isFavorite ? <StarOff className="mr-2 h-4 w-4" /> : <Star className="mr-2 h-4 w-4" />}
             {item.isFavorite ? 'Убрать из избранного' : 'В избранное'}
         </ContextMenuItem>
-        <ContextMenuItem onClick={() => setIsTagsOpen(true)}>
+        <ContextMenuItem onClick={onOpenTags}>
             <Tag className="mr-2 h-4 w-4" /> Теги
         </ContextMenuItem>
         <ContextMenuSeparator />
@@ -445,19 +517,6 @@ function FileTreeItem({ item, level, isSearch }: { item: FileSystemItem, level: 
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
-  );
-
-  return (
-    <div>
-      {itemContent}
-      <TagsDialog itemId={item.id} open={isTagsOpen} onOpenChange={setIsTagsOpen} />
-      {item.type === 'folder' && isExpanded && (
-        <div>
-          {children.map(child => (
-            <FileTreeItem key={child.id} item={child} level={level + 1} isSearch={isSearch} />
-          ))}
-        </div>
-      )}
     </div>
   );
-}
+});
