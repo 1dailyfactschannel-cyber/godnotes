@@ -5,3 +5,7 @@ server/public
 vite.config.ts.*
 *.tar.gz
 .env
+dist-electron
+uploads
+.sessions.json
+.storage-config.json

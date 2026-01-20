@@ -1,6 +1,6 @@
 import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage, setStoragePath } from "./storage";
 import {
   insertUserSchema,
   insertFolderSchema,
@@ -24,7 +24,7 @@ export async function registerRoutes(
   // use storage to perform CRUD operations on the storage interface
   // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
 
-  const uploadDir = path.resolve(import.meta.dirname, "..", "uploads");
+  const uploadDir = path.resolve(process.cwd(), "uploads");
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
   }
@@ -41,14 +41,11 @@ export async function registerRoutes(
       },
     }),
     fileFilter: (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
-      if (file.mimetype.startsWith("image/")) {
-        cb(null, true);
-      } else {
-        cb(null, false);
-      }
+      // Allow all files
+      cb(null, true);
     },
     limits: {
-      fileSize: 20 * 1024 * 1024,
+      fileSize: 50 * 1024 * 1024,
     },
   });
 
@@ -60,7 +57,7 @@ export async function registerRoutes(
         if (err.code === "LIMIT_FILE_SIZE") {
           res
             .status(413)
-            .json({ message: "Файл слишком большой. Максимальный размер 20 МБ" });
+            .json({ message: "Файл слишком большой. Максимальный размер 50 МБ" });
           return;
         }
         res
@@ -88,21 +85,112 @@ export async function registerRoutes(
   });
 
   app.get("/api/db/health", async (_req, res) => {
-    const backend = storage.constructor.name;
+    const backend = (storage as any).current?.constructor.name || storage.constructor.name;
     res.json({ ok: true, backend });
   });
 
+  app.post("/api/config/storage-path", async (req, res) => {
+    const { path } = req.body;
+    if (path && typeof path === 'string') {
+      try {
+        // 1. Get current user before switching storage
+        let userId = req.session.userId;
+        let currentUser;
+        if (userId) {
+           console.log(`[SwitchStorage] Current session userId: ${userId}`);
+           currentUser = await storage.getUser(userId);
+           
+           // Auto-adopt if missing
+           if (!currentUser) {
+               console.log(`[SwitchStorage] User ${userId} not found. Attempting auto-adopt before switch...`);
+               const allUsers = await storage.listUsers();
+               if (allUsers.length === 1) {
+                   currentUser = allUsers[0];
+                   console.log(`[SwitchStorage] Auto-adopted single user: ${currentUser.username} (${currentUser.id})`);
+                   // Update session for future
+                   req.session.userId = currentUser.id;
+               }
+           }
+
+           if (currentUser) {
+             console.log(`[SwitchStorage] Found current user: ${currentUser.username} (${currentUser.id})`);
+           } else {
+             console.log(`[SwitchStorage] User not found in current storage!`);
+           }
+        } else {
+           console.log(`[SwitchStorage] No userId in session`);
+        }
+
+        console.log(`Setting storage path to: ${path}`);
+        await setStoragePath(path, currentUser);
+
+        // Verify migration
+        if (currentUser) {
+           const userInNewStorage = await storage.getUser(currentUser.id);
+           if (userInNewStorage) {
+               console.log(`[SwitchStorage] Migration verified. User exists in new storage.`);
+           } else {
+               console.error(`[SwitchStorage] Migration FAILED. User not found after switch!`);
+           }
+        }
+
+        res.json({ ok: true, path });
+      } catch (err) {
+        console.error("Failed to set storage path:", err);
+        res.status(500).json({ message: "Failed to set storage path" });
+      }
+    } else {
+      res.status(400).json({ message: "Invalid path" });
+    }
+  });
+
   app.get("/api/auth/me", async (req, res) => {
-    const userId = req.session.userId;
+    let userId = req.session.userId;
     if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
+      // Try auto-adopt logic if no session (optional, but mainly for when session exists but user is wrong)
+      // Actually, if no session, we just return 401 usually.
+      // But let's check if there is exactly one user in the DB and we are in "local" mode.
+      // For now, adhere to standard flow: no session -> 401.
+      // console.log("[Auth] No userId in session");
+      res.status(401).json({ message: "Unauthorized: No session" });
       return;
     }
-    const user = await storage.getUser(userId);
+
+    let user = await storage.getUser(userId);
+    
+    // Auto-adopt logic: If session user is invalid, but there is exactly one user in storage, use that one.
     if (!user) {
-      res.status(401).json({ message: "Unauthorized" });
+        console.log(`[Auth] User ${userId} not found. Attempting auto-adopt...`);
+        const allUsers = await storage.listUsers();
+        if (allUsers.length === 1) {
+            user = allUsers[0];
+            console.log(`[Auth] Auto-adopted single user: ${user.username} (${user.id})`);
+            req.session.userId = user.id; // Update session
+            userId = user.id;
+        }
+    }
+
+    if (!user) {
+      console.log(`[Auth] User ${userId} not found in current storage. Storage type: ${storage.current.constructor.name}`);
+      // Debug: Check if any users exist
+      // @ts-ignore
+      const availableUsers = storage.current.users ? Array.from(storage.current.users.keys()) : [];
+      // @ts-ignore
+      console.log(`[Auth] Available users in storage: ${availableUsers.join(', ')}`);
+      
+      res.status(401).json({ 
+          message: "Unauthorized: User not found", 
+          details: {
+              userId,
+              storageType: storage.current.constructor.name,
+              availableUsersCount: availableUsers.length,
+              // Only include IDs for debug, avoiding personal info leakage if possible, but here IDs are UUIDs
+              availableUsers
+          }
+      });
       return;
     }
+
     res.json({ id: user.id, username: user.username, name: user.name });
   });
 
@@ -281,6 +369,7 @@ export async function registerRoutes(
         title: parsed.title,
         content: parsed.content ?? "",
         folderId: parsed.folderId ?? null,
+        isFavorite: parsed.isFavorite ?? false,
       });
       res.status(201).json(note);
     } catch (err) {
@@ -379,6 +468,88 @@ export async function registerRoutes(
       return;
     }
     res.json(user);
+  });
+
+  app.get("/api/trash", async (req, res) => {
+    const userId = req.session.userId;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    console.log(`[API] GET /api/trash for user ${userId}`);
+    const trash = await storage.getTrash(userId);
+    console.log(`[API] Found trash: ${trash.folders.length} folders, ${trash.notes.length} notes`);
+    res.json(trash);
+  });
+
+  app.get("/api/favorites", async (req, res) => {
+    const userId = req.session.userId;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    const favorites = await storage.getFavorites(userId);
+    res.json(favorites);
+  });
+
+  app.post("/api/trash/restore/folder/:id", async (req, res) => {
+    const userId = req.session.userId;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    const folder = await storage.getFolder(req.params.id);
+    if (!folder || folder.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+    }
+    await storage.restoreFolder(req.params.id);
+    res.status(200).json({ message: "Restored" });
+  });
+
+  app.post("/api/trash/restore/note/:id", async (req, res) => {
+    const userId = req.session.userId;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    const note = await storage.getNote(req.params.id);
+    if (!note || note.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+    }
+    await storage.restoreNote(req.params.id);
+    res.status(200).json({ message: "Restored" });
+  });
+
+  app.delete("/api/trash/folder/:id", async (req, res) => {
+    const userId = req.session.userId;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    const folder = await storage.getFolder(req.params.id);
+    if (!folder || folder.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+    }
+    await storage.permanentDeleteFolder(req.params.id);
+    res.status(204).end();
+  });
+
+  app.delete("/api/trash/note/:id", async (req, res) => {
+    const userId = req.session.userId;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    const note = await storage.getNote(req.params.id);
+    if (!note || note.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+    }
+    await storage.permanentDeleteNote(req.params.id);
+    res.status(204).end();
   });
 
   return httpServer;

@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { apiRequest } from '@/lib/queryClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useFileSystem } from '@/lib/mock-fs';
@@ -9,37 +8,13 @@ import { ArrowLeft, LogOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function Profile() {
-  const { theme, logout } = useFileSystem();
-  const [user, setUser] = useState<{ id: string; username: string; name?: string | null } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { theme, logout, user } = useFileSystem();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const res = await apiRequest("GET", "/api/auth/me");
-        if (res.ok) {
-            const userData = await res.json();
-            setUser(userData);
-        } else {
-            // If unauthorized or other error
-            throw new Error("Failed to fetch user");
-        }
-      } catch (err) {
-        console.error("Failed to fetch user data", err);
-        // If unauthorized, redirect to login is handled by App.tsx router usually, but we can double check
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchUser();
-  }, []);
-
   const handleLogout = async () => {
     try {
-      await apiRequest("POST", "/api/auth/logout");
-      logout(); // Update local state
+      await logout();
       setLocation("/login");
     } catch (err) {
       toast({
@@ -51,10 +26,6 @@ export default function Profile() {
   };
 
   const themeClass = theme === 'obsidian-dark' ? '' : `theme-${theme}`;
-
-  if (isLoading) {
-    return <div className={cn("h-screen w-full flex items-center justify-center text-foreground", themeClass)}>Загрузка...</div>;
-  }
 
   if (!user) {
     return (
@@ -92,7 +63,7 @@ export default function Profile() {
                 </div>
                 <div className="space-y-2">
                     <label className="text-sm text-muted-foreground font-medium">Email</label>
-                    <div className="bg-background/50 p-3 rounded-md font-mono text-sm border border-border/50">{user.username}</div>
+                    <div className="bg-background/50 p-3 rounded-md font-mono text-sm border border-border/50">{user.email}</div>
                 </div>
                 </CardContent>
             </Card>

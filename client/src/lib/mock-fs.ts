@@ -1,10 +1,14 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { apiRequest } from '@/lib/queryClient';
+import { account, databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
+import { ID, Query, Permission, Role, Models } from 'appwrite';
+import { fs, getDocumentsPath, isElectron, selectDirectory, getStoreValue, setStoreValue } from './electron';
 
 const saveTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
 export type ThemeType = 'obsidian-dark' | 'midnight-blue' | 'graphite' | 'light-mode';
+
+export type SortOrder = 'name-asc' | 'name-desc' | 'date-newest' | 'date-oldest';
 
 export type FileSystemItem = {
   id: string;
@@ -13,128 +17,409 @@ export type FileSystemItem = {
   parentId: string | null;
   content?: string;
   createdAt: number;
+  updatedAt?: number;
   isPinned?: boolean;
+  isFavorite?: boolean;
+  tags?: string[];
 };
+
+export type User = Models.User<Models.Preferences>;
 
 interface FileSystemState {
   items: FileSystemItem[];
+  trashItems: FileSystemItem[];
   activeFileId: string | null;
+  openFiles: string[];
   expandedFolders: Set<string>;
   lastCreatedFileId: string | null;
   lastCreatedFolderId: string | null;
   searchQuery: string;
+  sortOrder: SortOrder;
   theme: ThemeType;
   isAuthenticated: boolean;
   isAuthChecking: boolean;
+  user: User | null;
+  hotkeys: Record<string, string>;
+  localDocumentsPath: string | null;
+  syncManifest: Record<string, number>;
+  syncInterval: NodeJS.Timeout | null;
   
+  initLocalFs: () => Promise<void>;
   fetchFolders: () => Promise<void>;
   fetchNotes: () => Promise<void>;
+  fetchTrash: () => Promise<void>;
   checkAuth: () => Promise<void>;
-  addFile: (parentId: string | null, name?: string) => void;
+  addFile: (parentId: string | null, name?: string) => Promise<void>;
   addFolder: (parentId: string | null, name?: string) => Promise<void>;
   deleteItem: (id: string) => Promise<void>;
+  restoreItem: (id: string) => Promise<void>;
+  permanentDeleteItem: (id: string) => Promise<void>;
   renameItem: (id: string, newName: string) => Promise<void>;
   updateFileContent: (id: string, content: string) => void;
+  loadFileContent: (id: string, content: string) => void;
   selectFile: (id: string) => void;
+  closeFile: (id: string) => void;
+  closeAllFiles: () => void;
   toggleFolder: (id: string) => void;
   setSearchQuery: (query: string) => void;
+  setSortOrder: (order: SortOrder) => void;
   setTheme: (theme: ThemeType) => void;
-  login: () => void;
-  logout: () => void;
+  setHotkey: (action: string, key: string) => void;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, name: string) => Promise<void>;
+  logout: () => Promise<void>;
   togglePin: (id: string) => void;
+  toggleFavorite: (id: string) => Promise<void>;
+  updateTags: (id: string, tags: string[]) => Promise<void>;
   moveItem: (id: string, newParentId: string | null) => Promise<void>;
+  downloadAllFiles: () => Promise<void>;
+  fetchContent: (id: string) => Promise<void>;
+  loadSyncManifest: () => Promise<void>;
+  saveSyncManifest: () => Promise<void>;
+  startPeriodicSync: () => void;
+  stopPeriodicSync: () => void;
+  syncBackground: () => Promise<void>;
 }
 
 const initialItems: FileSystemItem[] = [
-  { id: '3', name: 'Мой дневник', type: 'file', parentId: '1', content: '<h1>Мой дневник</h1><p>Сегодня был отличный день. Я начал работу над новым проектом.</p>', createdAt: Date.now() },
-  { id: '4', name: 'Идеи проектов', type: 'file', parentId: '2', content: '<h1>Идеи проектов</h1><ul><li>Собрать клон Obsidian</li><li>Изучить Rust</li><li>Пойти на пробежку</li></ul>', createdAt: Date.now() },
-  { id: '5', name: 'Добро пожаловать', type: 'file', parentId: null, content: '<h1>Добро пожаловать в заметки</h1><p>Это простой клон Obsidian. Вы можете создавать папки, файлы и писать в Markdown.</p><h2>Возможности</h2><ul><li>Полноценный текстовый редактор</li><li>Папки и вложенные файлы</li><li>Темная тема по умолчанию</li><li>Быстрый поиск</li></ul>', createdAt: Date.now(), isPinned: true },
+  { id: '5', name: 'Добро пожаловать', type: 'file', parentId: null, content: '<h1>Добро пожаловать в заметки</h1><p>Это Godnotes. Вы можете создавать папки, файлы и писать в Markdown.</p><h2>Возможности</h2><ul><li>Полноценный текстовый редактор</li><li>Папки и вложенные файлы</li><li>Темная тема по умолчанию</li><li>Быстрый поиск</li></ul>', createdAt: Date.now(), updatedAt: Date.now(), isPinned: true },
 ];
 
 export const useFileSystem = create<FileSystemState>((set, get) => ({
   items: initialItems,
+  trashItems: [],
   activeFileId: '5',
+  openFiles: ['5'],
   expandedFolders: new Set(),
   lastCreatedFileId: null,
-   lastCreatedFolderId: null,
+  lastCreatedFolderId: null,
   searchQuery: '',
+  sortOrder: 'name-asc',
   theme: 'obsidian-dark',
   isAuthenticated: false,
-   isAuthChecking: false,
+  isAuthChecking: true,
+  user: null,
+  localDocumentsPath: null,
+  syncManifest: {},
+  syncInterval: null,
+  hotkeys: (() => {
+    try {
+      const saved = localStorage.getItem('hotkeys');
+      return saved ? JSON.parse(saved) : {
+        commandPalette: 'Ctrl+K',
+        bold: 'Ctrl+B',
+        italic: 'Ctrl+I',
+        link: 'Ctrl+K',
+        taskList: 'Ctrl+Shift+9'
+      };
+    } catch {
+      return {
+        commandPalette: 'Ctrl+K',
+        bold: 'Ctrl+B',
+        italic: 'Ctrl+I',
+        link: 'Ctrl+K',
+        taskList: 'Ctrl+Shift+9'
+      };
+    }
+  })(),
+
+  initLocalFs: async () => {
+    if (isElectron()) {
+      let path = await getStoreValue('storagePath');
+
+      if (!path) {
+        // Check if default path has data, to support existing users
+        const defaultPath = await getDocumentsPath();
+        if (defaultPath) {
+          const godnotesPath = `${defaultPath}/GodNotes`;
+          const exists = await fs?.exists(godnotesPath);
+          if (exists) {
+            path = defaultPath;
+            await setStoreValue('storagePath', path);
+          }
+        }
+      }
+
+      if (path) {
+        set({ localDocumentsPath: path });
+        // Ensure godnotes directory exists
+        const godnotesPath = `${path}/GodNotes`;
+        const exists = await fs?.exists(godnotesPath);
+        if (!exists && fs) {
+            // We need mkdir but our current API only has writeFile/readFile/exists/deleteFile
+            // However, fs-write-file in main.js handles mkdir recursive.
+            // So we can just write a dummy file or wait until first write.
+        }
+      } else {
+        set({ localDocumentsPath: null });
+      }
+    }
+  },
 
   fetchFolders: async () => {
+    const user = get().user;
+    if (!user) return;
+
     try {
-      const res = await apiRequest('GET', '/api/folders');
-      if (res.ok) {
-        const folders: any[] = await res.json();
-        const folderItems: FileSystemItem[] = folders.map(f => ({
-          id: f.id,
+      const res = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.FOLDERS,
+        [Query.equal('userId', user.$id), Query.limit(1000)]
+      );
+
+      const folderItems: FileSystemItem[] = res.documents
+        .map((f: any) => ({
+          id: f.$id,
           name: f.name,
           type: 'folder',
-          parentId: f.parentId,
-          createdAt: new Date(f.createdAt).getTime(),
-        }));
-        
-        set(state => {
-          return {
-            items: [...state.items.filter(i => i.type === 'file'), ...folderItems],
-            expandedFolders: new Set([...Array.from(state.expandedFolders), ...folderItems.map(f => f.id)])
-          };
-        });
-      }
+          parentId: f.parentId || null,
+          createdAt: new Date(f.$createdAt).getTime(),
+          isFavorite: f.isFavorite,
+          tags: f.tags || [],
+        }))
+        .filter(item => !item.tags?.some(t => t.startsWith('deleted:')));
+      
+      set(state => {
+        return {
+          items: [...state.items.filter(i => i.type === 'file'), ...folderItems],
+          expandedFolders: new Set([...Array.from(state.expandedFolders), ...folderItems.map(f => f.id)])
+        };
+      });
     } catch (error) {
       console.error('Failed to fetch folders:', error);
     }
   },
 
   fetchNotes: async () => {
+    const user = get().user;
+    if (!user) return;
+
     try {
-      const res = await apiRequest('GET', '/api/notes');
-      if (res.ok) {
-        const notes: any[] = await res.json();
-        const fileItems: FileSystemItem[] = notes.map(n => ({
-          id: n.id,
+      const res = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.NOTES,
+        [
+          Query.equal('userId', user.$id), 
+          Query.limit(1000),
+          Query.select(['$id', 'title', 'folderId', '$createdAt', 'isFavorite', 'tags'])
+        ]
+      );
+
+
+      const fileItems: FileSystemItem[] = res.documents
+        .map((n: any) => ({
+          id: n.$id,
           name: n.title,
           type: 'file',
-          parentId: n.folderId,
-          content: n.content,
-          createdAt: new Date(n.createdAt).getTime(),
-        }));
-        set(state => {
-          const folders = state.items.filter(i => i.type === 'folder');
-          return {
-            items: [...fileItems, ...folders],
-            activeFileId: state.activeFileId && fileItems.find(f => f.id === state.activeFileId)
-              ? state.activeFileId
-              : fileItems[0]?.id ?? null,
-          };
-        });
-      }
+          parentId: n.folderId || null,
+          content: undefined, // Content is loaded lazily on open
+          createdAt: new Date(n.$createdAt).getTime(),
+          isFavorite: n.isFavorite,
+          tags: n.tags || [],
+        }))
+        .filter(item => !item.tags?.some((t: string) => t.startsWith('deleted:')));
+
+      set(state => {
+        const folders = state.items.filter(i => i.type === 'folder');
+        
+        // Remove duplicates from fileItems if any (based on ID)
+        const uniqueFileItems = Array.from(new Map(fileItems.map(item => [item.id, item])).values());
+        
+        // Ensure we don't have files in folders list (already filtered by type)
+        // Merge: unique files from Appwrite + existing folders
+        const allItems = [...uniqueFileItems, ...folders];
+        
+        // Log if we found duplicates during merge (debug only)
+        if (fileItems.length !== uniqueFileItems.length) {
+             console.warn('[fetchNotes] Duplicates found in Appwrite response!', fileItems.length - uniqueFileItems.length);
+        }
+
+        // Check if active file is still valid (in new files list OR existing folders list)
+        // This prevents activeFileId from being reset when a folder is selected
+        const isActiveValid = state.activeFileId && allItems.some(i => i.id === state.activeFileId);
+
+        return {
+          items: allItems,
+          activeFileId: isActiveValid
+            ? state.activeFileId
+            : uniqueFileItems[0]?.id ?? null,
+        };
+      });
     } catch (error) {
       console.error('Failed to fetch notes:', error);
+    }
+  },
+
+  fetchTrash: async () => {
+    const user = get().user;
+    if (!user) return;
+
+    try {
+      const [foldersRes, notesRes] = await Promise.all([
+        databases.listDocuments(
+          DATABASE_ID,
+          COLLECTIONS.FOLDERS,
+          [Query.equal('userId', user.$id), Query.limit(1000)]
+        ),
+        databases.listDocuments(
+          DATABASE_ID,
+          COLLECTIONS.NOTES,
+          [
+            Query.equal('userId', user.$id), 
+            Query.limit(1000),
+            Query.select(['$id', 'title', 'folderId', '$createdAt', 'isFavorite', 'tags'])
+          ]
+        )
+      ]);
+
+      const trashFolders = foldersRes.documents
+        .map((f: any) => ({
+          id: f.$id,
+          name: f.name,
+          type: 'folder' as const,
+          parentId: f.parentId || null,
+          createdAt: new Date(f.$createdAt).getTime(),
+          isFavorite: f.isFavorite,
+          tags: f.tags || [],
+        }))
+        .filter(item => item.tags?.some((t: string) => t.startsWith('deleted:')));
+
+      const trashNotes = notesRes.documents
+        .map((n: any) => ({
+          id: n.$id,
+          name: n.title,
+          type: 'file' as const,
+          parentId: n.folderId || null,
+          content: undefined, // Content is loaded lazily
+          createdAt: new Date(n.$createdAt).getTime(),
+          isFavorite: n.isFavorite,
+          tags: n.tags || [],
+        }))
+        .filter(item => item.tags?.some((t: string) => t.startsWith('deleted:')));
+
+      set({ trashItems: [...trashFolders, ...trashNotes] });
+    } catch (error) {
+      console.error('Failed to fetch trash:', error);
     }
   },
 
   checkAuth: async () => {
     set({ isAuthChecking: true });
     try {
-      const res = await apiRequest('GET', '/api/auth/me');
-      if (res.ok) {
-        set({ isAuthenticated: true });
-        await Promise.all([get().fetchFolders(), get().fetchNotes()]);
-      } else {
-        set({ isAuthenticated: false, items: initialItems, activeFileId: '5' });
-      }
+      const user = await account.get();
+      set({ isAuthenticated: true, user });
+      await Promise.all([get().fetchFolders(), get().fetchNotes()]);
     } catch (error) {
-      set({ isAuthenticated: false, items: initialItems, activeFileId: '5' });
+      set({ isAuthenticated: false, user: null, items: initialItems, activeFileId: '5' });
     } finally {
       set({ isAuthChecking: false });
     }
   },
 
   addFile: async (parentId, name = 'Новая заметка') => {
+    // Explicitly handle parentId to ensure it's not lost.
+    // Ensure empty string is treated as null.
+    const effectiveParentId = (typeof parentId === 'string' && parentId.trim().length > 0) ? parentId : null;
+    
+    // Check if we need to select a local path first
+    if (isElectron() && !get().localDocumentsPath) {
+       const path = await selectDirectory();
+       if (!path) return; // User cancelled
+       
+       await setStoreValue('storagePath', path);
+       set({ localDocumentsPath: path });
+       await get().initLocalFs();
+    }
+
     const state = get();
-    if (!state.isAuthenticated) {
+    if (!state.isAuthenticated || !state.user) {
+      // Offline / Demo mode logic (optional, but requested to migrate to Appwrite, so maybe we force auth? 
+      // Keeping it for UI consistency if needed, but the user wants Appwrite backend)
+      // For now, let's allow "local" items if not auth, but they won't save to Appwrite.
+      const newFile: FileSystemItem = {
+        id: uuidv4(),
+        name,
+        type: 'file',
+        parentId: effectiveParentId,
+        content: '',
+        createdAt: Date.now(),
+      };
+      set((s) => {
+        const expanded = new Set(s.expandedFolders);
+        if (effectiveParentId) expanded.add(effectiveParentId);
+        
+        // Ensure unique items by ID to prevent duplicates or state issues
+        const existingItems = s.items.filter(i => i.id !== newFile.id);
+        const newItems = [...existingItems, newFile];
+
+        return {
+          items: newItems,
+          activeFileId: newFile.id,
+          expandedFolders: expanded,
+          lastCreatedFileId: newFile.id,
+        };
+      });
+      return;
+    }
+
+    try {
+            const note = await databases.createDocument(
+              DATABASE_ID,
+              COLLECTIONS.NOTES,
+              ID.unique(),
+              {
+                title: name,
+                content: '',
+                folderId: effectiveParentId,
+                userId: state.user.$id,
+                tags: [],
+                isFavorite: false
+              },
+              [
+                Permission.read(Role.user(state.user.$id)),
+                Permission.update(Role.user(state.user.$id)),
+                Permission.delete(Role.user(state.user.$id)),
+              ]
+            );
+            
+            // Verify folderId was saved correctly
+            if (effectiveParentId && note.folderId !== effectiveParentId) {
+                console.warn('[addFile] folderId mismatch! Attempting to fix...');
+                try {
+                    await databases.updateDocument(
+                        DATABASE_ID, 
+                        COLLECTIONS.NOTES, 
+                        note.$id, 
+                        { folderId: effectiveParentId }
+                    );
+                    note.folderId = effectiveParentId; // Update local reference
+                    console.log('[addFile] folderId fixed.');
+                } catch (fixErr) {
+                    console.error('[addFile] Failed to fix folderId:', fixErr);
+                }
+            }
+
+      const newFile: FileSystemItem = {
+        id: note.$id,
+        name: note.title,
+        type: 'file',
+        parentId: effectiveParentId !== null ? effectiveParentId : (note.folderId || null),
+        content: note.content,
+        createdAt: new Date(note.$createdAt).getTime(),
+      };
+      
+      set((s) => {
+        const expanded = new Set(s.expandedFolders);
+        if (effectiveParentId) expanded.add(effectiveParentId);
+        return {
+          items: [...s.items, newFile],
+          activeFileId: newFile.id,
+          expandedFolders: expanded,
+          lastCreatedFileId: newFile.id,
+        };
+      });
+    } catch (error) {
+      console.error('Failed to create note, falling back to local:', error);
       const newFile: FileSystemItem = {
         id: uuidv4(),
         name,
@@ -144,15 +429,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         createdAt: Date.now(),
       };
       set((s) => {
-        if (!parentId) {
-          return {
-            items: [...s.items, newFile],
-            activeFileId: newFile.id,
-            lastCreatedFileId: newFile.id,
-          };
-        }
         const expanded = new Set(s.expandedFolders);
-        expanded.add(parentId);
+        if (parentId) expanded.add(parentId);
         return {
           items: [...s.items, newFile],
           activeFileId: newFile.id,
@@ -160,111 +438,229 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
           lastCreatedFileId: newFile.id,
         };
       });
-      return;
-    }
-    try {
-      const res = await apiRequest('POST', '/api/notes', {
-        title: name,
-        content: '',
-        folderId: parentId,
-      });
-      if (res.ok) {
-        const note = await res.json();
-        const newFile: FileSystemItem = {
-          id: note.id,
-          name: note.title,
-          type: 'file',
-          parentId: note.folderId,
-          content: note.content,
-          createdAt: new Date(note.createdAt).getTime(),
-        };
-        set((s) => {
-          if (!parentId) {
-            return {
-              items: [...s.items, newFile],
-              activeFileId: newFile.id,
-              lastCreatedFileId: newFile.id,
-            };
-          }
-          const expanded = new Set(s.expandedFolders);
-          expanded.add(parentId);
-          return {
-            items: [...s.items, newFile],
-            activeFileId: newFile.id,
-            expandedFolders: expanded,
-            lastCreatedFileId: newFile.id,
-          };
-        });
-      }
-    } catch (error) {
-      console.error('Failed to create note:', error);
     }
   },
 
   addFolder: async (parentId, name = 'Новая папка') => {
-    try {
-      const res = await apiRequest('POST', '/api/folders', {
+    // Check if we need to select a local path first
+    if (isElectron() && !get().localDocumentsPath) {
+       const path = await selectDirectory();
+       if (!path) return; // User cancelled
+       
+       await setStoreValue('storagePath', path);
+       set({ localDocumentsPath: path });
+       await get().initLocalFs();
+    }
+
+    const state = get();
+    
+    // Allow local creation if not authenticated or offline
+    if (!state.isAuthenticated || !state.user) {
+      const newFolder: FileSystemItem = {
+        id: uuidv4(),
         name,
-        parentId
-      });
+        type: 'folder',
+        parentId,
+        createdAt: Date.now(),
+      };
       
-      if (res.ok) {
-        const folder = await res.json();
-        const newFolder: FileSystemItem = {
-          id: folder.id,
-          name: folder.name,
-          type: 'folder',
-          parentId: folder.parentId,
-          createdAt: new Date(folder.createdAt).getTime(),
-        };
-        
-        set((state) => ({
-          items: [...state.items, newFolder],
-          expandedFolders: new Set([...Array.from(state.expandedFolders), newFolder.id]),
-          lastCreatedFolderId: newFolder.id,
-        }));
-      }
+      set((state) => ({
+        items: [...state.items, newFolder],
+        expandedFolders: new Set([...Array.from(state.expandedFolders), newFolder.id]),
+        lastCreatedFolderId: newFolder.id,
+      }));
+      return;
+    }
+
+    try {
+        const folder = await databases.createDocument(
+          DATABASE_ID,
+          COLLECTIONS.FOLDERS,
+          ID.unique(),
+          {
+            name,
+            parentId,
+            userId: state.user.$id,
+            tags: [],
+            isFavorite: false
+          },
+          [
+            Permission.read(Role.user(state.user.$id)),
+            Permission.update(Role.user(state.user.$id)),
+            Permission.delete(Role.user(state.user.$id)),
+          ]
+        );
+      
+      const newFolder: FileSystemItem = {
+        id: folder.$id,
+        name: folder.name,
+        type: 'folder',
+        parentId: folder.parentId || parentId || null,
+        createdAt: new Date(folder.$createdAt).getTime(),
+      };
+      
+      set((state) => ({
+        items: [...state.items, newFolder],
+        expandedFolders: new Set([...Array.from(state.expandedFolders), newFolder.id]),
+        lastCreatedFolderId: newFolder.id,
+      }));
     } catch (error) {
-      console.error('Failed to create folder:', error);
+      console.error('Failed to create folder, falling back to local:', error);
+      const newFolder: FileSystemItem = {
+        id: uuidv4(),
+        name,
+        type: 'folder',
+        parentId,
+        createdAt: Date.now(),
+      };
+      
+      set((state) => ({
+        items: [...state.items, newFolder],
+        expandedFolders: new Set([...Array.from(state.expandedFolders), newFolder.id]),
+        lastCreatedFolderId: newFolder.id,
+      }));
     }
   },
 
   deleteItem: async (id) => {
     const state = get();
     const item = state.items.find(i => i.id === id);
+    if (!item) return;
     
-    // Helper to get all descendant IDs
     const getAllDescendants = (itemId: string): string[] => {
       const children = state.items.filter(i => i.parentId === itemId);
       return [itemId, ...children.flatMap(c => getAllDescendants(c.id))];
     };
     
     const idsToDelete = getAllDescendants(id);
-    const foldersToDelete = idsToDelete.filter(id => state.items.find(i => i.id === id)?.type === 'folder');
-    const filesToDelete = idsToDelete.filter(id => state.items.find(i => i.id === id)?.type === 'file');
+    const timestamp = Date.now();
+    const deletedTag = `deleted:${timestamp}`;
 
     // Optimistically update UI
     set((state) => {
       const idsSet = new Set(idsToDelete);
+      const itemsToDelete = state.items.filter(i => idsSet.has(i.id));
       const newItems = state.items.filter(i => !idsSet.has(i.id));
       const newActiveId = idsSet.has(state.activeFileId || '') ? null : state.activeFileId;
+      
+      const newTrashItems = [
+        ...state.trashItems, 
+        ...itemsToDelete.map(i => ({
+          ...i,
+          tags: [...(i.tags || []), deletedTag]
+        }))
+      ];
+
       return {
         items: newItems,
+        trashItems: newTrashItems,
         activeFileId: newActiveId,
       };
     });
 
+    if (!state.isAuthenticated) return;
+
     try {
-      await Promise.all([
-        ...foldersToDelete.map(folderId =>
-          apiRequest('DELETE', `/api/folders/${folderId}`)
-        ),
-        ...filesToDelete.map(fileId =>
-          apiRequest('DELETE', `/api/notes/${fileId}`)
-        ),
-      ]);
+      for (const deleteId of idsToDelete) {
+        const itemToDelete = state.items.find(i => i.id === deleteId); // This might be undefined since we just removed it from state?
+        // Actually we should capture it before set. But we can't easily.
+        // Wait, 'item' is the top level one. We can find others.
+        // But better to iterate idsToDelete and find in the original state capture if possible?
+        // No, we need the item type to know collection.
+        // Let's rely on the item found in state BEFORE the set call.
+        // Wait, I can't access 'state.items' inside the loop if 'state' is the old one.
+        // Yes I can, 'state' is 'get()'.
+        // But I need to know which collection.
+        // Let's rebuild the itemsToDelete list before set.
+      }
+      
+      const itemsToDelete = state.items.filter(i => idsToDelete.includes(i.id));
+      
+      for (const item of itemsToDelete) {
+         const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
+         const newTags = [...(item.tags || []), deletedTag];
+         await databases.updateDocument(DATABASE_ID, collectionId, item.id, { tags: newTags });
+      }
+      
     } catch (error) {
-      console.error('Failed to delete items:', error);
+      console.error('Failed to delete item:', error);
+      // Revert logic would be complex, let's assume success or partial success.
+    }
+  },
+
+  restoreItem: async (id) => {
+    const state = get();
+    const item = state.trashItems.find(i => i.id === id);
+    if (!item) return;
+
+    // We should also restore descendants if they were deleted at the same time?
+    // Or just restore the item itself.
+    // If we restore a folder, we probably want its children.
+    // Children in trash also have 'deleted:' tag.
+    // But how do we know they are children? 'parentId' is still set.
+    
+    const getAllTrashDescendants = (itemId: string): string[] => {
+        const children = state.trashItems.filter(i => i.parentId === itemId);
+        return [itemId, ...children.flatMap(c => getAllTrashDescendants(c.id))];
+    };
+
+    const idsToRestore = getAllTrashDescendants(id);
+
+    // Optimistically update
+    set((state) => {
+        const idsSet = new Set(idsToRestore);
+        const itemsToRestore = state.trashItems.filter(i => idsSet.has(i.id));
+        const newTrashItems = state.trashItems.filter(i => !idsSet.has(i.id));
+        
+        const restoredItems = itemsToRestore.map(i => ({
+            ...i,
+            tags: (i.tags || []).filter(t => !t.startsWith('deleted:'))
+        }));
+
+        return {
+            items: [...state.items, ...restoredItems],
+            trashItems: newTrashItems
+        };
+    });
+
+    if (!state.isAuthenticated) return;
+
+    try {
+        const itemsToRestore = state.trashItems.filter(i => idsToRestore.includes(i.id));
+        for (const item of itemsToRestore) {
+            const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
+            const newTags = (item.tags || []).filter(t => !t.startsWith('deleted:'));
+            await databases.updateDocument(DATABASE_ID, collectionId, item.id, { tags: newTags });
+        }
+    } catch (error) {
+        console.error('Failed to restore item:', error);
+    }
+  },
+
+  permanentDeleteItem: async (id) => {
+    const state = get();
+    // Should also delete descendants permanently
+    const getAllTrashDescendants = (itemId: string): string[] => {
+        const children = state.trashItems.filter(i => i.parentId === itemId);
+        return [itemId, ...children.flatMap(c => getAllTrashDescendants(c.id))];
+    };
+
+    const idsToDelete = getAllTrashDescendants(id);
+
+    set((state) => ({
+        trashItems: state.trashItems.filter(i => !idsToDelete.includes(i.id))
+    }));
+
+    if (!state.isAuthenticated) return;
+
+    try {
+        const itemsToDelete = state.trashItems.filter(i => idsToDelete.includes(i.id));
+        for (const item of itemsToDelete) {
+            const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
+            await databases.deleteDocument(DATABASE_ID, collectionId, item.id);
+        }
+    } catch (error) {
+        console.error('Failed to permanently delete item:', error);
     }
   },
 
@@ -277,24 +673,19 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       items: state.items.map(i => i.id === id ? { ...i, name: newName } : i),
     }));
 
-    if (item.type === 'folder') {
-      try {
-        await apiRequest('PATCH', `/api/folders/${id}`, { name: newName });
-      } catch (error) {
-        console.error('Failed to rename folder:', error);
-        set((state) => ({
-          items: state.items.map(i => i.id === id ? { ...i, name: item.name } : i),
-        }));
+    if (!get().isAuthenticated) return;
+
+    try {
+      if (item.type === 'folder') {
+        await databases.updateDocument(DATABASE_ID, COLLECTIONS.FOLDERS, id, { name: newName });
+      } else {
+        await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { title: newName });
       }
-    } else {
-      try {
-        await apiRequest('PATCH', `/api/notes/${id}`, { title: newName });
-      } catch (error) {
-        console.error('Failed to rename note:', error);
-        set((state) => ({
-          items: state.items.map(i => i.id === id ? { ...i, name: item.name } : i),
-        }));
-      }
+    } catch (error) {
+      console.error('Failed to rename item:', error);
+      set((state) => ({
+        items: state.items.map(i => i.id === id ? { ...i, name: item.name } : i),
+      }));
     }
   },
 
@@ -314,21 +705,76 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       clearTimeout(existingTimeout);
     }
 
+    // Save to local FS immediately (if Electron)
+    if (state.localDocumentsPath && isElectron() && fs) {
+        const localPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
+        // Fire and forget or await? Better not to block UI.
+        fs.writeFile(localPath, content).catch(e => console.error('Failed to save locally:', e));
+    }
+
     const timeoutId = setTimeout(async () => {
       try {
-        await apiRequest('PATCH', `/api/notes/${id}`, { content });
+        await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { content });
       } catch (error) {
         console.error('Failed to update note content:', error);
       } finally {
         saveTimeouts.delete(id);
       }
-    }, 400);
+    }, 1000); // Debounce 1s
 
     saveTimeouts.set(id, timeoutId);
   },
 
-  selectFile: (id) => {
-    set({ activeFileId: id });
+  loadFileContent: (id: string, content: string) => {
+    set((state) => ({
+      items: state.items.map(i => i.id === id ? { ...i, content } : i),
+    }));
+  },
+
+  selectFile: async (id) => {
+    set((state) => {
+      const openFiles = state.openFiles.includes(id) 
+        ? state.openFiles 
+        : [...state.openFiles, id];
+      return { activeFileId: id, openFiles };
+    });
+
+    const state = get();
+    const file = state.items.find(i => i.id === id);
+    
+    // If content is missing and we are authenticated, fetch it
+    // Appwrite listDocuments returns full documents by default, so we might already have content.
+    // However, if we optimized listDocuments to not return content (using Query.select), we would need this.
+    // In fetchNotes above, we didn't use Query.select, so we have the content.
+    // But for robustness, or if we change fetchNotes later:
+    if (file && file.content === undefined && file.type === 'file' && state.isAuthenticated) {
+      try {
+        const note = await databases.getDocument(DATABASE_ID, COLLECTIONS.NOTES, id);
+        get().loadFileContent(id, note.content || "");
+      } catch (e) {
+        console.error('Failed to lazy load note content', e);
+      }
+    }
+  },
+
+  closeFile: (id) => {
+    set((state) => {
+      const newOpenFiles = state.openFiles.filter(fileId => fileId !== id);
+      
+      let newActiveFileId = state.activeFileId;
+      if (state.activeFileId === id) {
+        newActiveFileId = newOpenFiles.length > 0 ? newOpenFiles[newOpenFiles.length - 1] : null;
+      }
+      
+      return { 
+        openFiles: newOpenFiles, 
+        activeFileId: newActiveFileId 
+      };
+    });
+  },
+
+  closeAllFiles: () => {
+    set({ openFiles: [], activeFileId: null });
   },
 
   toggleFolder: (id) => {
@@ -343,21 +789,203 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     });
   },
 
+  downloadAllFiles: async () => {
+      const state = get();
+      if (!state.localDocumentsPath || !isElectron() || !fs) {
+          console.warn("Cannot download files: Local FS not available");
+          return;
+      }
+      
+      // Use syncBackground logic to ensure versions are checked and updated
+      await state.syncBackground();
+  },
+
+  fetchContent: async (id: string) => {
+    const state = get();
+    const file = state.items.find(i => i.id === id);
+    if (!file || file.type !== 'file' || !state.isAuthenticated) return;
+
+    // Local Sync Logic
+    let content = "";
+    let loadedFromLocal = false;
+
+    if (state.localDocumentsPath && isElectron() && fs) {
+        const localPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
+        const exists = await fs.exists(localPath);
+        
+        if (exists) {
+            // Check manifest or timestamp if possible, but for now we prioritize local if it exists
+            // to support offline mode. However, if syncBackground runs, it should update local.
+            const res = await fs.readFile(localPath);
+            if (res.success && res.content !== undefined) {
+                content = res.content;
+                loadedFromLocal = true;
+                get().loadFileContent(id, content);
+            }
+        }
+    }
+
+    if (!loadedFromLocal) {
+        try {
+            const note = await databases.getDocument(DATABASE_ID, COLLECTIONS.NOTES, id);
+            content = note.content || "";
+            get().loadFileContent(id, content);
+
+            // Save to local for next time
+            if (state.localDocumentsPath && isElectron() && fs) {
+                const localPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
+                await fs.writeFile(localPath, content);
+                
+                // Update manifest
+                const updatedFile = get().items.find(i => i.id === id);
+                if (updatedFile) {
+                    const manifest = { ...get().syncManifest };
+                    manifest[id] = updatedFile.updatedAt;
+                    set({ syncManifest: manifest });
+                    get().saveSyncManifest();
+                }
+            }
+
+        } catch (e) {
+            console.error('Failed to fetch note content', e);
+            throw e;
+        }
+    }
+  },
+
+  loadSyncManifest: async () => {
+    const state = get();
+    if (!state.localDocumentsPath || !isElectron() || !fs) return;
+    
+    const manifestPath = `${state.localDocumentsPath}/GodNotes/sync-manifest.json`;
+    const exists = await fs.exists(manifestPath);
+    if (exists) {
+        const res = await fs.readFile(manifestPath);
+        if (res.success && res.content) {
+            try {
+                const manifest = JSON.parse(res.content);
+                set({ syncManifest: manifest });
+            } catch (e) {
+                console.error("Failed to parse sync manifest", e);
+            }
+        }
+    }
+  },
+  
+  saveSyncManifest: async () => {
+    const state = get();
+    if (!state.localDocumentsPath || !isElectron() || !fs) return;
+    
+    const manifestPath = `${state.localDocumentsPath}/GodNotes/sync-manifest.json`;
+    await fs.writeFile(manifestPath, JSON.stringify(state.syncManifest, null, 2));
+  },
+
+  startPeriodicSync: () => {
+      const state = get();
+      if (state.syncInterval) return;
+
+      const interval = setInterval(() => {
+          get().syncBackground();
+      }, 5 * 60 * 1000); // 5 minutes
+
+      set({ syncInterval: interval });
+  },
+
+  stopPeriodicSync: () => {
+      const state = get();
+      if (state.syncInterval) {
+          clearInterval(state.syncInterval);
+          set({ syncInterval: null });
+      }
+  },
+
+  syncBackground: async () => {
+    const state = get();
+    if (!state.localDocumentsPath || !isElectron() || !fs) return;
+
+    // 1. Refresh file list (metadata)
+    await state.fetchNotes();
+    
+    // 2. Load manifest
+    await state.loadSyncManifest();
+    const manifest = { ...get().syncManifest };
+    let manifestChanged = false;
+
+    const files = get().items.filter(i => i.type === 'file');
+    
+    for (const file of files) {
+        const localUpdated = manifest[file.id];
+        // If local is missing or older than cloud
+        if (!localUpdated || localUpdated < file.updatedAt) {
+            try {
+                // Download content
+                const note = await databases.getDocument(DATABASE_ID, COLLECTIONS.NOTES, file.id);
+                const content = note.content || "";
+                
+                // Write to disk
+                const localPath = `${state.localDocumentsPath}/GodNotes/${file.id}.md`;
+                if (fs) {
+                    await fs.writeFile(localPath, content);
+                    
+                    // Update manifest
+                    manifest[file.id] = file.updatedAt;
+                    manifestChanged = true;
+                    
+                    // If file is currently loaded in memory, update it
+                    const currentItem = get().items.find(i => i.id === file.id);
+                    if (currentItem && currentItem.content !== undefined) {
+                         get().loadFileContent(file.id, content);
+                    }
+                }
+            } catch (e) {
+                console.error(`Failed to sync file ${file.name}`, e);
+            }
+        }
+    }
+    
+    if (manifestChanged) {
+        set({ syncManifest: manifest });
+        await state.saveSyncManifest();
+    }
+  },
+
   setSearchQuery: (query) => {
     set({ searchQuery: query });
+  },
+
+  setSortOrder: (order) => {
+    set({ sortOrder: order });
   },
 
   setTheme: (theme) => {
     set({ theme });
   },
 
-  login: () => {
-    set({ isAuthenticated: true });
-    get().fetchFolders();
+  setHotkey: (action, key) => {
+    set((state) => {
+      const newHotkeys = { ...state.hotkeys, [action]: key };
+      localStorage.setItem('hotkeys', JSON.stringify(newHotkeys));
+      return { hotkeys: newHotkeys };
+    });
+  },
+
+  login: async (email, password) => {
+    await account.createEmailPasswordSession(email, password);
+    await get().checkAuth();
+  },
+
+  register: async (email, password, name) => {
+     await account.create(ID.unique(), email, password, name);
+     await get().login(email, password);
   },
   
-  logout: () => {
-    set({ isAuthenticated: false, items: initialItems });
+  logout: async () => {
+    try {
+      await account.deleteSession('current');
+    } catch (e) {
+      console.error('Logout failed', e);
+    }
+    set({ isAuthenticated: false, user: null, items: initialItems, activeFileId: '5', openFiles: ['5'] });
   },
   
   togglePin: (id) => {
@@ -366,12 +994,57 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }));
   },
 
+  toggleFavorite: async (id) => {
+    const item = get().items.find(i => i.id === id);
+    if (!item) return;
+
+    // Optimistic update
+    set((state) => ({
+      items: state.items.map(i => i.id === id ? { ...i, isFavorite: !i.isFavorite } : i),
+    }));
+
+    if (!get().isAuthenticated) return;
+
+    try {
+      const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
+      await databases.updateDocument(DATABASE_ID, collectionId, id, { isFavorite: !item.isFavorite });
+    } catch (error) {
+      console.error('Failed to toggle favorite:', error);
+      // Revert
+      set((state) => ({
+        items: state.items.map(i => i.id === id ? { ...i, isFavorite: item.isFavorite } : i),
+      }));
+    }
+  },
+
+  updateTags: async (id, tags) => {
+    const item = get().items.find(i => i.id === id);
+    if (!item) return;
+    const oldTags = item.tags;
+
+    // Optimistic update
+    set((state) => ({
+      items: state.items.map(i => i.id === id ? { ...i, tags } : i),
+    }));
+
+    if (!get().isAuthenticated) return;
+
+    try {
+      const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
+      await databases.updateDocument(DATABASE_ID, collectionId, id, { tags });
+    } catch (error) {
+      console.error('Failed to update tags:', error);
+      // Revert
+      set((state) => ({
+        items: state.items.map(i => i.id === id ? { ...i, tags: oldTags } : i),
+      }));
+    }
+  },
+
   moveItem: async (id, newParentId) => {
     const state = get();
-    // Prevent moving an item into itself
     if (id === newParentId) return;
     
-    // Prevent moving an item into its own descendant
     const isDescendant = (parentId: string, targetId: string): boolean => {
       const parent = state.items.find(i => i.id === parentId);
       if (!parent) return false;
@@ -388,29 +1061,22 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     if (!item) return;
     const oldParentId = item.parentId;
 
-    // Optimistically update
     set((state) => ({
       items: state.items.map(i => i.id === id ? { ...i, parentId: newParentId } : i),
     }));
 
-    if (item.type === 'folder') {
-      try {
-        await apiRequest('PATCH', `/api/folders/${id}`, { parentId: newParentId });
-      } catch (error) {
-        console.error('Failed to move folder:', error);
-        set((state) => ({
-          items: state.items.map(i => i.id === id ? { ...i, parentId: oldParentId } : i),
-        }));
-      }
-    } else {
-      try {
-        await apiRequest('PATCH', `/api/notes/${id}`, { folderId: newParentId });
-      } catch (error) {
-        console.error('Failed to move note:', error);
-        set((state) => ({
-          items: state.items.map(i => i.id === id ? { ...i, parentId: oldParentId } : i),
-        }));
-      }
+    if (!state.isAuthenticated) return;
+
+    try {
+      const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
+      // Note: "folderId" for notes, "parentId" for folders.
+      const data = item.type === 'folder' ? { parentId: newParentId } : { folderId: newParentId };
+      await databases.updateDocument(DATABASE_ID, collectionId, id, data);
+    } catch (error) {
+      console.error('Failed to move item:', error);
+      set((state) => ({
+        items: state.items.map(i => i.id === id ? { ...i, parentId: oldParentId } : i),
+      }));
     }
   },
 }));

@@ -61,7 +61,7 @@
 }
 
 :root {
-  /* Default: Obsidian Dark */
+  /* Default: Godnotes Dark */
   --background: 220 13% 10%;
   --foreground: 220 10% 85%;
   --card: 220 13% 14%;
@@ -198,6 +198,15 @@
 .ProseMirror ul {
   @apply list-disc list-outside ml-4 my-2;
 }
+.ProseMirror ul[data-type="taskList"] {
+  @apply list-none ml-0;
+}
+.ProseMirror li[data-type="taskItem"] {
+  @apply flex items-start gap-2;
+}
+.ProseMirror li[data-type="taskItem"] input[type="checkbox"] {
+  @apply mt-1;
+}
 .ProseMirror ol {
   @apply list-decimal list-outside ml-4 my-2;
 }
@@ -212,4 +221,26 @@
 }
 .ProseMirror pre code {
   @apply bg-transparent p-0 text-inherit;
+}
+
+/* Table Styles */
+.ProseMirror table {
+  @apply border-collapse table-auto w-full my-4 overflow-hidden;
+}
+
+.ProseMirror td,
+.ProseMirror th {
+  @apply border border-border p-2 relative align-top box-border min-w-[1em];
+}
+
+.ProseMirror th {
+  @apply font-bold bg-muted/50 text-left;
+}
+
+.ProseMirror .selectedCell:after {
+  @apply z-10 absolute inset-0 bg-primary/20 pointer-events-none content-[''];
+}
+
+.ProseMirror .column-resize-handle {
+  @apply bg-primary/50 w-1 absolute bottom-0 -right-0.5 top-0 pointer-events-none z-20;
 }

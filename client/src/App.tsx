@@ -9,6 +9,7 @@ import Profile from "@/pages/Profile";
 import NotFound from "@/pages/not-found";
 import { useFileSystem } from "@/lib/mock-fs";
 import { useEffect } from "react";
+import { getStoreValue } from "@/lib/electron";
 
 function Router() {
   const { isAuthenticated } = useFileSystem();
@@ -41,6 +42,20 @@ function App() {
 
   useEffect(() => {
     checkAuth();
+
+    // Restore storage path - kept for local preferences if needed, but no backend sync
+    const initStorage = async () => {
+        try {
+            const path = await getStoreValue('storagePath');
+            if (path) {
+                console.log('Restoring storage path:', path);
+                // Backend sync removed as we are using Appwrite
+            }
+        } catch (e) {
+            console.error('Failed to restore storage path', e);
+        }
+    };
+    initStorage();
   }, []);
 
   if (isAuthChecking) {

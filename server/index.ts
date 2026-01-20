@@ -1,10 +1,11 @@
 import express, { type Request, Response, NextFunction } from "express";
+import "dotenv/config";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import createMemoryStore from "memorystore";
+import { FileSessionStore } from "./file-session-store";
 
 const app = express();
 const httpServer = createServer(app);
@@ -32,15 +33,14 @@ app.use(
 app.use(express.urlencoded({ extended: false }));
 
 const PgSession = connectPgSimple(session);
-const MemoryStore = createMemoryStore(session);
 
 const sessionStore =
-  process.env.DATABASE_URL != null
+  process.env.DATABASE_URL != null && process.env.USE_DB_SESSION === 'true'
     ? new PgSession({
         conString: process.env.DATABASE_URL,
         createTableIfMissing: true,
       })
-    : new MemoryStore({ checkPeriod: 86400000 });
+    : new FileSessionStore();
 
 app.use(
   session({

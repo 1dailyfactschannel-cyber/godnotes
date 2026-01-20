@@ -4,13 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { KeyRound, Mail, Minimize2, Square, X, UserPlus, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { KeyRound, Mail, UserPlus, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { apiRequest } from '@/lib/queryClient';
+import { Logo } from '@/components/Logo';
 import { useToast } from '@/hooks/use-toast';
 
 export default function LoginPage() {
-  const { theme, checkAuth } = useFileSystem();
+  const { theme, checkAuth, login, register } = useFileSystem();
   const [email, setEmail] = useState('demo@obsidian.com');
   const [password, setPassword] = useState('password');
   const [showPassword, setShowPassword] = useState(false);
@@ -24,14 +24,11 @@ export default function LoginPage() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const payload = {
-        username: email,
-        password,
-        name: isRegistering ? name : undefined,
-      };
-      const url = isRegistering ? "/api/auth/register" : "/api/auth/login";
-      await apiRequest("POST", url, payload);
-      await checkAuth();
+      if (isRegistering) {
+        await register(email, password, name);
+      } else {
+        await login(email, password);
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Не удалось выполнить запрос";
@@ -52,23 +49,14 @@ export default function LoginPage() {
        {/* Fake Windows Bar */}
        <div className="h-8 bg-[#1e1e1e] flex items-center justify-between select-none shrink-0 border-b border-white/5">
         <div className="px-3 flex items-center gap-2">
-          <div className="w-4 h-4 bg-primary rounded-sm flex items-center justify-center">
-            <div className="w-2 h-2 bg-primary-foreground rotate-45" />
+          <div className="w-4 h-4 bg-primary rounded-sm flex items-center justify-center p-0.5">
+            <Logo className="w-full h-full text-primary-foreground" />
           </div>
           <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-tight">
-            {isRegistering ? 'Obsidian Registration' : 'Obsidian Login'}
+            {isRegistering ? 'Godnotes Registration' : 'Godnotes Login'}
           </span>
         </div>
         <div className="flex h-full">
-           <button className="h-full px-4 hover:bg-white/10 transition-colors flex items-center justify-center group">
-              <Minimize2 className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground" />
-           </button>
-           <button className="h-full px-4 hover:bg-white/10 transition-colors flex items-center justify-center group">
-              <Square className="h-3 w-3 text-muted-foreground group-hover:text-foreground" />
-           </button>
-           <button className="h-full px-4 hover:bg-red-500 transition-colors flex items-center justify-center group">
-              <X className="h-4 w-4 text-muted-foreground group-hover:text-white" />
-           </button>
         </div>
       </div>
 

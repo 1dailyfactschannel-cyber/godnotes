@@ -1,4 +1,7 @@
-import { useEditor, EditorContent } from '@tiptap/react';
+import { storage, BUCKET_ID } from '@/lib/appwrite';
+import { ID } from 'appwrite';
+import { useEditor, EditorContent, ReactRenderer } from '@tiptap/react';
+import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
@@ -9,9 +12,19 @@ import { Youtube } from '@tiptap/extension-youtube';
 import { Extension } from '@tiptap/core';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableCell } from '@tiptap/extension-table-cell';
+import { TableHeader } from '@tiptap/extension-table-header';
+import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight';
+import { common, createLowlight } from 'lowlight';
+import { WikiLinkExtension, WikiLinkList } from '@/lib/tiptap-extensions/wiki-link';
+import { MermaidExtension } from '@/lib/tiptap-extensions/mermaid';
+import tippy from 'tippy.js';
+import 'tippy.js/dist/tippy.css';
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { useFileSystem } from '@/lib/mock-fs';
-import { cn } from '@/lib/utils';
+import { cn, isHotkeyMatch } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { 
   Bold,
@@ -29,8 +42,17 @@ import {
   Link as LinkIcon,
   Image as ImageIcon,
   Video,
-  BookOpen
+  BookOpen,
+  Tag,
+  Table as TableIcon,
+  Workflow,
+  Plus,
+  Trash2,
+  CheckSquare,
+  Folder as FolderIcon
 } from 'lucide-react';
+
+const lowlight = createLowlight(common);
 import { Toggle } from '@/components/ui/toggle';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
@@ -43,8 +65,11 @@ import {
 } from "@/components/ui/select";
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
+import { TagsDialog } from '@/components/tags/TagsDialog';
+import { Logo } from '@/components/Logo';
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -99,9 +124,34 @@ const FontSize = Extension.create({
   },
 });
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import TurndownService from 'turndown';
+
 export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { isReadOnly?: boolean; searchTerm?: string }) {
-  const { items, activeFileId, updateFileContent } = useFileSystem();
+  const { items, activeFileId, updateFileContent, selectFile, hotkeys } = useFileSystem();
   const activeFile = items.find(i => i.id === activeFileId);
+
+  // Handle WikiLink clicks
+  useEffect(() => {
+    const handleWikiLinkClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.classList.contains('wiki-link')) {
+        e.preventDefault();
+        const id = target.getAttribute('data-id');
+        if (id) {
+          selectFile(id);
+        }
+      }
+    };
+
+    document.addEventListener('click', handleWikiLinkClick);
+    return () => document.removeEventListener('click', handleWikiLinkClick);
+  }, [selectFile]);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const [isLinkEditing, setIsLinkEditing] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -112,6 +162,12 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
   const [isSlashMenuOpen, setIsSlashMenuOpen] = useState(false);
   const [slashMenuPosition, setSlashMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isTagsDialogOpen, setIsTagsDialogOpen] = useState(false);
+
+
+
+
 
   const editor = useEditor({
     extensions: [
@@ -119,6 +175,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
         // На некоторых версиях StarterKit уже включает link,
         // поэтому явно отключаем его, чтобы не было дубля.
         link: false as any,
+        codeBlock: false, // Disable default codeBlock to use lowlight
       }),
       Typography,
       TextStyle,
@@ -127,16 +184,17 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       TaskItem.configure({
         nested: true,
         HTMLAttributes: {
-          class: 'flex items-center gap-2 my-1',
+          class: 'flex items-start gap-2 my-1',
         },
       }),
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
-          class: 'text-primary underline cursor-pointer',
+          class: 'text-primary underline decoration-primary/30 underline-offset-4 hover:decoration-primary transition-colors cursor-pointer',
         },
       }),
       Image.configure({
+        allowBase64: true,
         HTMLAttributes: {
           class: 'rounded-lg max-w-full h-auto my-4',
         },
@@ -145,9 +203,84 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
         HTMLAttributes: {
           class: 'rounded-lg overflow-hidden my-4',
         },
+        width: 480,
+        height: 320,
       }),
       Placeholder.configure({
         placeholder: 'Начните писать...',
+      }),
+      Table.configure({
+        resizable: true,
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      CodeBlockLowlight.configure({
+        lowlight,
+      }),
+      MermaidExtension,
+      WikiLinkExtension.configure({
+        suggestion: {
+          render: () => {
+            let component: any;
+            let popup: any;
+
+            return {
+              onStart: (props: any) => {
+                component = new ReactRenderer(WikiLinkList, {
+                  props,
+                  editor: props.editor,
+                });
+
+                if (!props.clientRect) {
+                  return;
+                }
+
+                popup = tippy('body', {
+                  getReferenceClientRect: props.clientRect,
+                  appendTo: () => document.body,
+                  content: component.element,
+                  showOnCreate: true,
+                  interactive: true,
+                  trigger: 'manual',
+                  placement: 'bottom-start',
+                });
+              },
+
+              onUpdate(props: any) {
+                component.updateProps(props);
+
+                if (!props.clientRect) {
+                  return;
+                }
+
+                popup[0].setProps({
+                  getReferenceClientRect: props.clientRect,
+                });
+              },
+
+              onKeyDown(props: any) {
+                if (props.event.key === 'Escape') {
+                  popup[0].hide();
+
+                  return true;
+                }
+
+                return component.ref?.onKeyDown(props);
+              },
+
+              onExit() {
+                popup[0].destroy();
+                component.destroy();
+              },
+            };
+          },
+          items: ({ query }: { query: string }) => {
+            return items
+              .filter(item => item.name.toLowerCase().includes(query.toLowerCase()))
+              .slice(0, 5);
+          },
+        },
       }),
     ],
     editorProps: {
@@ -171,19 +304,21 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
           setSlashMenuPosition(null);
           return true;
         }
-        const isMod = event.metaKey || event.ctrlKey;
-        if (isMod && event.key.toLowerCase() === 'b') {
+
+        if (isHotkeyMatch(event, hotkeys.bold || 'Ctrl+B')) {
           view.state.tr.setMeta('shortcut', true);
           editor?.chain().focus().toggleBold().run();
           event.preventDefault();
           return true;
         }
-        if (isMod && event.key.toLowerCase() === 'i') {
+
+        if (isHotkeyMatch(event, hotkeys.italic || 'Ctrl+I')) {
           editor?.chain().focus().toggleItalic().run();
           event.preventDefault();
           return true;
         }
-        if (isMod && event.key.toLowerCase() === 'k') {
+
+        if (isHotkeyMatch(event, hotkeys.link || 'Ctrl+K')) {
           if (editor?.isActive('link')) {
             editor?.chain().focus().extendMarkRange('link').unsetLink().run();
           } else {
@@ -192,6 +327,14 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
           event.preventDefault();
           return true;
         }
+
+        if (isHotkeyMatch(event, hotkeys.taskList || 'Ctrl+Shift+9')) {
+          editor?.chain().focus().toggleTaskList().run();
+          event.preventDefault();
+          return true;
+        }
+
+        const isMod = event.metaKey || event.ctrlKey;
         if (isMod && event.shiftKey && event.key === '7') {
           editor?.chain().focus().toggleOrderedList().run();
           event.preventDefault();
@@ -208,6 +351,88 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     },
     editable: !isReadOnly,
   });
+
+  const uploadFiles = async (files: File[]) => {
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE) {
+        toast({
+          variant: "destructive",
+          title: "Слишком большой файл",
+          description: "Максимальный размер файла 50 МБ",
+        });
+        console.error("File upload skipped: file too large", {
+          name: file.name,
+          size: file.size,
+        });
+        continue;
+      }
+
+      console.log("Starting file upload", {
+        name: file.name,
+        size: file.size,
+        type: file.type
+      });
+
+      setUploadProgress(0);
+
+      try {
+        const response = await storage.createFile(
+            BUCKET_ID,
+            ID.unique(),
+            file
+        );
+
+        // Get file URL
+        const url = storage.getFileView(BUCKET_ID, response.$id).toString();
+        
+        console.log("File uploaded successfully", { url });
+
+        if (file.type.startsWith('image/')) {
+            editor?.chain().focus().setImage({ src: url }).run();
+        } else {
+            // For non-image files, insert a link
+            const linkText = file.name;
+            editor
+            ?.chain()
+            .focus()
+            .insertContent([
+                {
+                type: 'text',
+                text: linkText,
+                marks: [
+                    {
+                    type: 'link',
+                    attrs: {
+                        href: url,
+                        target: '_blank',
+                    },
+                    },
+                ],
+                },
+                {
+                type: 'text',
+                text: ' ',
+                }
+            ])
+            .run();
+        }
+
+      } catch (error: any) {
+          console.error("File upload failed", error);
+          toast({
+            variant: "destructive",
+            title: "Ошибка загрузки",
+            description: error.message || "Не удалось загрузить файл",
+          });
+          
+          if (file.type.startsWith('image/')) {
+             embedImageInline(file);
+          }
+      } finally {
+        setUploadProgress(null);
+      }
+    }
+  };
 
   const embedImageInline = useCallback(
     (file: File) => {
@@ -278,6 +503,14 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       chain.toggleCodeBlock().run();
       return;
     }
+    if (command === 'mermaid') {
+      chain.setMermaid().run();
+      return;
+    }
+    if (command === 'table') {
+      chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+      return;
+    }
     if (command === 'todo') {
       chain.toggleTaskList().run();
       return;
@@ -298,7 +531,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     const handleDragOver = (event: DragEvent) => {
       if (!event.dataTransfer) return;
       const hasFiles = Array.from(event.dataTransfer.items).some(
-        (item) => item.kind === 'file' && item.type.startsWith('image/')
+        (item) => item.kind === 'file'
       );
       if (!hasFiles) return;
       event.preventDefault();
@@ -315,9 +548,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
 
     const handleDrop = async (event: DragEvent) => {
       if (!event.dataTransfer) return;
-      const files = Array.from(event.dataTransfer.files).filter((file) =>
-        file.type.startsWith('image/')
-      );
+      const files = Array.from(event.dataTransfer.files);
       if (files.length === 0) {
         setIsDraggingOver(false);
         return;
@@ -325,102 +556,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       event.preventDefault();
       setIsDraggingOver(false);
 
-      for (const file of files) {
-        if (file.size > MAX_IMAGE_SIZE) {
-          toast({
-            variant: "destructive",
-            title: "Слишком большой файл",
-            description: "Максимальный размер изображения 20 МБ",
-          });
-          console.error("Image upload skipped: file too large", {
-            name: file.name,
-            size: file.size,
-          });
-          continue;
-        }
-
-        const formData = new FormData();
-        formData.append('file', file);
-
-        console.log("Starting image upload", {
-          name: file.name,
-          size: file.size,
-        });
-
-        await new Promise<void>((resolve) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/api/uploads');
-          xhr.withCredentials = true;
-
-          xhr.upload.onprogress = (progressEvent) => {
-            if (progressEvent.lengthComputable) {
-              const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
-              setUploadProgress(percent);
-            }
-          };
-
-          xhr.onload = () => {
-            console.log("Image upload response", {
-              status: xhr.status,
-              responseText: xhr.responseText,
-            });
-
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try {
-                const data = JSON.parse(xhr.responseText || '{}');
-                if (data.url) {
-                  editor.chain().focus().setImage({ src: data.url }).run();
-                } else {
-                  console.error("Image upload: no url in response", data);
-                  embedImageInline(file);
-                }
-              } catch (e) {
-                console.error("Image upload: failed to parse JSON", e, xhr.responseText);
-                embedImageInline(file);
-              }
-            } else {
-              try {
-                const data = JSON.parse(xhr.responseText || '{}');
-                const message = typeof data.message === 'string'
-                  ? data.message
-                  : "Не удалось загрузить изображение";
-                console.error("Image upload failed", {
-                  status: xhr.status,
-                  data,
-                });
-                toast({
-                  variant: "destructive",
-                  title: "Ошибка загрузки",
-                  description: message,
-                });
-                embedImageInline(file);
-              } catch (e) {
-                console.error("Image upload failed, response parse error", e, xhr.responseText);
-                embedImageInline(file);
-              }
-            }
-            setUploadProgress(null);
-            resolve();
-          };
-
-          xhr.onerror = () => {
-            console.error("Image upload network error", {
-              status: xhr.status,
-            });
-            toast({
-              variant: "destructive",
-              title: "Ошибка сети",
-              description: "Не удалось загрузить изображение",
-            });
-            embedImageInline(file);
-            setUploadProgress(null);
-            resolve();
-          };
-
-          setUploadProgress(0);
-          xhr.send(formData);
-        });
-      }
+      await uploadFiles(files);
     };
 
     const element = dropZoneRef.current;
@@ -433,7 +569,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       element.removeEventListener('dragleave', handleDragLeave);
       element.removeEventListener('drop', handleDrop);
     };
-  }, [editor]);
+  }, [editor, uploadFiles]);
 
   useEffect(() => {
     if (editor) {
@@ -520,74 +656,46 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     html2pdf().set(opt).from(element).save();
   };
 
-  const exportToMarkdown = () => {
-    if (!activeFile) return;
-    const container = document.createElement('div');
-    container.innerHTML = activeFile.content || '';
-    const lines: string[] = [];
-    const walk = (node: Node) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        const text = node.textContent || '';
-        if (text.trim()) {
-          lines.push(text);
-        }
-        return;
-      }
-      if (!(node instanceof HTMLElement)) {
-        node.childNodes.forEach(walk);
-        return;
-      }
-      const tag = node.tagName.toLowerCase();
-      if (tag === 'li' && node.getAttribute('data-type') === 'taskItem') {
-        const checkbox = node.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
-        const checked = checkbox?.checked;
-        const text = node.textContent || '';
-        lines.push(`- [${checked ? 'x' : ' '}] ${text}`);
-      } else if (tag === 'h1') {
-        lines.push('# ' + node.textContent);
-      } else if (tag === 'h2') {
-        lines.push('## ' + node.textContent);
-      } else if (tag === 'h3') {
-        lines.push('### ' + node.textContent);
-      } else if (tag === 'li') {
-        lines.push('- ' + node.textContent);
-      } else if (tag === 'blockquote') {
-        const text = node.textContent || '';
-        lines.push('> ' + text);
-      } else if (tag === 'code' || tag === 'pre') {
-        const text = node.textContent || '';
-        lines.push('```');
-        lines.push(text);
-        lines.push('```');
-      } else if (tag === 'p') {
-        const text = node.textContent || '';
-        if (text.trim()) {
-          lines.push(text);
-          lines.push('');
-        }
-      } else {
-        node.childNodes.forEach(walk);
-        return;
-      }
-      node.childNodes.forEach(walk);
-    };
-    container.childNodes.forEach(walk);
-    const markdown = lines.join('\n');
-    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+  const handleExportMarkdown = () => {
+    if (!editor || !activeFile) return;
+
+    const html = editor.getHTML();
+    const turndownService = new TurndownService({
+      headingStyle: 'atx',
+      codeBlockStyle: 'fenced'
+    });
+    const markdown = turndownService.turndown(html);
+    
+    const blob = new Blob([markdown], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${activeFile.name || 'note'}.md`;
+    a.download = `${activeFile.name}.md`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
+
   if (!activeFile) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-muted-foreground bg-background">
-        <p className="text-sm opacity-50">Выберите или создайте заметку</p>
+      <div className="flex flex-col items-center justify-center h-full text-muted-foreground bg-background/50 animate-in fade-in duration-500">
+        <div className="w-16 h-16 mb-4 opacity-10">
+          <Logo className="w-full h-full" />
+        </div>
+        <p className="text-sm font-medium tracking-tight opacity-40 uppercase">Godnotes</p>
+        <p className="text-[11px] opacity-30 mt-1">Выберите заметку в дереве файлов или создайте новую</p>
+      </div>
+    );
+  }
+
+  if (activeFile.type === 'folder') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-muted-foreground bg-background/50 animate-in fade-in duration-500">
+        <FolderIcon className="w-16 h-16 mb-4 opacity-10" />
+        <h2 className="text-xl font-medium tracking-tight opacity-40 uppercase">{activeFile.name}</h2>
+        <p className="text-[11px] opacity-30 mt-1">Папка выбрана. Создайте файл внутри.</p>
       </div>
     );
   }
@@ -602,6 +710,12 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
 
   return (
     <div className="h-full w-full flex flex-col bg-background animate-in fade-in duration-300">
+      <TagsDialog 
+        itemId={activeFileId} 
+        open={isTagsDialogOpen} 
+        onOpenChange={setIsTagsDialogOpen} 
+      />
+
       {/* Reading Mode Overlay */}
       {isReadOnly && (
         <div className="absolute top-12 right-12 z-10 animate-in fade-in zoom-in duration-300">
@@ -637,6 +751,27 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
                 <SelectItem value="unsetFontSize">Сбросить</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
+          <div className="flex items-center gap-0.5 shrink-0">
+             <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0" 
+              onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+              title="Добавить таблицу"
+            >
+              <TableIcon className="h-4 w-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0" 
+              onClick={() => editor?.chain().focus().setMermaid().run()}
+              title="Добавить диаграмму Mermaid"
+            >
+              <Workflow className="h-4 w-4" />
+            </Button>
           </div>
           <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
           <div className="flex items-center gap-0.5 shrink-0">
@@ -777,6 +912,14 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             </Toggle>
             <Toggle 
               size="sm" 
+              pressed={editor?.isActive('taskList')} 
+              onPressedChange={() => editor?.chain().focus().toggleTaskList().run()}
+              className="h-8 w-8"
+            >
+              <CheckSquare className="h-4 w-4" />
+            </Toggle>
+            <Toggle 
+              size="sm" 
               pressed={editor?.isActive('blockquote')} 
               onPressedChange={() => editor?.chain().focus().toggleBlockquote().run()}
               className="h-8 w-8"
@@ -784,7 +927,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
               <Quote className="h-4 w-4" />
             </Toggle>
           </div>
-          <div className="ml-auto flex items-center gap-2 shrink-0">
+          <div className="ml-auto flex items-center gap-0.5 shrink-0">
             <div className="flex items-center gap-0.5 mr-2">
               <button 
                 onClick={() => editor?.chain().focus().undo().run()}
@@ -803,30 +946,36 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
                 <Redo className="h-4 w-4" />
               </button>
             </div>
-            <div className="hidden md:flex items-center gap-2 text-[10px] text-muted-foreground mr-4">
-              <span>Ctrl+B</span>
-              <span>Ctrl+I</span>
-              <span>Ctrl+K</span>
-              <span>Ctrl+Shift+7</span>
-            </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="h-8 gap-2 text-xs"
-              onClick={exportToPdf}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 px-0"
+              onClick={() => setIsTagsDialogOpen(true)}
+              title="Теги"
             >
-              <Download className="h-3.5 w-3.5" />
-              Экспорт PDF
+              <Tag className={cn("h-4 w-4", activeFile?.tags?.length ? "text-blue-400 fill-blue-400" : "")} />
             </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="h-8 gap-2 text-xs"
-              onClick={exportToMarkdown}
-            >
-              <Download className="h-3.5 w-3.5" />
-              Экспорт MD
-            </Button>
+            <Separator orientation="vertical" className="h-4 mx-1" />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 px-0"
+                  title="Экспорт"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={exportToPdf}>
+                  Скачать PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportMarkdown}>
+                  Скачать Markdown
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       )}
@@ -839,7 +988,103 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
           isDraggingOver ? "bg-primary/5" : ""
         )}
       >
+        {editor && (
+          <BubbleMenu editor={editor} shouldShow={({ editor }) => editor.isActive('table')}>
+            <div className="flex items-center gap-1 p-1 rounded-md border bg-popover shadow-md overflow-hidden">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 px-2 text-xs" 
+                onClick={() => editor.chain().focus().addColumnBefore().run()}
+                title="Добавить колонку слева"
+              >
+                +Кол.Сл
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 px-2 text-xs" 
+                onClick={() => editor.chain().focus().addColumnAfter().run()}
+                title="Добавить колонку справа"
+              >
+                +Кол.Сп
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 px-2 text-xs" 
+                onClick={() => editor.chain().focus().deleteColumn().run()}
+                title="Удалить колонку"
+              >
+                -Кол
+              </Button>
+              <Separator orientation="vertical" className="h-4 mx-1" />
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 px-2 text-xs" 
+                onClick={() => editor.chain().focus().addRowBefore().run()}
+                title="Добавить строку сверху"
+              >
+                +Стр.Вв
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 px-2 text-xs" 
+                onClick={() => editor.chain().focus().addRowAfter().run()}
+                title="Добавить строку снизу"
+              >
+                +Стр.Низ
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 px-2 text-xs" 
+                onClick={() => editor.chain().focus().deleteRow().run()}
+                title="Удалить строку"
+              >
+                -Стр
+              </Button>
+              <Separator orientation="vertical" className="h-4 mx-1" />
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 px-2 text-xs" 
+                onClick={() => editor.chain().focus().mergeCells().run()}
+                title="Объединить ячейки"
+              >
+                Merge
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 w-8 p-0 text-destructive hover:text-destructive" 
+                onClick={() => editor.chain().focus().deleteTable().run()}
+                title="Удалить таблицу"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </BubbleMenu>
+        )}
+
         <div className={cn("max-w-3xl mx-auto py-12 transition-all duration-500", isReadOnly ? "opacity-100 scale-100" : "")}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            onChange={(e) => {
+              const files = e.target.files ? Array.from(e.target.files) : [];
+              if (files.length > 0) {
+                uploadFiles(files);
+              }
+              // Reset input value to allow selecting the same file again
+              if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+              }
+            }}
+          />
           <input
             ref={titleInputRef}
             type="text"
@@ -898,6 +1143,18 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
                   onClick={() => applySlashCommand('codeBlock')}
                 >
                   Код
+                </button>
+                <button
+                  className="px-3 py-1.5 text-left hover:bg-accent"
+                  onClick={() => applySlashCommand('mermaid')}
+                >
+                  Диаграмма Mermaid
+                </button>
+                <button
+                  className="px-3 py-1.5 text-left hover:bg-accent"
+                  onClick={() => applySlashCommand('table')}
+                >
+                  Таблица
                 </button>
                 <button
                   className="px-3 py-1.5 text-left hover:bg-accent"

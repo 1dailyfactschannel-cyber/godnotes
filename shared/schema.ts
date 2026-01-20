@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -26,11 +26,16 @@ export const folders = pgTable("folders", {
   parentId: varchar("parent_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+  isFavorite: boolean("is_favorite").default(false).notNull(),
+  tags: text("tags").array().default(sql`ARRAY[]::text[]`).notNull(),
 });
 
 export const insertFolderSchema = z.object({
   name: z.string().min(1),
   parentId: z.string().nullable().optional(),
+  isFavorite: z.boolean().optional(),
+  tags: z.array(z.string()).optional(),
 });
 
 export const updateFolderSchema = insertFolderSchema.partial();
@@ -40,6 +45,8 @@ export type InsertFolder = {
   userId: string;
   name: string;
   parentId?: string | null;
+  isFavorite?: boolean;
+  tags?: string[];
 };
 export type UpdateFolder = z.infer<typeof updateFolderSchema>;
 
@@ -51,12 +58,17 @@ export const notes = pgTable("notes", {
   content: text("content").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+  isFavorite: boolean("is_favorite").default(false).notNull(),
+  tags: text("tags").array().default(sql`ARRAY[]::text[]`).notNull(),
 });
 
 export const insertNoteSchema = z.object({
   title: z.string().min(1),
   content: z.string().default(""),
   folderId: z.string().nullable().optional(),
+  isFavorite: z.boolean().optional(),
+  tags: z.array(z.string()).optional(),
 });
 
 export const updateNoteSchema = insertNoteSchema.partial();
@@ -67,5 +79,7 @@ export type InsertNote = {
   title: string;
   content?: string;
   folderId?: string | null;
+  isFavorite?: boolean;
+  tags?: string[];
 };
 export type UpdateNote = z.infer<typeof updateNoteSchema>;
