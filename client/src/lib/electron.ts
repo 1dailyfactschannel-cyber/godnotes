@@ -14,6 +14,10 @@ declare global {
         readdir: (path: string) => Promise<{ success: boolean; entries?: { name: string; isDirectory: boolean }[]; error?: string }>;
       };
       telegramRequest: (url: string, options?: RequestInit) => Promise<{ success: boolean; data?: any; error?: string }>;
+      checkForUpdates: () => Promise<void>;
+      quitAndInstall: () => Promise<void>;
+      onUpdateStatus: (callback: (status: any) => void) => void;
+      getAppVersion: () => Promise<string>;
     };
   }
 }

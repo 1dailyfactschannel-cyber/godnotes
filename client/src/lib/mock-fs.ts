@@ -185,12 +185,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         // Check if default path has data, to support existing users
         const defaultPath = await getDocumentsPath();
         if (defaultPath) {
-          const godnotesPath = `${defaultPath}/GodNotes`;
-          const exists = await fs?.exists(godnotesPath);
-          if (exists) {
-            path = defaultPath;
-            await setStoreValue('storagePath', path);
-          }
+          path = defaultPath;
+          await setStoreValue('storagePath', path);
         }
       }
 
@@ -387,33 +383,34 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
 
     const state = get();
-    if (!state.isAuthenticated || !state.user) {
-      // Offline / Demo mode logic (optional, but requested to migrate to Appwrite, so maybe we force auth? 
-      // Keeping it for UI consistency if needed, but the user wants Appwrite backend)
-      // For now, let's allow "local" items if not auth, but they won't save to Appwrite.
-      const newFile: FileSystemItem = {
-        id: uuidv4(),
-        name,
-        type: 'file',
-        parentId: effectiveParentId,
-        content: '',
-        createdAt: Date.now(),
-      };
-      set((s) => {
+    const newId = ID.unique();
+    const createdAt = Date.now();
+
+    const newFile: FileSystemItem = {
+      id: newId,
+      name,
+      type: 'file',
+      parentId: effectiveParentId,
+      content: '',
+      createdAt: createdAt,
+    };
+
+    // Optimistic update
+    set((s) => {
         const expanded = new Set(s.expandedFolders);
         if (effectiveParentId) expanded.add(effectiveParentId);
         
-        // Ensure unique items by ID to prevent duplicates or state issues
-        const existingItems = s.items.filter(i => i.id !== newFile.id);
-        const newItems = [...existingItems, newFile];
-
+        // Ensure unique items by ID
+        const existingItems = s.items.filter(i => i.id !== newId);
         return {
-          items: newItems,
-          activeFileId: newFile.id,
+          items: [...existingItems, newFile],
+          activeFileId: newId,
           expandedFolders: expanded,
-          lastCreatedFileId: newFile.id,
+          lastCreatedFileId: newId,
         };
-      });
+    });
+
+    if (!state.isAuthenticated || !state.user) {
       return;
     }
 
@@ -421,7 +418,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             const note = await databases.createDocument(
               DATABASE_ID,
               COLLECTIONS.NOTES,
-              ID.unique(),
+              newId,
               {
                 title: name,
                 content: '',
@@ -447,56 +444,20 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
                         note.$id, 
                         { folderId: effectiveParentId }
                     );
-                    note.folderId = effectiveParentId; // Update local reference
                     console.log('[addFile] folderId fixed.');
                 } catch (fixErr) {
                     console.error('[addFile] Failed to fix folderId:', fixErr);
                 }
             }
-
-      const newFile: FileSystemItem = {
-        id: note.$id,
-        name: note.title,
-        type: 'file',
-        parentId: effectiveParentId !== null ? effectiveParentId : (note.folderId || null),
-        content: note.content,
-        createdAt: new Date(note.$createdAt).getTime(),
-      };
-      
-      set((s) => {
-        const expanded = new Set(s.expandedFolders);
-        if (effectiveParentId) expanded.add(effectiveParentId);
-        return {
-          items: [...s.items, newFile],
-          activeFileId: newFile.id,
-          expandedFolders: expanded,
-          lastCreatedFileId: newFile.id,
-        };
-      });
     } catch (error) {
-      console.error('Failed to create note, falling back to local:', error);
-      const newFile: FileSystemItem = {
-        id: uuidv4(),
-        name,
-        type: 'file',
-        parentId,
-        content: '',
-        createdAt: Date.now(),
-      };
-      set((s) => {
-        const expanded = new Set(s.expandedFolders);
-        if (parentId) expanded.add(parentId);
-        return {
-          items: [...s.items, newFile],
-          activeFileId: newFile.id,
-          expandedFolders: expanded,
-          lastCreatedFileId: newFile.id,
-        };
-      });
+      console.error('Failed to create note on server (kept locally):', error);
     }
   },
 
   addFolder: async (parentId, name = 'Новая папка') => {
+    // Explicitly handle parentId
+    const effectiveParentId = (typeof parentId === 'string' && parentId.trim().length > 0) ? parentId : null;
+
     // Check if we need to select a local path first
     if (isElectron() && !get().localDocumentsPath) {
        const path = await selectDirectory();
@@ -508,22 +469,32 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
 
     const state = get();
+    const newId = ID.unique();
+    const createdAt = Date.now();
     
-    // Allow local creation if not authenticated or offline
+    const newFolder: FileSystemItem = {
+      id: newId,
+      name,
+      type: 'folder',
+      parentId: effectiveParentId,
+      createdAt: createdAt,
+    };
+
+    // Optimistic update
+    set((s) => {
+        const expanded = new Set(s.expandedFolders);
+        expanded.add(newId);
+        if (effectiveParentId) expanded.add(effectiveParentId);
+        
+        const existingItems = s.items.filter(i => i.id !== newId);
+        return {
+          items: [...existingItems, newFolder],
+          expandedFolders: expanded,
+          lastCreatedFolderId: newId,
+        };
+    });
+    
     if (!state.isAuthenticated || !state.user) {
-      const newFolder: FileSystemItem = {
-        id: uuidv4(),
-        name,
-        type: 'folder',
-        parentId,
-        createdAt: Date.now(),
-      };
-      
-      set((state) => ({
-        items: [...state.items, newFolder],
-        expandedFolders: new Set([...Array.from(state.expandedFolders), newFolder.id]),
-        lastCreatedFolderId: newFolder.id,
-      }));
       return;
     }
 
@@ -531,10 +502,10 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         const folder = await databases.createDocument(
           DATABASE_ID,
           COLLECTIONS.FOLDERS,
-          ID.unique(),
+          newId,
           {
             name,
-            parentId,
+            parentId: effectiveParentId,
             userId: state.user.$id,
             tags: [],
             isFavorite: false
@@ -545,35 +516,22 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             Permission.delete(Role.user(state.user.$id)),
           ]
         );
-      
-      const newFolder: FileSystemItem = {
-        id: folder.$id,
-        name: folder.name,
-        type: 'folder',
-        parentId: folder.parentId || parentId || null,
-        createdAt: new Date(folder.$createdAt).getTime(),
-      };
-      
-      set((state) => ({
-        items: [...state.items, newFolder],
-        expandedFolders: new Set([...Array.from(state.expandedFolders), newFolder.id]),
-        lastCreatedFolderId: newFolder.id,
-      }));
+        
+        if (effectiveParentId && folder.parentId !== effectiveParentId) {
+             console.warn('[addFolder] parentId mismatch! Attempting to fix...');
+             try {
+                 await databases.updateDocument(
+                     DATABASE_ID, 
+                     COLLECTIONS.FOLDERS, 
+                     folder.$id, 
+                     { parentId: effectiveParentId }
+                 );
+             } catch (fixErr) {
+                 console.error('[addFolder] Failed to fix parentId:', fixErr);
+             }
+        }
     } catch (error) {
-      console.error('Failed to create folder, falling back to local:', error);
-      const newFolder: FileSystemItem = {
-        id: uuidv4(),
-        name,
-        type: 'folder',
-        parentId,
-        createdAt: Date.now(),
-      };
-      
-      set((state) => ({
-        items: [...state.items, newFolder],
-        expandedFolders: new Set([...Array.from(state.expandedFolders), newFolder.id]),
-        lastCreatedFolderId: newFolder.id,
-      }));
+      console.error('Failed to create folder on server (kept locally):', error);
     }
   },
 
@@ -751,7 +709,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
     const item = get().items.find(i => i.id === id);
     const state = get();
-    if (!item || !state.isAuthenticated || item.type !== 'file') {
+    if (!item || item.type !== 'file') {
       return;
     }
 
@@ -769,7 +727,10 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             await fs.writeFile(localPath, content).catch(e => console.error('Failed to save locally:', e));
         }
 
-        await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { content });
+        // Only save to Appwrite if authenticated
+        if (state.isAuthenticated) {
+            await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { content });
+        }
       } catch (error) {
         console.error('Failed to update note content:', error);
       } finally {

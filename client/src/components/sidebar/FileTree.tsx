@@ -35,6 +35,12 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { isElectron } from '@/lib/electron';
 import { Button } from '@/components/ui/button';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 
@@ -153,24 +159,49 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      <div className="p-2 flex items-center justify-between group shrink-0">
+      <div className="p-2 flex items-center justify-between shrink-0">
         <span className="text-[10px] font-bold text-muted-foreground px-2 uppercase tracking-widest">Файлы</span>
-        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={handleCreateFile} title="Новая заметка">
-            <FilePlus className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={handleCreateFolder} title="Новая папка">
-            <FolderPlus className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => downloadAllFiles()} title="Скачать все файлы">
-            <CloudDownload className="h-3.5 w-3.5" />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Сортировка">
-                <ArrowUpDown className="h-3.5 w-3.5" />
+        <div className="flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={handleCreateFile}>
+                <FilePlus className="h-4 w-4" />
               </Button>
-            </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Новая заметка</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={handleCreateFolder}>
+                <FolderPlus className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Новая папка</TooltipContent>
+          </Tooltip>
+
+          {isElectron() && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => downloadAllFiles()}>
+                  <CloudDownload className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Скачать все файлы</TooltipContent>
+            </Tooltip>
+          )}
+
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground">
+                    <ArrowUpDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Сортировка</TooltipContent>
+            </Tooltip>
             <DropdownMenuContent align="end" className="w-48 bg-popover/95 backdrop-blur-sm border-sidebar-border shadow-xl">
               <DropdownMenuItem onClick={() => setSortOrder('name-asc')}>
                 По имени (А-Я) {sortOrder === 'name-asc' && <Check className="ml-auto h-4 w-4" />}

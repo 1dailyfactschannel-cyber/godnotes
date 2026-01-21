@@ -4,31 +4,36 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug } from 'lucide-react';
+import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFileSystem, ThemeType } from '@/lib/mock-fs';
 import { useTasks } from '@/lib/tasks-store';
-import { telegramRequest, selectDirectory, getStoreValue, setStoreValue } from '@/lib/electron';
+import { telegramRequest, selectDirectory, getStoreValue, setStoreValue, isElectron, electron } from '@/lib/electron';
 import { useToast } from '@/hooks/use-toast';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { changelog } from '@/data/changelog';
 
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-type SettingsTab = 'general' | 'theme' | 'hotkeys' | 'telegram' | 'changelog';
+type SettingsTab = 'general' | 'theme' | 'hotkeys' | 'telegram' | 'about';
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
-  const { theme, setTheme, hotkeys, setHotkey, isOfflineMode, toggleOfflineMode, items } = useFileSystem();
+  const { theme, setTheme, hotkeys, setHotkey, isOfflineMode, toggleOfflineMode, items, downloadAllFiles } = useFileSystem();
   const { telegramConfig, setTelegramConfig } = useTasks();
   const { toast } = useToast();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [spaces, setSpaces] = useState<{ id: string; name: string; path: string }[]>([]);
   const [storagePath, setStoragePath] = useState<string>('');
   const [spaceNameDialogOpen, setSpaceNameDialogOpen] = useState(false);
   const [pendingSpacePath, setPendingSpacePath] = useState<string | null>(null);
   const [spaceNameInput, setSpaceNameInput] = useState('');
+  const [appVersion, setAppVersion] = useState<string>('');
+  // const [changelog] is now imported directly
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -40,6 +45,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         if (savedSpaces && Array.isArray(savedSpaces)) {
           setSpaces(savedSpaces);
         }
+
+        if (isElectron() && electron) {
+             electron.getAppVersion().then(setAppVersion);
+        }
       } catch (err) {
         console.error('Failed to load settings:', err);
       }
@@ -47,8 +56,34 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     if (open) loadSettings();
   }, [open]);
 
+  const handleCheckUpdates = async () => {
+    if (electron) {
+        toast({ title: 'Проверка обновлений', description: 'Поиск новой версии...' });
+        await electron.checkForUpdates();
+    }
+  };
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      await downloadAllFiles();
+      toast({
+        title: "Синхронизация завершена",
+        description: "Все файлы успешно загружены на устройство",
+      });
+    } catch (e) {
+      toast({
+        title: "Ошибка синхронизации",
+        description: "Не удалось загрузить файлы",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleConnectTelegram = async () => {
-    if (!telegramConfig.botToken) {
+    if (!telegramConfig.botToken?.trim()) {
       toast({ variant: "destructive", title: "Ошибка", description: "Bot Token не задан" });
       return;
     }
@@ -176,7 +211,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <NavButton active={activeTab === 'hotkeys'} onClick={() => setActiveTab('hotkeys')} label="Горячие клавиши" />
             <NavButton active={activeTab === 'telegram'} onClick={() => setActiveTab('telegram')} label="Telegram" />
             <div className="flex-1" />
-            <NavButton active={activeTab === 'changelog'} onClick={() => setActiveTab('changelog')} label="Что нового" />
+            <NavButton active={activeTab === 'about'} onClick={() => setActiveTab('about')} label="О приложении" />
           </div>
 
           {/* Content */}
@@ -193,6 +228,19 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       </div>
                       <Switch checked={isOfflineMode} onCheckedChange={toggleOfflineMode} />
                     </div>
+
+                    {isElectron() && (
+                      <div className="flex items-center justify-between pt-4 border-t border-border">
+                        <div className="space-y-0.5">
+                          <Label className="text-base">Синхронизация</Label>
+                          <p className="text-sm text-muted-foreground">Скачать все файлы из облака</p>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
+                          <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                          {isSyncing ? 'Загрузка...' : 'Скачать'}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -352,36 +400,38 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </div>
             )}
 
-            {activeTab === 'changelog' && (
-              <div className="space-y-6">
-                <h3 className="text-lg font-medium mb-4">Что нового</h3>
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-medium text-base">Версия 1.1.0</h4>
-                      <span className="text-xs text-muted-foreground">Текущая версия</span>
-                    </div>
-                    <ul className="list-disc pl-4 space-y-1 text-sm text-muted-foreground">
-                      <li>Добавлен календарь и список задач с поддержкой подзадач</li>
-                      <li>Интеграция с Telegram для уведомлений о задачах</li>
-                      <li>Офлайн режим работы (локальное хранилище)</li>
-                      <li>Новая структура настроек с боковым меню</li>
-                      <li>Улучшена производительность редактора</li>
-                    </ul>
-                  </div>
-                  
-                  <div className="pt-4 border-t border-border opacity-60">
-                     <div className="flex items-center justify-between">
-                      <h4 className="font-medium text-base">Версия 1.0.0</h4>
-                      <span className="text-xs text-muted-foreground">20 Янв 2026</span>
-                    </div>
-                    <ul className="list-disc pl-4 space-y-1 text-sm text-muted-foreground">
-                      <li>Первый релиз GodNotes</li>
-                      <li>Базовый редактор с поддержкой Markdown</li>
-                      <li>Файловая система с папками</li>
-                      <li>Поддержка тем оформления</li>
-                    </ul>
-                  </div>
+            {activeTab === 'about' && (
+              <div className="space-y-6 h-full flex flex-col">
+                <h3 className="text-lg font-medium mb-4">О приложении</h3>
+                
+                <div className="flex flex-col items-center gap-2 p-6 bg-secondary/20 rounded-lg border border-border shrink-0">
+                    <div className="text-xl font-bold">GodNotes</div>
+                    <div className="text-sm text-muted-foreground">Версия {appVersion || '1.1.0'}</div>
+                    {isElectron() && (
+                      <Button variant="outline" size="sm" onClick={handleCheckUpdates} className="mt-2">
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                          Проверить обновления
+                      </Button>
+                    )}
+                </div>
+
+                <div className="flex-1 flex flex-col min-h-0">
+                    <Label className="mb-2 px-1">История изменений</Label>
+                    <ScrollArea className="flex-1 border rounded-md p-4 bg-background">
+                        {changelog.map((release, index) => (
+                            <div key={index} className="mb-6 last:mb-0">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="font-semibold">v{release.version}</span>
+                                    <span className="text-xs text-muted-foreground">{release.date}</span>
+                                </div>
+                                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+                                    {release.notes.map((note: string, i: number) => (
+                                        <li key={i}>{note}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ))}
+                    </ScrollArea>
                 </div>
               </div>
             )}

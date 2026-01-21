@@ -13,4 +13,8 @@ contextBridge.exposeInMainWorld('electron', {
     readdir: (path) => ipcRenderer.invoke('fs-readdir', path),
   },
   telegramRequest: (url, options) => ipcRenderer.invoke('telegram-request', url, options),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
+  onUpdateStatus: (callback) => ipcRenderer.on('update-status', (event, ...args) => callback(...args)),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 });

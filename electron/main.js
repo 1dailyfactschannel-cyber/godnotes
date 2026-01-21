@@ -226,26 +226,41 @@ if (!gotTheLock) {
   });
 
   // Auto-updater events
-  autoUpdater.on('update-available', () => {
-    log.info('Update available.');
+  autoUpdater.on('checking-for-update', () => {
+    log.info('Checking for update...');
+    if (mainWindow) mainWindow.webContents.send('update-status', { status: 'checking' });
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    log.info('Update available.', info);
+    if (mainWindow) mainWindow.webContents.send('update-status', { status: 'available', info });
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    log.info('Update not available.', info);
+    if (mainWindow) mainWindow.webContents.send('update-status', { status: 'not-available', info });
   });
 
   autoUpdater.on('update-downloaded', (info) => {
     log.info('Update downloaded', info);
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Update Ready',
-      message: 'A new version has been downloaded. Restart the application to apply the updates.',
-      buttons: ['Restart', 'Later']
-    }).then((returnValue) => {
-      if (returnValue.response === 0) {
-        autoUpdater.quitAndInstall();
-      }
-    });
+    if (mainWindow) mainWindow.webContents.send('update-status', { status: 'downloaded', info });
   });
 
   autoUpdater.on('error', (err) => {
     log.error('Error in auto-updater. ' + err);
+    if (mainWindow) mainWindow.webContents.send('update-status', { status: 'error', error: err.message });
+  });
+
+  ipcMain.handle('check-for-updates', () => {
+    autoUpdater.checkForUpdates();
+  });
+
+  ipcMain.handle('quit-and-install', () => {
+    autoUpdater.quitAndInstall();
+  });
+
+  ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
   });
 
   app.on('window-all-closed', () => {
