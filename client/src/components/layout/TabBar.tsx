@@ -1,17 +1,20 @@
-import { X, FileText } from 'lucide-react';
+import { X, FileText, RefreshCw, Check } from 'lucide-react';
 import { useFileSystem } from '@/lib/mock-fs';
 import { cn } from '@/lib/utils';
-import { MouseEvent, useRef, useEffect } from 'react';
+import { MouseEvent, useRef, useEffect, useState } from 'react';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 
 export function TabBar() {
-  const { openFiles, activeFileId, selectFile, closeFile, closeAllFiles, items, isOfflineMode } = useFileSystem();
+  const { openFiles, activeFileId, selectFile, closeFile, closeAllFiles, items, isOfflineMode, downloadAllFiles } = useFileSystem();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSynced, setIsSynced] = useState(false);
 
   // Scroll to active tab when it changes
   useEffect(() => {
@@ -33,6 +36,21 @@ export function TabBar() {
     if (e.button === 1) {
       e.stopPropagation();
       closeFile(id);
+    }
+  };
+
+  const handleSync = async () => {
+    if (isOfflineMode) return;
+    
+    setIsSyncing(true);
+    setIsSynced(false);
+    try {
+      await downloadAllFiles();
+      setIsSynced(true);
+    } catch (e) {
+      console.error('Sync failed:', e);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -94,6 +112,30 @@ export function TabBar() {
               <X className="w-4 h-4" />
             </button>
           </div>
+        )}
+
+        {!isOfflineMode && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "h-full rounded-none px-3 gap-2 text-muted-foreground hover:text-foreground border-r border-border/40 font-normal",
+              isSynced && "text-emerald-500 hover:text-emerald-600"
+            )}
+            onClick={handleSync}
+            disabled={isSyncing}
+          >
+            {isSyncing ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : isSynced ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            <span className="text-xs">
+              {isSyncing ? 'Синхронизация...' : isSynced ? 'Синхронизировано' : 'Синхронизация'}
+            </span>
+          </Button>
         )}
         
         <div className="flex items-center justify-center px-3 h-full">

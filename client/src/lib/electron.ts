@@ -12,7 +12,9 @@ declare global {
         exists: (path: string) => Promise<boolean>;
         deleteFile: (path: string) => Promise<{ success: boolean; error?: string }>;
         deleteDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
-        readdir: (path: string) => Promise<{ success: boolean; entries?: { name: string; isDirectory: boolean }[]; error?: string }>;
+        createDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
+        readdir: (path: string) => Promise<{ success: boolean; files?: string[]; error?: string }>;
+        stat: (path: string) => Promise<{ success: boolean; isDirectory?: boolean; error?: string }>;
       };
       telegramRequest: (url: string, options?: RequestInit) => Promise<{ success: boolean; data?: any; error?: string }>;
       saveSecret: (key: string, value: string) => Promise<{ success: boolean; error?: string }>;
@@ -23,6 +25,7 @@ declare global {
       quitAndInstall: () => Promise<void>;
       onUpdateStatus: (callback: (status: any) => void) => void;
       getAppVersion: () => Promise<string>;
+      openTaskWindow: (taskId: string) => Promise<{ success: boolean; error?: string }>;
     };
   }
 }

@@ -7,7 +7,7 @@ import { useTasks } from './tasks-store';
 
 const saveTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
-export type ThemeType = 'obsidian-dark' | 'midnight-blue' | 'graphite' | 'light-mode';
+export type ThemeType = 'obsidian-dark' | 'midnight-blue' | 'graphite' | 'light-mode' | 'forest' | 'sunset' | 'ocean' | 'cyberpunk';
 
 export type SortOrder = 'name-asc' | 'name-desc' | 'date-newest' | 'date-oldest';
 
@@ -140,23 +140,22 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   syncInterval: null,
   isOfflineMode: localStorage.getItem('isOfflineMode') === 'true',
   hotkeys: (() => {
+    const defaults = {
+      commandPalette: 'Ctrl+K',
+      bold: 'Ctrl+B',
+      italic: 'Ctrl+I',
+      link: 'Ctrl+L', // Changed from Ctrl+K to avoid conflict
+      taskList: 'Ctrl+Shift+9',
+      newNote: 'Ctrl+Alt+N',
+      settings: 'Ctrl+,',
+      toggleSidebar: 'Ctrl+\\'
+    };
+
     try {
       const saved = localStorage.getItem('hotkeys');
-      return saved ? JSON.parse(saved) : {
-        commandPalette: 'Ctrl+K',
-        bold: 'Ctrl+B',
-        italic: 'Ctrl+I',
-        link: 'Ctrl+K',
-        taskList: 'Ctrl+Shift+9'
-      };
+      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
     } catch {
-      return {
-        commandPalette: 'Ctrl+K',
-        bold: 'Ctrl+B',
-        italic: 'Ctrl+I',
-        link: 'Ctrl+K',
-        taskList: 'Ctrl+Shift+9'
-      };
+      return defaults;
     }
   })(),
 

@@ -7,7 +7,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { Link } from '@tiptap/extension-link';
-import { Image } from '@tiptap/extension-image';
+// import { Image } from '@tiptap/extension-image';
 import { Youtube } from '@tiptap/extension-youtube';
 import { Extension } from '@tiptap/core';
 import TaskList from '@tiptap/extension-task-list';
@@ -22,6 +22,7 @@ import { Color } from '@tiptap/extension-color';
 import { common, createLowlight } from 'lowlight';
 import { WikiLinkExtension, WikiLinkList } from '@/lib/tiptap-extensions/wiki-link';
 import { MermaidExtension } from '@/lib/tiptap-extensions/mermaid';
+import { ResizableImage } from '@/lib/tiptap-extensions/resizable-image';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { useEffect, useCallback, useRef, useState } from 'react';
@@ -208,11 +209,8 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
           class: 'text-primary underline decoration-primary/30 underline-offset-4 hover:decoration-primary transition-colors cursor-pointer',
         },
       }),
-      Image.configure({
+      ResizableImage.configure({
         allowBase64: true,
-        HTMLAttributes: {
-          class: 'rounded-lg max-w-full h-auto my-4',
-        },
       }),
       Youtube.configure({
         HTMLAttributes: {
@@ -333,7 +331,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
           return true;
         }
 
-        if (isHotkeyMatch(event, hotkeys.link || 'Ctrl+K')) {
+        if (isHotkeyMatch(event, hotkeys.link || 'Ctrl+L')) {
           if (editor?.isActive('link')) {
             editor?.chain().focus().extendMarkRange('link').unsetLink().run();
           } else {

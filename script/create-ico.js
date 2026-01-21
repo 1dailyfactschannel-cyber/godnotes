@@ -12,7 +12,7 @@ const height = 128;
 const pixelDataSize = width * height * 4;
 
 // AND Mask Size (1 bit per pixel, padded to 32 bits boundary)
-const maskRowSize = width / 8; 
+const maskRowSize = Math.ceil(width / 32) * 4; 
 const maskSize = maskRowSize * height;
 
 const biSizeImage = pixelDataSize + maskSize;
@@ -53,104 +53,178 @@ buffer.writeUInt32LE(0, headerOffset + 36);
 const dataOffset = headerOffset + 40;
 
 // Theme Colors
-const bgB = 0x2A; // #0F172A
+// Background: #0F172A -> BGR: 2A 17 0F
+const bgB = 0x2A; 
 const bgG = 0x17;
 const bgR = 0x0F;
 
-const lightningB = 0xFF; // White for the G
-const lightningG = 0xFF;
-const lightningR = 0xFF;
+// Stroke: White -> BGR: FF FF FF
+const strB = 0xFF;
+const strG = 0xFF;
+const strR = 0xFF;
+
+// SVG Logic
+// ViewBox 0 0 24 24
+// Path: M20 5H4v14h16v-7h-8
+// Points: (20,5) -> (4,5) -> (4,19) -> (20,19) -> (20,12) -> (12,12)
+const svgScale = width / 24;
+const strokeWidth = 3 * svgScale;
+const halfStroke = strokeWidth / 2;
+
+const points = [
+    {x: 20, y: 5},
+    {x: 4, y: 5},
+    {x: 4, y: 19},
+    {x: 20, y: 19},
+    {x: 20, y: 12},
+    {x: 12, y: 12}
+];
+
+const segments = [];
+for (let i = 0; i < points.length - 1; i++) {
+    segments.push([points[i], points[i+1]]);
+}
+
+function distToSegment(p, v, w) {
+    // p, v, w are in SVG coords
+    const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2;
+    if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+}
 
 for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
         const offset = dataOffset + (y * width + x) * 4;
         
-        const nx = (x / width) * 100;
-        const ny = (y / height) * 100;
-
-        let r = 0, g = 0, b = 0, a = 0;
-
-        // 1. Background: Full Rounded Square
-        // Radius ~ 20%
-        const rPercent = 20;
+        // Map pixel to SVG coords
+        // y=0 is bottom in ICO/BMP, so y=height-1 is top.
+        // SVG y=0 is top.
+        // So svgY should be proportional to (height - 1 - y)
+        const svgX = (x / width) * 24;
+        const svgY = ((height - 1 - y) / height) * 24;
+        
+        let minDist = Infinity;
+        
+        for (const seg of segments) {
+            const d = distToSegment({x: svgX, y: svgY}, seg[0], seg[1]);
+            if (d < minDist) minDist = d;
+        }
+        
+        // Anti-aliasing
+        // Distance is in SVG units.
+        // Stroke width is 3 SVG units.
+        // Edge is at dist = 1.5.
+        // We want to smooth between 1.5 - pixelSize and 1.5 + pixelSize
+        // Pixel size in SVG units = 24 / width
+        const pixelSize = 24 / width;
+        const edge = 1.5; // half of stroke-width 3
+        
+        // Signed distance from edge: positive = outside, negative = inside
+        const distFromEdge = minDist - edge;
+        
+        // Smoothstep or clamp for alpha
+        // If distFromEdge < -pixelSize, alpha = 1 (inside)
+        // If distFromEdge > pixelSize, alpha = 0 (outside)
+        // Linear interpolation in between
+        
+        let strokeAlpha = 0;
+        if (distFromEdge < -pixelSize) {
+            strokeAlpha = 1;
+        } else if (distFromEdge > pixelSize) {
+            strokeAlpha = 0;
+        } else {
+            // Map [-pixelSize, pixelSize] to [1, 0]
+            strokeAlpha = 0.5 - (distFromEdge / (2 * pixelSize));
+        }
+        
+        // Background color
+        let r = bgR, g = bgG, b = bgB;
+        
+        // Blend stroke
+        // Final = Stroke * alpha + BG * (1 - alpha)
+        r = Math.round(strR * strokeAlpha + bgR * (1 - strokeAlpha));
+        g = Math.round(strG * strokeAlpha + bgG * (1 - strokeAlpha));
+        b = Math.round(strB * strokeAlpha + bgB * (1 - strokeAlpha));
+        
+        // Alpha channel (ICO supports 32-bit with alpha)
+        // We want full opacity for the icon square (rounded corners?)
+        // Let's add rounded corners to the background too!
+        
+        // Background rounded corners
+        // Center (12,12), size 24x24? No, SVG is 24x24.
+        // Let's say we want a rounded rect filling the viewbox with some padding.
+        // Or just fill the whole square? 
+        // Standard icons usually have some transparency around.
+        // Let's make it a rounded square.
+        // Rect from (1,1) to (23,23) with radius 4.
+        
+        // Box distance
+        // d = length(max(abs(p - center) - size, 0)) - radius
+        // center = 12,12
+        // size = 10 (half-width, 22 total width)
+        // radius = 4
+        // p relative to center
+        const cx = Math.abs(svgX - 12);
+        const cy = Math.abs(svgY - 12);
+        // Rounded box SDF
+        // q = abs(p) - b
+        const bx = cx - 9; // 9 = 11 - 2 (radius) ? 
+        // Let's just use simple logic:
+        // x in [0, 24], y in [0, 24]
+        // Alpha 0 if outside rounded rect.
+        
+        // Let's assume full opacity for now, 255.
+        // Or better, make corners transparent.
+        
+        let alpha = 255;
+        
+        // Simple rounded corner mask for background
+        // Radius 4 SVG units
+        // Corners:
+        // (4,4), (20,4), (4,20), (20,20)
+        // If x<4 and y<4, check dist to (4,4) > 4
+        
         let inCorner = false;
+        let cornerDist = 0;
         
-        if (nx < rPercent && ny < rPercent) { // Bottom Left
-             const cx = rPercent;
-             const cy = rPercent;
-             const dist = Math.sqrt(Math.pow(nx - cx, 2) + Math.pow(ny - cy, 2));
-             if (dist > rPercent) inCorner = true;
-        } else if (nx > (100-rPercent) && ny < rPercent) { // Bottom Right
-             const cx = 100-rPercent;
-             const cy = rPercent;
-             const dist = Math.sqrt(Math.pow(nx - cx, 2) + Math.pow(ny - cy, 2));
-             if (dist > rPercent) inCorner = true;
-        } else if (nx < rPercent && ny > (100-rPercent)) { // Top Left
-             const cx = rPercent;
-             const cy = 100-rPercent;
-             const dist = Math.sqrt(Math.pow(nx - cx, 2) + Math.pow(ny - cy, 2));
-             if (dist > rPercent) inCorner = true;
-        } else if (nx > (100-rPercent) && ny > (100-rPercent)) { // Top Right
-             const cx = 100-rPercent;
-             const cy = 100-rPercent;
-             const dist = Math.sqrt(Math.pow(nx - cx, 2) + Math.pow(ny - cy, 2));
-             if (dist > rPercent) inCorner = true;
+        if (svgX < 4 && svgY < 4) {
+            cornerDist = Math.hypot(svgX - 4, svgY - 4);
+            if (cornerDist > 4) inCorner = true;
+        } else if (svgX > 20 && svgY < 4) {
+            cornerDist = Math.hypot(svgX - 20, svgY - 4);
+            if (cornerDist > 4) inCorner = true;
+        } else if (svgX < 4 && svgY > 20) {
+            cornerDist = Math.hypot(svgX - 4, svgY - 20);
+            if (cornerDist > 4) inCorner = true;
+        } else if (svgX > 20 && svgY > 20) {
+            cornerDist = Math.hypot(svgX - 20, svgY - 20);
+            if (cornerDist > 4) inCorner = true;
         }
-
-        if (!inCorner) {
-            // Inside Background
-            r = bgR; g = bgG; b = bgB; a = 255;
-            
-            // 2. Simple border
-            if (nx < 3 || nx > 97 || ny < 3 || ny > 97) {
-                 r = Math.min(255, bgR + 20);
-                 g = Math.min(255, bgG + 20);
-                 b = Math.min(255, bgB + 20);
+        
+        if (inCorner) {
+            // Anti-alias the corner
+            const cornerDistFromEdge = cornerDist - 4;
+            let bgAlpha = 0;
+             if (cornerDistFromEdge < -pixelSize) {
+                bgAlpha = 1;
+            } else if (cornerDistFromEdge > pixelSize) {
+                bgAlpha = 0;
+            } else {
+                bgAlpha = 0.5 - (cornerDistFromEdge / (2 * pixelSize));
             }
-
-            // 3. Square G Logic (Bottom-Up coordinates)
-            // Thickness ~ 12%
-            // Top Bar: y ~ 80. x: 16 -> 84
-            // Bottom Bar: y ~ 20. x: 16 -> 84
-            // Left Bar: x ~ 16. y: 20 -> 80
-            // Right Bar: x ~ 84. y: 20 -> 50
-            // Middle Bar: y ~ 50. x: 50 -> 84
-
-            const t = 6; // Half thickness
-            
-            const isTop = (ny >= 80 - t && ny <= 80 + t) && (nx >= 16 - t && nx <= 84 + t);
-            const isBottom = (ny >= 20 - t && ny <= 20 + t) && (nx >= 16 - t && nx <= 84 + t);
-            const isLeft = (nx >= 16 - t && nx <= 16 + t) && (ny >= 20 - t && ny <= 80 + t);
-            const isRight = (nx >= 84 - t && nx <= 84 + t) && (ny >= 20 - t && ny <= 50 + t);
-            const isMiddle = (ny >= 50 - t && ny <= 50 + t) && (nx >= 50 - t && nx <= 84 + t);
-
-            if (isTop || isBottom || isLeft || isRight || isMiddle) {
-                r = lightningR; g = lightningG; b = lightningB;
-            }
+            alpha = Math.round(255 * bgAlpha);
         }
-
-        buffer[offset] = b;
-        buffer[offset + 1] = g;
-        buffer[offset + 2] = r;
-        buffer[offset + 3] = a;
+        
+        buffer.writeUInt8(b, offset);
+        buffer.writeUInt8(g, offset + 1);
+        buffer.writeUInt8(r, offset + 2);
+        buffer.writeUInt8(alpha, offset + 3);
     }
 }
 
-// --- AND Mask ---
-const maskOffset = dataOffset + pixelDataSize;
-for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-        const byteIndex = Math.floor((y * width + x) / 8);
-        const bitIndex = 7 - ((y * width + x) % 8);
-        const offset = dataOffset + (y * width + x) * 4;
-        const alpha = buffer[offset + 3];
-        
-        if (alpha === 0) {
-            buffer[maskOffset + byteIndex] |= (1 << bitIndex);
-        }
-    }
-}
-
+// Write buffer
 const outputPath = path.join(__dirname, '../client/public/icon.ico');
 fs.writeFileSync(outputPath, buffer);
-console.log(`ICO created at ${outputPath}`);
+console.log(`Icon created at ${outputPath}`);

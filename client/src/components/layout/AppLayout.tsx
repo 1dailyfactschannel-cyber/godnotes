@@ -19,7 +19,7 @@ const TiptapEditor = lazy(() => import('@/components/editor/TiptapEditor'));
 import { Search, Hash, ChevronRight, Minimize2, Square, X, Settings, Check, Clock, Star, Trash2, Sidebar, BookOpen, PenLine, FolderOpen, Plus, CheckCircle2, User, ChevronsUpDown, PanelLeft, Calendar as CalendarIcon, ListTodo, Send, Loader2, Unplug } from 'lucide-react';
 import { useFileSystem, ThemeType } from '@/lib/mock-fs';
 import { useTasks } from '@/lib/tasks-store';
-import { cn } from '@/lib/utils';
+import { cn, isHotkeyMatch } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,7 +45,7 @@ import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 
 export default function AppLayout() {
-  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs } = useFileSystem();
+  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs, addFile } = useFileSystem();
   const { telegramConfig, setTelegramConfig } = useTasks();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isReadOnly, setIsReadOnly] = useState(false);
@@ -190,6 +190,31 @@ export default function AppLayout() {
   }, []);
 
   useEffect(() => {
+    const handleGlobalHotkeys = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+
+      if (isHotkeyMatch(e, hotkeys.newNote || 'Ctrl+Alt+N')) {
+        e.preventDefault();
+        const currentFile = items.find(i => i.id === activeFileId);
+        addFile(currentFile?.parentId || null);
+      }
+
+      if (isHotkeyMatch(e, hotkeys.settings || 'Ctrl+,')) {
+        e.preventDefault();
+        setSettingsOpen(true);
+      }
+
+      if (isHotkeyMatch(e, hotkeys.toggleSidebar || 'Ctrl+\\')) {
+        e.preventDefault();
+        setIsSidebarCollapsed(prev => !prev);
+      }
+    };
+
+    document.addEventListener('keydown', handleGlobalHotkeys);
+    return () => document.removeEventListener('keydown', handleGlobalHotkeys);
+  }, [hotkeys, addFile, items, activeFileId]);
+
+  useEffect(() => {
     // Initialize local file system for sync
     initLocalFs();
     startPeriodicSync();
@@ -259,15 +284,58 @@ export default function AppLayout() {
     if (!pendingSpacePath || !spaceNameInput) return;
 
     try {
-      const newSpace = { id: crypto.randomUUID(), name: spaceNameInput, path: pendingSpacePath };
+      let finalPath = pendingSpacePath;
+      
+      // Determine separator
+      const sep = pendingSpacePath.includes('\\') ? '\\' : '/';
+      const pathParts = pendingSpacePath.split(/[/\\]/);
+      const lastFolder = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2];
+
+      if (isElectron() && electron && electron.fs) {
+         if (spaceNameInput !== lastFolder) {
+             // Create new folder
+             finalPath = pendingSpacePath.endsWith(sep) 
+                 ? `${pendingSpacePath}${spaceNameInput}`
+                 : `${pendingSpacePath}${sep}${spaceNameInput}`;
+         }
+      }
+
+      // Add to store first to allow access
+      const newSpace = { id: crypto.randomUUID(), name: spaceNameInput, path: finalPath };
       const newSpaces = [...spaces, newSpace];
-      setSpaces(newSpaces);
+      
+      // Persist spaces first so isPathAllowed checks pass
       await setStoreValue('spaces', newSpaces);
+      setSpaces(newSpaces);
+
+      // Create directory if needed
+      if (isElectron() && electron && electron.fs && finalPath !== pendingSpacePath) {
+          const res = await electron.fs.createDirectory(finalPath);
+          if (!res.success) {
+              console.error('Failed to create directory:', res.error);
+              // Revert spaces change?
+              // Maybe not revert, but warn user. 
+              // If it fails (e.g. exists?), maybe it's fine if it exists.
+              // fs-create-directory uses recursive: true, so it succeeds if exists.
+              // If permission error, then we have a problem.
+              if (res.error?.includes('Access denied')) {
+                   // This shouldn't happen if we updated store correctly and main process re-reads it.
+                   // But IPC might be async or main process cache? 
+                   // Store set is async.
+                   toast({ variant: "destructive", title: "Ошибка", description: "Не удалось создать папку: Доступ запрещен" });
+                   // Revert
+                   const reverted = spaces;
+                   setSpaces(reverted);
+                   await setStoreValue('spaces', reverted);
+                   return;
+              }
+          }
+      }
 
       toast({ title: "Пространство добавлено", description: `Пространство "${spaceNameInput}" успешно добавлено` });
       
       // If it's the first space, switch to it
-      if (spaces.length === 1) { // 1 because we just added it to array but spaces state might be stale in this closure? No, using newSpaces
+      if (newSpaces.length === 1) { 
         handleSwitchSpace(newSpace);
       }
       

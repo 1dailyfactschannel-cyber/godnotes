@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { 
   Trash2, Plus, Calendar as CalendarIcon, CornerDownRight, FileText, ArrowLeft,
-  Flame, Zap, Coffee, Tag, Search, Filter, SortAsc, SortDesc, X, GripVertical, Layers, RotateCw, LayoutList, Columns
+  Flame, Zap, Coffee, Tag, Search, Filter, SortAsc, SortDesc, X, GripVertical, Layers, RotateCw, LayoutList, Columns, ExternalLink
 } from 'lucide-react';
 import { KanbanBoard } from '@/components/KanbanBoard';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -17,6 +17,8 @@ import { cn } from '@/lib/utils';
 import { format, isToday, isTomorrow, isPast, isAfter, startOfToday, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { Link } from 'wouter';
+import { isElectron, electron } from '@/lib/electron';
+import { useToast } from '@/hooks/use-toast';
 import {
   Select,
   SelectContent,
@@ -43,7 +45,7 @@ const PriorityIcon = ({ priority, className }: { priority?: Priority, className?
   }
 };
 
-const TaskItem = ({ task, level = 0 }: { task: Task; level?: number }) => {
+export const TaskItem = ({ task, level = 0, hideExternalButton = false }: { task: Task; level?: number; hideExternalButton?: boolean }) => {
   const { toggleTask, deleteTask, addTask, setTaskDate, tasks, updateTask } = useTasks();
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
   const [subtaskContent, setSubtaskContent] = useState('');
@@ -51,6 +53,21 @@ const TaskItem = ({ task, level = 0 }: { task: Task; level?: number }) => {
   const [descriptionInput, setDescriptionInput] = useState(task.description || '');
   const [tagInput, setTagInput] = useState('');
   const [isEditingTags, setIsEditingTags] = useState(false);
+  const { toast } = useToast();
+
+  const handleOpenInNewWindow = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isElectron() && electron) {
+      electron.openTaskWindow(task.id);
+    } else {
+      toast({
+        title: "Недоступно в веб-версии",
+        description: "Эта функция работает только в десктопной версии приложения.",
+        variant: "destructive",
+      });
+    }
+  };
+
 
   const subtasks = tasks.filter(t => t.parentId === task.id);
   const completedSubtasks = subtasks.filter(t => t.isCompleted).length;
@@ -177,6 +194,18 @@ const TaskItem = ({ task, level = 0 }: { task: Task; level?: number }) => {
 
         {/* Hover Actions */}
         <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 self-start bg-background/80 backdrop-blur-sm rounded-md shadow-sm border border-border/50 absolute right-0 top-0 p-0.5 z-10">
+          {!hideExternalButton && (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-7 w-7" 
+              title="Открыть в отдельном окне"
+              onClick={handleOpenInNewWindow}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
+          )}
+
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="icon" className="h-7 w-7" title="Назначить дату">
@@ -350,6 +379,19 @@ export default function Todo() {
   const [newTaskRecurring, setNewTaskRecurring] = useState<RecurringInterval | undefined>(undefined);
   const [tagInput, setTagInput] = useState('');
   const [notify, setNotify] = useState(false);
+  const { toast } = useToast();
+
+  const handleOpenTodoInNewWindow = () => {
+    if (isElectron() && electron) {
+        electron.openTaskWindow('todo-window-placeholder'); // We will use a special ID or just a different method
+    } else {
+        toast({
+            title: "Недоступно в веб-версии",
+            description: "Эта функция работает только в десктопной версии приложения.",
+            variant: "destructive",
+        });
+    }
+  };
   
   // Filters & Sort State
   const [searchQuery, setSearchQuery] = useState('');
@@ -541,6 +583,16 @@ export default function Todo() {
                     <Columns className="h-4 w-4" />
                 </Button>
             </div>
+
+            <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-9 w-9 mr-2"
+                onClick={handleOpenTodoInNewWindow}
+                title="Открыть в отдельном окне"
+            >
+                <ExternalLink className="h-4 w-4" />
+            </Button>
 
             <Select value={filterStatus} onValueChange={(v: any) => setFilterStatus(v)}>
                 <SelectTrigger className="w-[130px]">

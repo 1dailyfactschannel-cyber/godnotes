@@ -11,7 +11,9 @@ contextBridge.exposeInMainWorld('electron', {
     exists: (path) => ipcRenderer.invoke('fs-exists', path),
     deleteFile: (path) => ipcRenderer.invoke('fs-delete-file', path),
     deleteDirectory: (path) => ipcRenderer.invoke('fs-delete-directory', path),
+    createDirectory: (path) => ipcRenderer.invoke('fs-create-directory', path),
     readdir: (path) => ipcRenderer.invoke('fs-readdir', path),
+    stat: (path) => ipcRenderer.invoke('fs-stat', path),
   },
   telegramRequest: (url, options) => ipcRenderer.invoke('telegram-request', url, options),
   saveSecret: (key, value) => ipcRenderer.invoke('save-secret', key, value),
@@ -22,4 +24,5 @@ contextBridge.exposeInMainWorld('electron', {
   quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
   onUpdateStatus: (callback) => ipcRenderer.on('update-status', (event, ...args) => callback(...args)),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  openTaskWindow: (taskId) => ipcRenderer.invoke('open-task-window', taskId),
 });

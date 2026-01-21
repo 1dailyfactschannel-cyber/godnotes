@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug, RefreshCw } from 'lucide-react';
+import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug, RefreshCw, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFileSystem, ThemeType } from '@/lib/mock-fs';
 import { useTasks } from '@/lib/tasks-store';
@@ -23,13 +23,14 @@ import { telegramRequest, selectDirectory, getStoreValue, setStoreValue, isElect
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { changelog } from '@/data/changelog';
+import { HelpSettings } from './HelpSettings';
 
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-type SettingsTab = 'general' | 'theme' | 'hotkeys' | 'telegram' | 'about';
+type SettingsTab = 'general' | 'theme' | 'hotkeys' | 'telegram' | 'about' | 'help';
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
@@ -283,6 +284,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <NavButton active={activeTab === 'hotkeys'} onClick={() => setActiveTab('hotkeys')} label="Горячие клавиши" />
             <NavButton active={activeTab === 'telegram'} onClick={() => setActiveTab('telegram')} label="Telegram" />
             <div className="flex-1" />
+            <NavButton active={activeTab === 'help'} onClick={() => setActiveTab('help')} label="Как пользоваться" />
             <NavButton active={activeTab === 'about'} onClick={() => setActiveTab('about')} label="О приложении" />
           </div>
 
@@ -391,6 +393,30 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     onClick={() => setTheme('light-mode')}
                     previewClass="bg-white border" 
                   />
+                  <ThemeCard 
+                    label="Forest" 
+                    active={theme === 'forest'} 
+                    onClick={() => setTheme('forest')}
+                    previewClass="bg-[#101411]" 
+                  />
+                  <ThemeCard 
+                    label="Sunset" 
+                    active={theme === 'sunset'} 
+                    onClick={() => setTheme('sunset')}
+                    previewClass="bg-[#1f1c29]" 
+                  />
+                  <ThemeCard 
+                    label="Ocean" 
+                    active={theme === 'ocean'} 
+                    onClick={() => setTheme('ocean')}
+                    previewClass="bg-[#0f1d24]" 
+                  />
+                  <ThemeCard 
+                    label="Cyberpunk" 
+                    active={theme === 'cyberpunk'} 
+                    onClick={() => setTheme('cyberpunk')}
+                    previewClass="bg-[#160e22]" 
+                  />
                 </div>
               </div>
             )}
@@ -416,13 +442,28 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   />
                   <HotkeySetting 
                     label="Вставить ссылку" 
-                    value={hotkeys.link || 'Ctrl+K'} 
+                    value={hotkeys.link || 'Ctrl+L'} 
                     onChange={(v) => setHotkey('link', v)} 
                   />
                   <HotkeySetting 
                     label="Список задач" 
                     value={hotkeys.taskList || 'Ctrl+Shift+9'} 
                     onChange={(v) => setHotkey('taskList', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Создать заметку" 
+                    value={hotkeys.newNote || 'Ctrl+Alt+N'} 
+                    onChange={(v) => setHotkey('newNote', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Настройки" 
+                    value={hotkeys.settings || 'Ctrl+,'} 
+                    onChange={(v) => setHotkey('settings', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Показать/Скрыть меню" 
+                    value={hotkeys.toggleSidebar || 'Ctrl+\\'} 
+                    onChange={(v) => setHotkey('toggleSidebar', v)} 
                   />
                 </div>
               </div>
@@ -476,6 +517,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
                 </div>
               </div>
+            )}
+
+            {activeTab === 'help' && (
+              <HelpSettings />
             )}
 
             {activeTab === 'about' && (

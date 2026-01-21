@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { isElectron, electron } from '@/lib/electron';
 import { ToastAction } from '@/components/ui/toast';
-import { Progress } from '@/components/ui/progress';
+import { useUpdateStore } from '@/lib/update-store';
+import { DownloadProgressToast } from '@/components/DownloadProgressToast';
 
 export function UpdateManager() {
   const { toast } = useToast();
@@ -33,24 +34,14 @@ export function UpdateManager() {
           break;
         case 'progress':
           if (data.progress) {
-             const percent = Math.round(data.progress.percent);
-             const description = (
-                <div className="flex flex-col gap-2 w-full">
-                    <span>{`Загружено ${percent}% (${(data.progress.transferred / 1024 / 1024).toFixed(1)} MB / ${(data.progress.total / 1024 / 1024).toFixed(1)} MB)`}</span>
-                    <Progress value={percent} className="h-2 w-full" />
-                </div>
-             );
+             // Update the store directly, which will cause DownloadProgressToast to re-render
+             useUpdateStore.getState().setProgress(data.progress);
 
-             if (progressToastRef.current) {
-                progressToastRef.current.update({
-                   title: 'Загрузка обновления',
-                   description: description,
-                   duration: Infinity,
-                });
-             } else {
+             // Only create toast if it doesn't exist
+             if (!progressToastRef.current) {
                 progressToastRef.current = toast({
                    title: 'Загрузка обновления',
-                   description: description,
+                   description: <DownloadProgressToast />,
                    duration: Infinity,
                 });
              }
@@ -63,6 +54,9 @@ export function UpdateManager() {
           });
           break;
         case 'downloaded':
+          // Reset progress store
+          useUpdateStore.getState().setProgress(null);
+          
           // Close progress toast if exists
           if (progressToastRef.current) {
               progressToastRef.current.dismiss();
@@ -83,6 +77,9 @@ export function UpdateManager() {
         case 'error':
           console.error('Update error:', data.error);
           
+          // Reset progress store
+          useUpdateStore.getState().setProgress(null);
+
           if (progressToastRef.current) {
               progressToastRef.current.dismiss();
               progressToastRef.current = null;

@@ -36,10 +36,15 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { isElectron } from '@/lib/electron';
 import { Button } from '@/components/ui/button';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
@@ -267,6 +272,7 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
   const [editName, setEditName] = useState(item.name);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isAlertOpen, setIsAlertOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Sync editName when item name changes (e.g. from external update)
@@ -375,6 +381,32 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
 
   return (
     <div className="py-0.5">
+      <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {item.type === 'folder' 
+                ? 'Эта папка и все файлы внутри нее будут перемещены в корзину.' 
+                : 'Этот файл будет перемещен в корзину.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Отмена</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteItem(item.id);
+                setIsAlertOpen(false);
+              }} 
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div 
@@ -503,7 +535,10 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
                 <DropdownMenuItem onClick={() => setIsEditing(true)}>
                   <Edit2 className="mr-2 h-4 w-4" /> Переименовать
                 </DropdownMenuItem>
-                <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => deleteItem(item.id)}>
+                <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={(e) => {
+                  e.stopPropagation();
+                  setIsAlertOpen(true);
+                }}>
                   <Trash2 className="mr-2 h-4 w-4" /> Удалить
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -544,7 +579,7 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
         <ContextMenuItem onClick={() => setIsEditing(true)}>
           <Edit2 className="mr-2 h-4 w-4" /> Переименовать
         </ContextMenuItem>
-        <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => deleteItem(item.id)}>
+        <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => setIsAlertOpen(true)}>
           <Trash2 className="mr-2 h-4 w-4" /> Удалить
         </ContextMenuItem>
       </ContextMenuContent>

@@ -121,6 +121,19 @@ ipcMain.handle('fs-delete-directory', async (event, dirPath) => {
   }
 });
 
+ipcMain.handle('fs-create-directory', async (event, dirPath) => {
+  if (!isPathAllowed(dirPath)) {
+    return { success: false, error: 'Access denied: Path not allowed' };
+  }
+  try {
+    await fs.mkdir(dirPath, { recursive: true });
+    return { success: true };
+  } catch (error) {
+    log.error('fs-create-directory error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('fs-readdir', async (event, dirPath) => {
   if (!isPathAllowed(dirPath)) {
     return { success: false, error: 'Access denied: Path not allowed' };
@@ -494,6 +507,54 @@ if (!gotTheLock) {
 
   ipcMain.handle('get-app-version', () => {
     return app.getVersion();
+  });
+
+  ipcMain.handle('open-task-window', async (event, taskId) => {
+    // Determine if we are opening a specific task or the whole todo page
+    const isTodoPage = taskId === 'todo-window-placeholder';
+    const width = isTodoPage ? 1200 : 800;
+    const height = isTodoPage ? 800 : 600;
+    
+    // For todo page, we might want a standard frame or keep it frameless with custom header?
+    // Let's stick to frameless for consistency, but TodoPage doesn't have a custom header with close button yet.
+    // So for TodoPage, let's use standard frame for now, or wrap it.
+    // Actually, user asked for "new window", usually implies standard window behavior or similar to app.
+    // Let's use frame: true for Todo page for better usability (maximize, minimize).
+    const frame = isTodoPage; 
+
+    const taskWindow = new BrowserWindow({
+      width,
+      height,
+      frame, // true for todo page, false for task popup
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: path.join(__dirname, 'preload.js')
+      },
+      icon: path.join(__dirname, '../client/public/icon.ico'),
+      autoHideMenuBar: true,
+    });
+
+    const internalRoute = isTodoPage ? '#/todo-window' : `#/task/${taskId}`;
+    
+    if (app.isPackaged) {
+        const indexPath = path.join(__dirname, '../dist/public/index.html');
+        const fileUrl = `file://${indexPath}${internalRoute}`;
+        taskWindow.loadURL(fileUrl);
+    } else {
+        const PORT = process.env.PORT || 5001;
+        taskWindow.loadURL(`http://localhost:${PORT}/${internalRoute}`);
+    }
+    
+    taskWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('http:') || url.startsWith('https:')) {
+        shell.openExternal(url);
+        return { action: 'deny' };
+      }
+      return { action: 'allow' };
+    });
+
+    return { success: true };
   });
 
   app.on('window-all-closed', () => {
