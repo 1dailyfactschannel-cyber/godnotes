@@ -22,7 +22,7 @@ type SettingsTab = 'general' | 'theme' | 'hotkeys' | 'telegram' | 'about';
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
-  const { theme, setTheme, hotkeys, setHotkey, isOfflineMode, toggleOfflineMode, items, downloadAllFiles } = useFileSystem();
+  const { theme, setTheme, hotkeys, setHotkey, isOfflineMode, toggleOfflineMode, items, downloadAllFiles, updateUserPrefs } = useFileSystem();
   const { telegramConfig, setTelegramConfig } = useTasks();
   const { toast } = useToast();
   const [isConnecting, setIsConnecting] = useState(false);
@@ -103,8 +103,19 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           const update = data.result.find((u: any) => u.message?.text === `/start ${code}`);
           if (update) {
             const chatId = update.message.chat.id.toString();
+            const username = update.message.from?.username;
             setTelegramConfig({ ...telegramConfig, chatId });
             
+            // Sync to user prefs
+            try {
+              await updateUserPrefs({ telegramChatId: chatId });
+              if (username) {
+                 await updateUserPrefs({ telegram: username });
+              }
+            } catch (e) {
+              console.error('Failed to sync telegram config', e);
+            }
+
             await telegramRequest(`https://api.telegram.org/bot${token}/sendMessage`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -130,8 +141,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   };
 
-  const handleDisconnectTelegram = () => {
+  const handleDisconnectTelegram = async () => {
     setTelegramConfig({ ...telegramConfig, chatId: '' });
+    try {
+      await updateUserPrefs({ telegramChatId: '' });
+    } catch (e) {
+      console.error('Failed to sync telegram config', e);
+    }
     toast({ title: "Отключено", description: "Telegram уведомления отключены" });
   };
 

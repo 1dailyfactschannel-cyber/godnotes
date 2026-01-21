@@ -9,4 +9,4 @@ dist-electron
 uploads
 .sessions.json
 .storage-config.json
-dist-release
+dist-release*

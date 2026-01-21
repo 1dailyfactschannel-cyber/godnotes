@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { account, databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 import { ID, Query, Permission, Role, Models } from 'appwrite';
 import { fs, getDocumentsPath, isElectron, selectDirectory, getStoreValue, setStoreValue } from './electron';
+import { useTasks } from './tasks-store';
 
 const saveTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -100,6 +101,7 @@ interface FileSystemState {
   setHotkey: (action: string, key: string) => void;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   togglePin: (id: string) => void;
   toggleFavorite: (id: string) => Promise<void>;
@@ -358,9 +360,32 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     try {
       const user = await account.get();
       set({ isAuthenticated: true, user });
+
+      // Sync Telegram config from user prefs
+      if (user.prefs && user.prefs.telegramChatId) {
+        const currentConfig = useTasks.getState().telegramConfig;
+        useTasks.getState().setTelegramConfig({
+          ...currentConfig,
+          chatId: user.prefs.telegramChatId
+        });
+      }
+
       await Promise.all([get().fetchFolders(), get().fetchNotes()]);
-    } catch (error) {
-      console.error("checkAuth failed:", error);
+    } catch (error: any) {
+      // Ignore 401 Unauthorized as it just means user is not logged in
+      // Check both number and string types, and also Appwrite specific properties
+      const code = error?.code || error?.response?.code;
+      const type = error?.type || error?.response?.type;
+      
+      // Filter out 401 errors (unauthorized) which are expected when not logged in
+      const isUnauthorized = 
+        code === 401 || 
+        code === "401" || 
+        type === "general_unauthorized_scope";
+
+      if (!isUnauthorized) {
+          console.error("checkAuth failed:", error);
+      }
       set({ isAuthenticated: false, user: null, items: initialItems, activeFileId: '5' });
     } finally {
       set({ isAuthChecking: false });
@@ -998,6 +1023,24 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
      await get().login(email, password);
   },
   
+  resetPassword: async (email: string) => {
+    try {
+      // Use the deployed web app URL for password recovery.
+      // This ensures the link works in standard browsers and avoids deep linking issues.
+      // The web app at this address handles the /#/reset-password route.
+      await account.createRecovery(email, 'https://godnotes-8aoh.vercel.app/#/reset-password');
+    } catch (error: any) {
+      console.error('Password reset failed:', error);
+      
+      // Check for specific Appwrite platform error
+      if (error?.message?.includes('Register your new client') || error?.response?.message?.includes('Register your new client')) {
+         throw new Error("Ошибка конфигурации Appwrite: Необходимо добавить домен 'godnotes-8aoh.vercel.app' как Веб-платформу в консоли Appwrite (Overview -> Platforms -> Add Platform -> Web).");
+      }
+      
+      throw error;
+    }
+  },
+
   logout: async () => {
     try {
       await account.deleteSession('current');

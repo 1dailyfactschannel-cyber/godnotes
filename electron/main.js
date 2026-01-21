@@ -196,18 +196,92 @@ if (!gotTheLock) {
     });
   }
 
+  function handleDeepLink(url) {
+      if (!mainWindow) return;
+      log.info('Received deep link:', url);
+      
+      try {
+          // url format: godnotes://reset-password?userId=...&secret=...
+          // We need to convert this to the internal hash route
+          // godnotes://reset-password -> /#/reset-password
+          
+          const urlObj = new URL(url);
+          const routePath = urlObj.hostname + urlObj.pathname; // reset-password or /reset-password
+          const search = urlObj.search; // ?userId=...
+          
+          if (routePath.includes('reset-password')) {
+              // Construct the internal URL
+              // For hash router: #/reset-password?userId=...
+              const internalRoute = `#/reset-password${search}`;
+              
+              log.info('Navigating to:', internalRoute);
+              
+              if (app.isPackaged) {
+                 // In production (file://), we need to use hash navigation via JS or loadURL
+                 // Since we use HashRouter, we can just reload the index with the hash?
+                 // No, file://.../index.html#/reset-password
+                 
+                 const indexPath = path.join(__dirname, '../dist/public/index.html');
+                 const fileUrl = `file://${indexPath}${internalRoute}`;
+                 mainWindow.loadURL(fileUrl);
+              } else {
+                 // Dev mode
+                 const PORT = process.env.PORT || 5001;
+                 mainWindow.loadURL(`http://localhost:${PORT}/${internalRoute}`);
+              }
+          }
+      } catch (e) {
+          log.error('Failed to handle deep link:', e);
+      }
+  }
+
+  app.on('open-url', (event, url) => {
+      event.preventDefault();
+      handleDeepLink(url);
+  });
+
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     // Someone tried to run a second instance, we should focus our window.
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
+
+      // Deep linking handler for Windows (protocol is passed as argument)
+      const url = commandLine.find(arg => arg.startsWith('godnotes://'));
+      if (url) {
+         handleDeepLink(url);
+      }
     }
   });
+
+  // Handle deep linking on cold start (Windows/Linux)
+  if (process.platform === 'win32') {
+     const url = process.argv.find(arg => arg.startsWith('godnotes://'));
+     if (url) {
+        // We might not have window yet, wait for create
+        // But since we are inside gotTheLock, we will create window.
+        // We can store it in a global or handle it after create.
+        global.deepLinkUrl = url;
+     }
+  }
+
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient('godnotes', process.execPath, [path.resolve(process.argv[1])]);
+    }
+  } else {
+    app.setAsDefaultProtocolClient('godnotes');
+  }
 
   app.whenReady().then(() => {
     // If we are in production build (bundled), we might need to spawn the server manually.
     // For now, we assume the server is started by the npm script wrapper.
     createWindow();
+
+    // Check if we have a deep link from cold start
+    if (global.deepLinkUrl) {
+       handleDeepLink(global.deepLinkUrl);
+    }
 
     // Check for updates
     autoUpdater.checkForUpdatesAndNotify();

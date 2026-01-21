@@ -10,31 +10,49 @@ import { Logo } from '@/components/Logo';
 import { useToast } from '@/hooks/use-toast';
 
 export default function LoginPage() {
-  const { theme, checkAuth, login, register } = useFileSystem();
-  const [email, setEmail] = useState('demo@obsidian.com');
-  const [password, setPassword] = useState('password');
+  const { theme, checkAuth, login, register, resetPassword } = useFileSystem();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+
+  // Load saved credentials on mount
+  useState(() => {
+    const savedEmail = localStorage.getItem('savedEmail');
+    if (savedEmail) {
+      setEmail(savedEmail);
+    }
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      if (isRegistering) {
+      if (isResettingPassword) {
+        await resetPassword(email);
+        toast({
+          title: "Письмо отправлено",
+          description: "Проверьте вашу почту для сброса пароля",
+        });
+        setIsResettingPassword(false);
+      } else if (isRegistering) {
         await register(email, password, name);
       } else {
         await login(email, password);
+        // Save email on successful login
+        localStorage.setItem('savedEmail', email);
       }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Не удалось выполнить запрос";
       toast({
         variant: "destructive",
-        title: "Ошибка входа",
+        title: isResettingPassword ? "Ошибка сброса" : "Ошибка входа",
         description: message,
       });
     } finally {
@@ -53,7 +71,7 @@ export default function LoginPage() {
             <Logo className="w-full h-full text-primary-foreground" />
           </div>
           <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-tight">
-            {isRegistering ? 'Godnotes Registration' : 'Godnotes Login'}
+            {isResettingPassword ? 'Восстановление пароля' : (isRegistering ? 'Godnotes Registration' : 'Godnotes Login')}
           </span>
         </div>
         <div className="flex h-full">
@@ -64,18 +82,20 @@ export default function LoginPage() {
         <Card className="w-full max-w-md bg-card/50 backdrop-blur-md border-sidebar-border shadow-2xl animate-in zoom-in-95 duration-300">
           <CardHeader className="space-y-1 text-center">
             <div className="mx-auto w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
-              {isRegistering ? <UserPlus className="h-6 w-6 text-primary" /> : <KeyRound className="h-6 w-6 text-primary" />}
+              {isRegistering ? <UserPlus className="h-6 w-6 text-primary" /> : <Logo className="h-6 w-6 text-primary" />}
             </div>
             <CardTitle className="text-2xl font-bold tracking-tight">
-              {isRegistering ? 'Создать аккаунт' : 'Welcome Back'}
+              {isResettingPassword ? 'Сброс пароля' : (isRegistering ? 'Создать аккаунт' : 'GodNotes')}
             </CardTitle>
             <CardDescription className="text-muted-foreground">
-              {isRegistering ? 'Заполните данные для регистрации' : 'Введите свои данные для доступа к заметкам'}
+              {isResettingPassword 
+                ? 'Введите email для получения ссылки на сброс пароля'
+                : (isRegistering ? 'Заполните данные для регистрации' : 'Введите свои данные для доступа к заметкам')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              {isRegistering && (
+              {isRegistering && !isResettingPassword && (
                 <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
                   <Label htmlFor="name">Имя</Label>
                   <Input 
@@ -103,6 +123,7 @@ export default function LoginPage() {
                   />
                 </div>
               </div>
+              {!isResettingPassword && (
               <div className="space-y-2">
                 <Label htmlFor="password">Пароль</Label>
                 <div className="relative">
@@ -124,30 +145,48 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
+              )}
               <Button
                 type="submit"
                 className="w-full font-semibold py-6 text-lg shadow-lg hover:shadow-primary/20 transition-all mt-6"
                 disabled={isSubmitting}
               >
-                {isRegistering ? 'Зарегистрироваться' : 'Войти в хранилище'}
+                {isResettingPassword ? 'Отправить ссылку' : (isRegistering ? 'Зарегистрироваться' : 'Войти в хранилище')}
               </Button>
             </form>
             
             <div className="mt-6 flex flex-col gap-4">
               <button 
-                onClick={() => setIsRegistering(!isRegistering)}
+                type="button"
+                onClick={() => {
+                  if (isResettingPassword) {
+                    setIsResettingPassword(false);
+                  } else {
+                    setIsRegistering(!isRegistering);
+                  }
+                }}
                 className="text-sm text-center text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-2"
               >
-                {isRegistering ? (
-                  <><ArrowLeft className="h-4 w-4" /> Уже есть аккаунт? Войти</>
+                {isResettingPassword ? (
+                  <><ArrowLeft className="h-4 w-4" /> Вернуться ко входу</>
                 ) : (
-                  'Нет аккаунта? Создать новый'
+                  isRegistering ? (
+                    <><ArrowLeft className="h-4 w-4" /> Уже есть аккаунт? Войти</>
+                  ) : (
+                    'Нет аккаунта? Создать новый'
+                  )
                 )}
               </button>
               
-              {!isRegistering && (
+              {!isRegistering && !isResettingPassword && (
                 <div className="text-center text-sm">
-                  <button className="text-muted-foreground/50 hover:text-primary transition-colors">Забыли пароль?</button>
+                  <button 
+                    type="button"
+                    onClick={() => setIsResettingPassword(true)}
+                    className="text-muted-foreground/50 hover:text-primary transition-colors"
+                  >
+                    Забыли пароль?
+                  </button>
                 </div>
               )}
             </div>

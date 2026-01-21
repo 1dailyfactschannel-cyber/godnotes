@@ -14,6 +14,7 @@ const Login = lazy(() => import("@/pages/Login"));
 const Profile = lazy(() => import("@/pages/Profile"));
 const CalendarPage = lazy(() => import("@/pages/CalendarPage"));
 const TodoPage = lazy(() => import("@/pages/Todo"));
+const ResetPasswordPage = lazy(() => import("@/pages/ResetPassword"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function AppRoutes() {
@@ -40,6 +41,9 @@ function AppRoutes() {
         </Route>
         <Route path="/todo">
           {isAuthenticated ? <TodoPage /> : <Redirect to="/login" />}
+        </Route>
+        <Route path="/reset-password">
+          <ResetPasswordPage />
         </Route>
         <Route path="/">
           {isAuthenticated ? <Home /> : <Redirect to="/login" />}
