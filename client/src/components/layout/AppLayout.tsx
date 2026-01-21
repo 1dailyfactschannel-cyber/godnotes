@@ -1,7 +1,7 @@
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useLocation, Link } from "wouter";
-import { selectDirectory, getStoreValue, setStoreValue, telegramRequest, isElectron } from '@/lib/electron';
+import { selectDirectory, getStoreValue, setStoreValue, telegramRequest, isElectron, electron } from '@/lib/electron';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -194,6 +194,21 @@ export default function AppLayout() {
     initLocalFs();
     startPeriodicSync();
     
+    // Load secure settings
+    const loadSecureSettings = async () => {
+      if (isElectron() && electron && electron.loadSecret) {
+        try {
+          const res = await electron.loadSecret('telegramBotToken');
+          if (res.success && res.value) {
+            setTelegramConfig({ ...useTasks.getState().telegramConfig, botToken: res.value });
+          }
+        } catch (e) {
+          console.error('Failed to load secure settings:', e);
+        }
+      }
+    };
+    loadSecureSettings();
+
     const loadSettings = async () => {
       try {
         const path = await getStoreValue('storagePath');

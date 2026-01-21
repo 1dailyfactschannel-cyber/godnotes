@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, dialog, globalShortcut, ipcMain } from 'electron';
+import { app, BrowserWindow, shell, dialog, globalShortcut, ipcMain, safeStorage, session } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
@@ -12,7 +12,36 @@ const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 const { autoUpdater } = require('electron-updater');
 
+// Disable auto-download to allow manual user confirmation via UI
+autoUpdater.autoDownload = false;
+autoUpdater.allowPrerelease = false;
+
 const store = new Store();
+
+// Security: Path Validation Helper
+const isPathAllowed = (targetPath) => {
+  try {
+    const resolvedTarget = path.resolve(targetPath);
+    const allowedPaths = [app.getPath('documents')];
+    
+    // Add spaces to allowed paths
+    const spaces = store.get('spaces') || [];
+    if (Array.isArray(spaces)) {
+      spaces.forEach(s => {
+        if (s.path) allowedPaths.push(path.resolve(s.path));
+      });
+    }
+
+    // Check if target is inside any allowed path
+    return allowedPaths.some(allowed => {
+      const relative = path.relative(allowed, resolvedTarget);
+      return !relative.startsWith('..') && !path.isAbsolute(relative);
+    });
+  } catch (e) {
+    log.error('Path validation error:', e);
+    return false;
+  }
+};
 
 // IPC Handlers
 ipcMain.handle('select-directory', async () => {
@@ -30,6 +59,9 @@ ipcMain.handle('get-documents-path', () => {
 });
 
 ipcMain.handle('fs-write-file', async (event, filePath, content) => {
+  if (!isPathAllowed(filePath)) {
+    return { success: false, error: 'Access denied: Path not allowed' };
+  }
   try {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, content, 'utf-8');
@@ -41,6 +73,9 @@ ipcMain.handle('fs-write-file', async (event, filePath, content) => {
 });
 
 ipcMain.handle('fs-read-file', async (event, filePath) => {
+  if (!isPathAllowed(filePath)) {
+    return { success: false, error: 'Access denied: Path not allowed' };
+  }
   try {
     const content = await fs.readFile(filePath, 'utf-8');
     return { success: true, content };
@@ -51,6 +86,8 @@ ipcMain.handle('fs-read-file', async (event, filePath) => {
 });
 
 ipcMain.handle('fs-exists', async (event, filePath) => {
+  // Allow checking existence anywhere? Maybe safer to restrict too.
+  if (!isPathAllowed(filePath)) return false;
   try {
     await fs.access(filePath);
     return true;
@@ -60,6 +97,9 @@ ipcMain.handle('fs-exists', async (event, filePath) => {
 });
 
 ipcMain.handle('fs-delete-file', async (event, filePath) => {
+  if (!isPathAllowed(filePath)) {
+    return { success: false, error: 'Access denied: Path not allowed' };
+  }
   try {
     await fs.unlink(filePath);
     return { success: true };
@@ -68,7 +108,23 @@ ipcMain.handle('fs-delete-file', async (event, filePath) => {
   }
 });
 
+ipcMain.handle('fs-delete-directory', async (event, dirPath) => {
+  if (!isPathAllowed(dirPath)) {
+    return { success: false, error: 'Access denied: Path not allowed' };
+  }
+  try {
+    await shell.trashItem(dirPath);
+    return { success: true };
+  } catch (error) {
+    log.error('Failed to move directory to trash:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('fs-readdir', async (event, dirPath) => {
+  if (!isPathAllowed(dirPath)) {
+    return { success: false, error: 'Access denied: Path not allowed' };
+  }
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
     return {
@@ -91,7 +147,38 @@ ipcMain.handle('set-store-value', (event, key, value) => {
   store.set(key, value);
 });
 
+ipcMain.handle('save-secret', async (event, key, value) => {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { success: false, error: 'Encryption not available' };
+  }
+  try {
+    const encrypted = safeStorage.encryptString(value);
+    store.set('secret.' + key, encrypted.toString('hex'));
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('load-secret', async (event, key) => {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { success: false, error: 'Encryption not available' };
+  }
+  try {
+    const hex = store.get('secret.' + key);
+    if (!hex) return { success: true, value: null };
+    const buffer = Buffer.from(hex, 'hex');
+    const decrypted = safeStorage.decryptString(buffer);
+    return { success: true, value: decrypted };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('telegram-request', async (event, url, options) => {
+  if (!url.startsWith('https://api.telegram.org/')) {
+    return { success: false, error: 'Access denied: Only api.telegram.org is allowed' };
+  }
   try {
     const response = await fetch(url, options);
     const data = await response.json();
@@ -102,9 +189,57 @@ ipcMain.handle('telegram-request', async (event, url, options) => {
   }
 });
 
+ipcMain.handle('export-pdf', async (event, htmlContent, defaultFilename) => {
+  let printWindow = null;
+  try {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: 'Сохранить как PDF',
+      defaultPath: defaultFilename,
+      filters: [{ name: 'PDF Files', extensions: ['pdf'] }]
+    });
+
+    if (canceled || !filePath) {
+      return { success: false, error: 'Cancelled' };
+    }
+
+    printWindow = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
+      }
+    });
+
+    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
+
+    const pdfData = await printWindow.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      margins: {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0
+      }
+    });
+
+    await fs.writeFile(filePath, pdfData);
+    return { success: true, filePath };
+
+  } catch (error) {
+    log.error('Export PDF error:', error);
+    return { success: false, error: error.message };
+  } finally {
+    if (printWindow) {
+      printWindow.close();
+    }
+  }
+});
+
 // Configure logging
 log.transports.file.level = 'info';
 autoUpdater.logger = log;
+autoUpdater.autoDownload = false; // Disable auto download
 
 // Start server in production
 // if (app.isPackaged) {
@@ -274,6 +409,18 @@ if (!gotTheLock) {
   }
 
   app.whenReady().then(() => {
+    // CSP Configuration
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cloud.appwrite.io https://api.telegram.org; img-src 'self' data: blob: https:; connect-src 'self' https://cloud.appwrite.io https://api.telegram.org wss:;"
+          ]
+        }
+      });
+    });
+
     // If we are in production build (bundled), we might need to spawn the server manually.
     // For now, we assume the server is started by the npm script wrapper.
     createWindow();
@@ -320,13 +467,25 @@ if (!gotTheLock) {
     if (mainWindow) mainWindow.webContents.send('update-status', { status: 'downloaded', info });
   });
 
+  autoUpdater.on('download-progress', (progressObj) => {
+    // log.info('Download progress:', progressObj); // Optional: log progress
+    if (mainWindow) mainWindow.webContents.send('update-status', { status: 'progress', progress: progressObj });
+  });
+
   autoUpdater.on('error', (err) => {
     log.error('Error in auto-updater. ' + err);
+    if (err.message && err.message.includes('404')) {
+      log.warn('Update failed with 404. Check if the release files are available in the public releases repository.');
+    }
     if (mainWindow) mainWindow.webContents.send('update-status', { status: 'error', error: err.message });
   });
 
   ipcMain.handle('check-for-updates', () => {
     autoUpdater.checkForUpdates();
+  });
+
+  ipcMain.handle('start-download', () => {
+    autoUpdater.downloadUpdate();
   });
 
   ipcMain.handle('quit-and-install', () => {

@@ -88,6 +88,7 @@ interface FileSystemState {
   deleteItem: (id: string) => Promise<void>;
   restoreItem: (id: string) => Promise<void>;
   permanentDeleteItem: (id: string) => Promise<void>;
+  emptyTrash: () => Promise<void>;
   renameItem: (id: string, newName: string) => Promise<void>;
   updateFileContent: (id: string, content: string) => void;
   loadFileContent: (id: string, content: string) => void;
@@ -209,6 +210,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   fetchFolders: async () => {
+    if (get().isOfflineMode) return;
     const user = get().user;
     if (!user) return;
 
@@ -243,6 +245,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   fetchNotes: async () => {
+    if (get().isOfflineMode) return;
     const user = get().user;
     if (!user) return;
 
@@ -361,13 +364,27 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       const user = await account.get();
       set({ isAuthenticated: true, user });
 
-      // Sync Telegram config from user prefs
-      if (user.prefs && user.prefs.telegramChatId) {
-        const currentConfig = useTasks.getState().telegramConfig;
-        useTasks.getState().setTelegramConfig({
-          ...currentConfig,
-          chatId: user.prefs.telegramChatId
-        });
+      // Sync Telegram config
+      const currentConfig = useTasks.getState().telegramConfig;
+      const cloudChatId = user.prefs?.telegramChatId;
+
+      // 1. If Cloud has a value (even empty string), it is the source of truth
+      if (cloudChatId !== undefined && cloudChatId !== null) {
+          if (cloudChatId !== currentConfig.chatId) {
+              useTasks.getState().setTelegramConfig({
+                  ...currentConfig,
+                  chatId: cloudChatId
+              });
+          }
+      } 
+      // 2. If Cloud is empty (undefined) but Local has value -> Push Local to Cloud (Legacy Migration)
+      else if (currentConfig.chatId) {
+          try {
+              await get().updateUserPrefs({ telegramChatId: currentConfig.chatId });
+              console.log('Synced local Telegram config to cloud');
+          } catch (e) {
+              console.error('Failed to sync local Telegram config to cloud:', e);
+          }
       }
 
       await Promise.all([get().fetchFolders(), get().fetchNotes()]);
@@ -702,6 +719,28 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
   },
 
+  emptyTrash: async () => {
+    const state = get();
+    if (state.trashItems.length === 0) return;
+
+    // Optimistic update
+    const itemsToDelete = [...state.trashItems];
+    set({ trashItems: [] });
+
+    if (!state.isAuthenticated) return;
+
+    try {
+        await Promise.all(itemsToDelete.map(item => {
+            const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
+            return databases.deleteDocument(DATABASE_ID, collectionId, item.id);
+        }));
+    } catch (error) {
+        console.error('Failed to empty trash:', error);
+        // Re-fetch to ensure consistency if something failed
+        await get().fetchTrash();
+    }
+  },
+
   renameItem: async (id, newName) => {
     const item = get().items.find(i => i.id === id);
     if (!item) return;
@@ -752,8 +791,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             await fs.writeFile(localPath, content).catch(e => console.error('Failed to save locally:', e));
         }
 
-        // Only save to Appwrite if authenticated
-        if (state.isAuthenticated) {
+        // Only save to Appwrite if authenticated and online
+        if (state.isAuthenticated && !state.isOfflineMode) {
             await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { content });
         }
       } catch (error) {
@@ -942,6 +981,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   syncBackground: async () => {
     const state = get();
+    if (state.isOfflineMode) return;
     if (!state.localDocumentsPath || !isElectron() || !fs) return;
 
     // 1. Refresh file list (metadata)
@@ -999,6 +1039,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   setTheme: (theme) => {
+    localStorage.setItem('theme', theme);
     set({ theme });
   },
 

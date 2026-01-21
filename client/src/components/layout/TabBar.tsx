@@ -2,9 +2,15 @@ import { X, FileText } from 'lucide-react';
 import { useFileSystem } from '@/lib/mock-fs';
 import { cn } from '@/lib/utils';
 import { MouseEvent, useRef, useEffect } from 'react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function TabBar() {
-  const { openFiles, activeFileId, selectFile, closeFile, closeAllFiles, items } = useFileSystem();
+  const { openFiles, activeFileId, selectFile, closeFile, closeAllFiles, items, isOfflineMode } = useFileSystem();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Scroll to active tab when it changes
@@ -16,8 +22,6 @@ export function TabBar() {
       }
     }
   }, [activeFileId]);
-
-  if (openFiles.length === 0) return null;
 
   const handleClose = (e: MouseEvent, id: string) => {
     e.stopPropagation();
@@ -78,14 +82,37 @@ export function TabBar() {
           );
         })}
       </div>
-      <div className="flex items-center px-2 border-l border-border/40 bg-muted/30">
-        <button
-          onClick={closeAllFiles}
-          className="p-1.5 rounded-sm hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
-          title="Закрыть все вкладки"
-        >
-          <X className="w-4 h-4" />
-        </button>
+      
+      <div className="flex items-center border-l border-border/40 bg-muted/30">
+        {openFiles.length > 0 && (
+          <div className="flex items-center px-2 border-r border-border/40 h-full">
+            <button
+              onClick={closeAllFiles}
+              className="p-1.5 rounded-sm hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
+              title="Закрыть все вкладки"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+        
+        <div className="flex items-center justify-center px-3 h-full">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className={cn(
+                  "w-2.5 h-2.5 rounded-full ring-2 ring-offset-1 ring-offset-muted/30 transition-colors cursor-help",
+                  isOfflineMode 
+                    ? "bg-stone-500 ring-stone-500/30" 
+                    : "bg-emerald-500 ring-emerald-500/30"
+                )} />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{isOfflineMode ? "Офлайн режим" : "Синхронизация включена"}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
     </div>
   );

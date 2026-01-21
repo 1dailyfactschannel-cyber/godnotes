@@ -1,5 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { ToastAction } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,6 +44,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [pendingSpacePath, setPendingSpacePath] = useState<string | null>(null);
   const [spaceNameInput, setSpaceNameInput] = useState('');
   const [appVersion, setAppVersion] = useState<string>('');
+  
+  const [spaceToDelete, setSpaceToDelete] = useState<{ id: string; name: string; path: string } | null>(null);
+  const [deleteFilesChecked, setDeleteFilesChecked] = useState(false);
+
   // const [changelog] is now imported directly
 
   useEffect(() => {
@@ -174,7 +189,19 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       setSpaces(newSpaces);
       await setStoreValue('spaces', newSpaces);
 
-      toast({ title: "Пространство добавлено", description: `Пространство "${spaceNameInput}" успешно добавлено` });
+      toast({ 
+        title: "Пространство добавлено", 
+        description: `Пространство "${spaceNameInput}" успешно добавлено`,
+        action: (
+          <ToastAction 
+            altText="Переключиться" 
+            onClick={() => handleSwitchSpace(newSpace)}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 border-0"
+          >
+            Переключиться
+          </ToastAction>
+        )
+      });
       
       if (spaces.length === 0) {
         handleSwitchSpace(newSpace);
@@ -208,17 +235,46 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         toast({ title: "Ошибка", description: "Нельзя удалить активное пространство", variant: "destructive" });
         return;
     }
-    if (!confirm(`Вы уверены, что хотите удалить пространство "${spaceToRemove?.name}" из списка?`)) return;
+    setSpaceToDelete(spaceToRemove || null);
+    setDeleteFilesChecked(false);
+  };
 
-    const newSpaces = spaces.filter(s => s.id !== id);
-    setSpaces(newSpaces);
-    await setStoreValue('spaces', newSpaces);
+  const confirmDeleteSpace = async () => {
+    if (!spaceToDelete) return;
+
+    try {
+      if (deleteFilesChecked && isElectron() && electron && electron.fs) {
+          const res = await electron.fs.deleteDirectory(spaceToDelete.path);
+          if (!res.success) {
+             console.error("Failed to delete directory:", res.error);
+             toast({ variant: "destructive", title: "Ошибка удаления файлов", description: res.error });
+             // We continue to remove from list even if file deletion fails partially, 
+             // but user sees the error.
+          } else {
+             toast({ title: "Успех", description: "Файлы пространства перемещены в корзину" });
+          }
+      }
+
+      const newSpaces = spaces.filter(s => s.id !== spaceToDelete.id);
+      setSpaces(newSpaces);
+      await setStoreValue('spaces', newSpaces);
+      toast({ title: "Пространство удалено", description: `Пространство "${spaceToDelete.name}" удалено из списка` });
+    } catch (e) {
+      console.error(e);
+      toast({ variant: "destructive", title: "Ошибка", description: "Не удалось удалить пространство" });
+    } finally {
+      setSpaceToDelete(null);
+    }
   };
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-3xl h-[600px] p-0 flex gap-0 overflow-hidden">
+          <DialogTitle className="sr-only">Настройки</DialogTitle>
+          <DialogDescription className="sr-only">
+            Управление настройками приложения: внешний вид, горячие клавиши, Telegram и другое
+          </DialogDescription>
           {/* Sidebar */}
           <div className="w-48 bg-muted/30 border-r border-border p-4 flex flex-col gap-2 shrink-0">
             <div className="text-sm font-semibold mb-4 px-2">Настройки</div>
@@ -380,7 +436,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     <Label>Bot Token</Label>
                     <Input 
                       value={telegramConfig.botToken} 
-                      onChange={(e) => setTelegramConfig({ ...telegramConfig, botToken: e.target.value })} 
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        setTelegramConfig({ ...telegramConfig, botToken: val });
+                        if (isElectron() && electron && electron.saveSecret) {
+                          await electron.saveSecret('telegramBotToken', val);
+                        }
+                      }}
                       type="password"
                       placeholder="Введите токен бота"
                     />
@@ -474,6 +536,44 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!spaceToDelete} onOpenChange={(open) => !open && setSpaceToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить пространство?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Вы уверены, что хотите удалить пространство "{spaceToDelete?.name}"?
+              Это действие удалит его из списка ваших пространств.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="flex flex-col space-y-2 py-4">
+            <div className="flex items-center space-x-2">
+              <Switch 
+                id="delete-files" 
+                checked={deleteFilesChecked} 
+                onCheckedChange={setDeleteFilesChecked} 
+              />
+              <Label htmlFor="delete-files">Также переместить файлы папки в корзину</Label>
+            </div>
+            {deleteFilesChecked && (
+              <p className="text-sm text-destructive pl-12">
+                Внимание: Будут удалены <strong>все файлы</strong> в выбранной папке, включая те, что не являются заметками.
+              </p>
+            )}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirmDeleteSpace}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

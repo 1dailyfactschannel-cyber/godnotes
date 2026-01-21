@@ -11,10 +11,15 @@ declare global {
         readFile: (path: string) => Promise<{ success: boolean; content?: string; error?: string }>;
         exists: (path: string) => Promise<boolean>;
         deleteFile: (path: string) => Promise<{ success: boolean; error?: string }>;
+        deleteDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
         readdir: (path: string) => Promise<{ success: boolean; entries?: { name: string; isDirectory: boolean }[]; error?: string }>;
       };
       telegramRequest: (url: string, options?: RequestInit) => Promise<{ success: boolean; data?: any; error?: string }>;
+      saveSecret: (key: string, value: string) => Promise<{ success: boolean; error?: string }>;
+      loadSecret: (key: string) => Promise<{ success: boolean; value?: string; error?: string }>;
       checkForUpdates: () => Promise<void>;
+      startDownload: () => Promise<void>;
+      exportToPdf: (html: string, filename: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
       quitAndInstall: () => Promise<void>;
       onUpdateStatus: (callback: (status: any) => void) => void;
       getAppVersion: () => Promise<string>;

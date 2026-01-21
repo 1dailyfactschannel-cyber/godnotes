@@ -60,6 +60,13 @@
   --radius: 0.5rem;
 }
 
+/* Global Body Styles */
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
 :root {
   /* Default: Godnotes Dark */
   --background: 220 13% 10%;
@@ -98,149 +105,112 @@
   --card-foreground: 214 32% 91%;
   --popover: 222 47% 13%;
   --popover-foreground: 214 32% 91%;
-  --primary: 199 89% 48%;
-  --primary-foreground: 222 47% 11%;
-  --secondary: 222 47% 20%;
-  --secondary-foreground: 214 32% 91%;
-  --muted: 222 47% 20%;
+  --primary: 210 100% 50%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 217 32% 17%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 32% 17%;
   --muted-foreground: 215 20% 65%;
-  --accent: 217 91% 60%;
+  --accent: 217 32% 25%;
   --accent-foreground: 210 40% 98%;
-  --border: 222 47% 20%;
-  --input: 222 47% 20%;
-  --ring: 199 89% 48%;
-  --sidebar: 222 47% 8%;
+  --destructive: 0 62% 30%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217 32% 20%;
+  --input: 217 32% 20%;
+  --ring: 212 100% 50%;
+  --sidebar: 222 47% 11%;
+  --sidebar-foreground: 215 20% 70%;
+  --sidebar-primary: 210 100% 50%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 217 32% 15%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-border: 217 32% 20%;
+  --sidebar-ring: 212 100% 50%;
 }
 
 .theme-graphite {
-  --background: 0 0% 15%;
+  --background: 0 0% 9%;
   --foreground: 0 0% 90%;
-  --card: 0 0% 20%;
+  --card: 0 0% 13%;
   --card-foreground: 0 0% 90%;
-  --popover: 0 0% 18%;
+  --popover: 0 0% 11%;
   --popover-foreground: 0 0% 90%;
-  --primary: 0 0% 70%;
+  --primary: 0 0% 80%;
   --primary-foreground: 0 0% 10%;
-  --secondary: 0 0% 25%;
+  --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 90%;
-  --muted: 0 0% 25%;
+  --muted: 0 0% 18%;
   --muted-foreground: 0 0% 60%;
-  --accent: 0 0% 30%;
+  --accent: 0 0% 25%;
   --accent-foreground: 0 0% 95%;
-  --border: 0 0% 25%;
-  --input: 0 0% 25%;
-  --ring: 0 0% 70%;
-  --sidebar: 0 0% 12%;
+  --destructive: 0 62% 30%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 20%;
+  --input: 0 0% 20%;
+  --ring: 0 0% 80%;
+  --sidebar: 0 0% 9%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-primary: 0 0% 80%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 80%;
 }
 
 .theme-light-mode {
-  --background: 0 0% 98%;
-  --foreground: 220 13% 10%;
+  --background: 0 0% 100%;
+  --foreground: 220 10% 10%;
   --card: 0 0% 100%;
-  --card-foreground: 220 13% 10%;
+  --card-foreground: 220 10% 10%;
   --popover: 0 0% 100%;
-  --popover-foreground: 220 13% 10%;
-  --primary: 265 80% 50%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 220 13% 90%;
-  --secondary-foreground: 220 13% 20%;
+  --popover-foreground: 220 10% 10%;
+  --primary: 265 80% 65%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 220 13% 95%;
+  --secondary-foreground: 220 10% 10%;
   --muted: 220 13% 95%;
-  --muted-foreground: 220 13% 40%;
-  --accent: 220 13% 85%;
-  --accent-foreground: 220 13% 10%;
+  --muted-foreground: 220 10% 40%;
+  --accent: 220 13% 90%;
+  --accent-foreground: 220 10% 10%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
   --border: 220 13% 90%;
   --input: 220 13% 90%;
-  --ring: 265 80% 50%;
-  --sidebar: 220 13% 95%;
+  --ring: 265 80% 65%;
+  --sidebar: 0 0% 98%;
+  --sidebar-foreground: 220 10% 40%;
+  --sidebar-primary: 265 80% 65%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 13% 92%;
+  --sidebar-accent-foreground: 220 10% 10%;
+  --sidebar-border: 220 13% 90%;
+  --sidebar-ring: 265 80% 65%;
 }
 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply font-sans antialiased bg-background text-foreground transition-colors duration-300;
-  }
-}
-
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  @apply bg-muted rounded-full;
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-muted-foreground/50;
+  background: hsl(var(--muted-foreground) / 0.5);
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
-.ProseMirror {
-  @apply outline-none min-h-[500px] px-8 py-4 text-lg leading-relaxed max-w-3xl mx-auto;
-}
-
-.ProseMirror p.is-editor-empty:first-child::before {
-  content: attr(data-placeholder);
-  @apply text-muted-foreground pointer-events-none float-left h-0;
-}
-
-.ProseMirror h1 {
-  @apply text-4xl font-bold mt-8 mb-4 tracking-tight;
-}
-.ProseMirror h2 {
-  @apply text-3xl font-bold mt-6 mb-3 tracking-tight;
-}
-.ProseMirror h3 {
-  @apply text-2xl font-bold mt-4 mb-2;
-}
-.ProseMirror ul {
-  @apply list-disc list-outside ml-4 my-2;
-}
-.ProseMirror ul[data-type="taskList"] {
-  @apply list-none ml-0;
-}
-.ProseMirror li[data-type="taskItem"] {
-  @apply flex items-start gap-2;
-}
-.ProseMirror li[data-type="taskItem"] input[type="checkbox"] {
-  @apply mt-1;
-}
-.ProseMirror ol {
-  @apply list-decimal list-outside ml-4 my-2;
-}
-.ProseMirror blockquote {
-  @apply border-l-4 border-primary pl-4 italic my-4 text-muted-foreground;
-}
-.ProseMirror code {
-  @apply font-mono bg-secondary px-1.5 py-0.5 rounded text-sm;
-}
-.ProseMirror pre {
-  @apply bg-secondary p-4 rounded-lg my-4 overflow-x-auto;
-}
-.ProseMirror pre code {
-  @apply bg-transparent p-0 text-inherit;
-}
-
-/* Table Styles */
-.ProseMirror table {
-  @apply border-collapse table-auto w-full my-4 overflow-hidden;
-}
-
-.ProseMirror td,
-.ProseMirror th {
-  @apply border border-border p-2 relative align-top box-border min-w-[1em];
-}
-
-.ProseMirror th {
-  @apply font-bold bg-muted/50 text-left;
-}
-
-.ProseMirror .selectedCell:after {
-  @apply z-10 absolute inset-0 bg-primary/20 pointer-events-none content-[''];
-}
-
-.ProseMirror .column-resize-handle {
-  @apply bg-primary/50 w-1 absolute bottom-0 -right-0.5 top-0 pointer-events-none z-20;
+::-webkit-scrollbar-corner {
+  background: transparent;
 }

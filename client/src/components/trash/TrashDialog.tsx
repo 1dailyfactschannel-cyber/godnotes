@@ -14,7 +14,7 @@ interface TrashDialogProps {
 }
 
 export function TrashDialog({ open, onOpenChange }: TrashDialogProps) {
-  const { trashItems, fetchTrash, restoreItem, permanentDeleteItem } = useFileSystem();
+  const { trashItems, fetchTrash, restoreItem, permanentDeleteItem, emptyTrash } = useFileSystem();
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -31,6 +31,12 @@ export function TrashDialog({ open, onOpenChange }: TrashDialogProps) {
   const handleDelete = async (id: string) => {
     if (confirm('Удалить безвозвратно?')) {
       await permanentDeleteItem(id);
+    }
+  };
+
+  const handleEmptyTrash = async () => {
+    if (confirm('Вы уверены, что хотите полностью очистить корзину? Это действие нельзя отменить.')) {
+      await emptyTrash();
     }
   };
 
@@ -134,11 +140,20 @@ export function TrashDialog({ open, onOpenChange }: TrashDialogProps) {
           </div>
         ) : (
           <Tabs defaultValue="all" className="flex-1 flex flex-col overflow-hidden">
-            <TabsList>
-              <TabsTrigger value="all">Все ({folders.length + notes.length})</TabsTrigger>
-              <TabsTrigger value="folders">Папки ({folders.length})</TabsTrigger>
-              <TabsTrigger value="notes">Заметки ({notes.length})</TabsTrigger>
-            </TabsList>
+            <div className="flex items-center justify-between">
+                <TabsList>
+                  <TabsTrigger value="all">Все ({folders.length + notes.length})</TabsTrigger>
+                  <TabsTrigger value="folders">Папки ({folders.length})</TabsTrigger>
+                  <TabsTrigger value="notes">Заметки ({notes.length})</TabsTrigger>
+                </TabsList>
+                
+                {(folders.length > 0 || notes.length > 0) && (
+                    <Button variant="destructive" size="sm" onClick={handleEmptyTrash} className="gap-2">
+                        <Trash2 className="h-4 w-4" />
+                        Очистить корзину
+                    </Button>
+                )}
+            </div>
             
             <div className="flex-1 overflow-hidden mt-4 border rounded-md bg-accent/10">
                 <ScrollArea className="h-full">

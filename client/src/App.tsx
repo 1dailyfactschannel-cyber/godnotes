@@ -55,7 +55,16 @@ function AppRoutes() {
 }
 
 function App() {
-  const { checkAuth, isAuthChecking } = useFileSystem();
+  const { checkAuth, isAuthChecking, theme } = useFileSystem();
+
+  useEffect(() => {
+    const root = window.document.body;
+    root.classList.remove('theme-midnight-blue', 'theme-graphite', 'theme-light-mode');
+    
+    if (theme && theme !== 'obsidian-dark') {
+      root.classList.add(`theme-${theme}`);
+    }
+  }, [theme]);
 
   useEffect(() => {
     checkAuth();

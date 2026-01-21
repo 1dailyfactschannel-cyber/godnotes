@@ -53,13 +53,15 @@ import {
   CheckSquare,
   Folder as FolderIcon,
   PaintBucket,
-  Palette
+  Palette,
+  Search
 } from 'lucide-react';
 
 const lowlight = createLowlight(common);
 import { Toggle } from '@/components/ui/toggle';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
@@ -68,8 +70,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-// @ts-ignore
-import html2pdf from 'html2pdf.js';
 import { TagsDialog } from '@/components/tags/TagsDialog';
 import { Logo } from '@/components/Logo';
 
@@ -169,6 +169,14 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isTagsDialogOpen, setIsTagsDialogOpen] = useState(false);
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+
+  const findNext = () => {
+    const win: any = window;
+    if (typeof win.find === 'function' && localSearchQuery) {
+      win.find(localSearchQuery, false, false, true, false, false, false);
+    }
+  };
 
 
 
@@ -646,28 +654,174 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     }
   }, [editor]);
 
-  const exportToPdf = () => {
+  const exportToPdf = async () => {
     if (!activeFile) return;
     
-    const element = document.createElement('div');
-    element.innerHTML = `
-      <div style="padding: 40px; font-family: sans-serif;">
-        <h1 style="font-size: 32px; margin-bottom: 20px;">${activeFile.name}</h1>
-        <div style="font-size: 16px; line-height: 1.6;">
-          ${activeFile.content || ''}
-        </div>
-      </div>
+    const title = activeFile.name;
+    const content = activeFile.content || '';
+    
+    // Construct the full HTML document with styles
+    const fullHtml = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>${title}</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              padding: 40px;
+              color: #000000;
+              line-height: 1.6;
+              max-width: 100%;
+              overflow-x: hidden;
+            }
+            h1 {
+              font-size: 28px;
+              margin-bottom: 24px;
+              color: #000000;
+              border-bottom: 1px solid #eee;
+              padding-bottom: 12px;
+            }
+            h2 { font-size: 24px; margin-top: 24px; margin-bottom: 16px; color: #000000; }
+            h3 { font-size: 20px; margin-top: 20px; margin-bottom: 12px; color: #000000; }
+            p { margin-bottom: 16px; color: #000000; }
+            img {
+              max-width: 100%;
+              height: auto;
+              margin: 16px 0;
+            }
+            a {
+              color: #000000;
+              text-decoration: underline;
+            }
+            blockquote {
+              border-left: 3px solid #ccc;
+              margin-left: 0;
+              padding-left: 1em;
+              color: #444;
+              font-style: italic;
+            }
+            code {
+              background-color: #f5f5f5;
+              padding: 0.2em 0.4em;
+              border-radius: 3px;
+              font-family: monospace;
+              font-size: 0.9em;
+            }
+            pre {
+              background-color: #f5f5f5;
+              padding: 1em;
+              border-radius: 5px;
+              overflow-x: auto;
+              margin-bottom: 16px;
+            }
+            pre code {
+              background-color: transparent;
+              padding: 0;
+            }
+            ul, ol {
+              margin-bottom: 16px;
+              padding-left: 24px;
+            }
+            li { margin-bottom: 8px; }
+            ul[data-type="taskList"] {
+              list-style: none;
+              padding: 0;
+            }
+            li[data-type="taskItem"] {
+              display: flex;
+              align-items: flex-start;
+              margin-bottom: 0.5rem;
+            }
+            input[type="checkbox"] {
+                margin-right: 0.5rem;
+                margin-top: 0.3rem;
+            }
+            table {
+              border-collapse: collapse;
+              width: 100%;
+              margin-bottom: 16px;
+            }
+            th, td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              text-align: left;
+            }
+            th {
+              background-color: #f5f5f5;
+              font-weight: bold;
+            }
+            .mermaid {
+              display: flex;
+              justify-content: center;
+              margin: 16px 0;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>${title}</h1>
+          <div class="content">
+            ${content}
+          </div>
+        </body>
+      </html>
     `;
 
-    const opt = {
-      margin:       10,
-      filename:     `${activeFile.name}.pdf`,
-      image:        { type: 'jpeg' as const, quality: 0.98 },
-      html2canvas:  { scale: 2 },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    } as const;
-
-    html2pdf().set(opt).from(element).save();
+    try {
+        if (window.electron && window.electron.exportToPdf) {
+             const result = await window.electron.exportToPdf(fullHtml, `${activeFile.name}.pdf`);
+             if (result.success) {
+                 toast({
+                     title: "Экспорт завершен",
+                     description: `Файл сохранен: ${result.filePath}`,
+                 });
+             } else {
+                 if (result.error !== 'Cancelled') {
+                     toast({
+                         title: "Ошибка экспорта",
+                         description: result.error || "Не удалось сохранить файл",
+                         variant: "destructive",
+                     });
+                 }
+             }
+        } else {
+            // Fallback for web mode (print)
+             const iframe = document.createElement('iframe');
+             iframe.style.position = 'fixed';
+             iframe.style.right = '0';
+             iframe.style.bottom = '0';
+             iframe.style.width = '0';
+             iframe.style.height = '0';
+             iframe.style.border = '0';
+             document.body.appendChild(iframe);
+         
+             const iframeWindow = iframe.contentWindow;
+             if (!iframeWindow) {
+                 document.body.removeChild(iframe);
+                 return;
+             }
+         
+             iframeWindow.document.open();
+             iframeWindow.document.write(fullHtml);
+             iframeWindow.document.close();
+         
+             iframeWindow.onload = () => {
+                 iframeWindow.focus();
+                 iframeWindow.print();
+                 setTimeout(() => {
+                     document.body.removeChild(iframe);
+                 }, 1000);
+             };
+        }
+    } catch (error) {
+        console.error('Export failed:', error);
+        toast({
+            title: "Ошибка",
+            description: "Произошла ошибка при экспорте",
+            variant: "destructive",
+        });
+    }
   };
 
   const handleExportMarkdown = () => {
@@ -1031,6 +1185,30 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
                 <Redo className="h-4 w-4" />
               </button>
             </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 px-0" title="Поиск в заметке">
+                  <Search className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-2" align="end">
+                <div className="flex gap-2">
+                  <Input 
+                    placeholder="Найти в заметке..." 
+                    value={localSearchQuery}
+                    onChange={(e) => setLocalSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                       if (e.key === 'Enter') {
+                         findNext();
+                       }
+                    }}
+                    className="h-8 text-xs"
+                    autoFocus
+                  />
+                  <Button size="sm" className="h-8" onClick={findNext}>Найти</Button>
+                </div>
+              </PopoverContent>
+            </Popover>
             <Button
               variant="ghost"
               size="sm"

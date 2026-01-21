@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useFileSystem } from "@/lib/mock-fs";
@@ -42,6 +42,9 @@ export function TagsDialog({ itemId, open, onOpenChange }: TagsDialogProps) {
             <Tag className="h-5 w-5" />
             Теги: {item.name}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Управление тегами для заметки {item.name}
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <form onSubmit={handleAddTag} className="flex gap-2">

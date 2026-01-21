@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { useTasks, Task } from '@/lib/tasks-store';
+import { useTasks, Task, Priority, RecurringInterval } from '@/lib/tasks-store';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Plus, ArrowLeft, LayoutList, CalendarDays, Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, ArrowLeft, LayoutList, CalendarDays, Clock, Phone, Flame, Zap, Coffee, Tag, X } from 'lucide-react';
 import { Link } from 'wouter';
 import { 
   startOfMonth, 
@@ -20,11 +20,28 @@ import {
 } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const PriorityIcon = ({ priority, className }: { priority?: Priority, className?: string }) => {
+  switch (priority) {
+    case 'high': return <Flame className={cn("text-red-500", className)} />;
+    case 'medium': return <Zap className={cn("text-yellow-500", className)} />;
+    case 'low': return <Coffee className={cn("text-blue-500", className)} />;
+    default: return <Coffee className={cn("text-muted-foreground", className)} />;
+  }
+};
 
 export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -32,7 +49,12 @@ export default function CalendarPage() {
   const { tasks, addTask, updateTask, deleteTask } = useTasks();
   const [newTaskContent, setNewTaskContent] = useState('');
   const [newTaskDescription, setNewTaskDescription] = useState('');
+  const [newTaskCallLink, setNewTaskCallLink] = useState('');
   const [newTaskTime, setNewTaskTime] = useState('09:00');
+  const [newTaskPriority, setNewTaskPriority] = useState<Priority>('medium');
+  const [newTaskTags, setNewTaskTags] = useState<string[]>([]);
+  const [newTaskRecurring, setNewTaskRecurring] = useState<RecurringInterval | undefined>(undefined);
+  const [tagInput, setTagInput] = useState('');
   const [notify, setNotify] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -53,7 +75,17 @@ export default function CalendarPage() {
   const getTasksForDate = (date: Date) => {
     return tasks.filter(task => 
       task.dueDate && isSameDay(new Date(task.dueDate), date)
-    ).sort((a, b) => (a.dueDate || 0) - (b.dueDate || 0));
+    ).sort((a, b) => {
+        // Sort by time
+        const timeDiff = (a.dueDate || 0) - (b.dueDate || 0);
+        if (timeDiff !== 0) return timeDiff;
+        
+        // Sort by priority
+        const priorityWeight = { high: 3, medium: 2, low: 1, undefined: 0 };
+        const weightA = priorityWeight[a.priority || 'medium'];
+        const weightB = priorityWeight[b.priority || 'medium'];
+        return weightB - weightA;
+    });
   };
 
   const handlePrev = () => {
@@ -88,11 +120,15 @@ export default function CalendarPage() {
         updateTask(editingTask.id, {
           content: newTaskContent,
           description: newTaskDescription,
+          callLink: newTaskCallLink,
           dueDate: finalDate.getTime(),
-          notify: notify
+          notify: notify,
+          priority: newTaskPriority,
+          tags: newTaskTags,
+          recurring: newTaskRecurring
         });
       } else {
-        addTask(newTaskContent, undefined, finalDate.getTime(), notify, newTaskDescription);
+        addTask(newTaskContent, undefined, finalDate.getTime(), notify, newTaskDescription, newTaskCallLink, newTaskPriority, newTaskTags, newTaskRecurring);
       }
       closeDialog();
     }
@@ -101,7 +137,12 @@ export default function CalendarPage() {
   const closeDialog = () => {
     setNewTaskContent('');
     setNewTaskDescription('');
+    setNewTaskCallLink('');
     setNewTaskTime('09:00');
+    setNewTaskPriority('medium');
+    setNewTaskTags([]);
+    setNewTaskRecurring(undefined);
+    setTagInput('');
     setNotify(false);
     setEditingTask(null);
     setIsDialogOpen(false);
@@ -112,7 +153,12 @@ export default function CalendarPage() {
     setEditingTask(null);
     setNewTaskContent('');
     setNewTaskDescription('');
+    setNewTaskCallLink('');
     setNewTaskTime('09:00');
+    setNewTaskPriority('medium');
+    setNewTaskTags([]);
+    setNewTaskRecurring(undefined);
+    setTagInput('');
     setNotify(false);
     setIsDialogOpen(true);
   };
@@ -121,7 +167,12 @@ export default function CalendarPage() {
     setEditingTask(task);
     setNewTaskContent(task.content);
     setNewTaskDescription(task.description || '');
+    setNewTaskCallLink(task.callLink || '');
     setNotify(task.notify || false);
+    setNewTaskPriority(task.priority || 'medium');
+    setNewTaskTags(task.tags || []);
+    setNewTaskRecurring(task.recurring);
+    setTagInput('');
     
     if (task.dueDate) {
         const date = new Date(task.dueDate);
@@ -140,6 +191,20 @@ export default function CalendarPage() {
       deleteTask(editingTask.id);
       closeDialog();
     }
+  };
+
+  const handleAddTag = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && tagInput.trim()) {
+        e.preventDefault();
+        if (!newTaskTags.includes(tagInput.trim())) {
+            setNewTaskTags([...newTaskTags, tagInput.trim()]);
+        }
+        setTagInput('');
+    }
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    setNewTaskTags(newTaskTags.filter(t => t !== tagToRemove));
   };
 
   return (
@@ -248,8 +313,25 @@ export default function CalendarPage() {
                           openEditDialog(task);
                         }}
                       >
-                        <span className="opacity-70 mr-1">{task.dueDate ? format(task.dueDate, 'HH:mm') : ''}</span>
+                        <div className="flex items-center gap-1">
+                             {task.priority && task.priority !== 'medium' && (
+                                  <PriorityIcon priority={task.priority} className="h-2.5 w-2.5 shrink-0" />
+                             )}
+                             <span className="opacity-70 mr-1">{task.dueDate ? format(task.dueDate, 'HH:mm') : ''}</span>
+                        </div>
                         {task.content}
+                        {task.callLink && (
+                            <div 
+                                className="inline-flex ml-1 p-0.5 rounded-full bg-green-500/20 text-green-600 hover:bg-green-500/40 transition-colors"
+                                title="Ссылка на звонок"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.open(task.callLink, '_blank');
+                                }}
+                            >
+                                <Phone className="h-2.5 w-2.5" />
+                            </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -314,16 +396,43 @@ export default function CalendarPage() {
                                     <span className="font-mono text-lg font-medium text-primary">
                                         {task.dueDate ? format(task.dueDate, 'HH:mm') : '--:--'}
                                     </span>
+                                    {task.priority && (
+                                         <PriorityIcon priority={task.priority} className="h-4 w-4" />
+                                    )}
                                 </div>
                                 
                                 <div className="flex-1 min-w-0">
                                     <div className={cn("font-medium text-lg leading-none mb-1.5", task.isCompleted && "line-through decoration-muted-foreground")}>
                                         {task.content}
                                     </div>
+
+                                    {task.tags && task.tags.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mb-1.5">
+                                            {task.tags.map(tag => (
+                                                <Badge key={tag} variant="outline" className="text-[10px] h-4 px-1 py-0">
+                                                    {tag}
+                                                </Badge>
+                                            ))}
+                                        </div>
+                                    )}
+
                                     {task.description && (
                                         <p className="text-sm text-muted-foreground line-clamp-2">
                                             {task.description}
                                         </p>
+                                    )}
+                                    {task.callLink && (
+                                        <div 
+                                            className="inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-md bg-green-500/10 text-green-600 hover:bg-green-500/20 transition-colors w-fit"
+                                            title="Ссылка на звонок"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.open(task.callLink, '_blank');
+                                            }}
+                                        >
+                                            <Phone className="h-3 w-3" />
+                                            <span className="text-xs font-medium">Позвонить</span>
+                                        </div>
                                     )}
                                     {task.notify && (
                                         <div className="flex items-center gap-1 mt-2 text-xs text-blue-500/80">
@@ -346,6 +455,9 @@ export default function CalendarPage() {
                 <DialogTitle>
                     {editingTask ? 'Редактировать задачу' : `Добавить задачу на ${selectedDate ? format(selectedDate, 'd MMMM', { locale: ru }) : ''}`}
                 </DialogTitle>
+                <DialogDescription className="sr-only">
+                    Форма для {editingTask ? 'редактирования существующей' : 'создания новой'} задачи в календаре
+                </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSaveTask} className="flex flex-col gap-4 mt-4">
                 <Input 
@@ -360,6 +472,11 @@ export default function CalendarPage() {
                     placeholder="Описание (необязательно)..."
                     className="min-h-[80px]"
                 />
+                <Input 
+                    value={newTaskCallLink}
+                    onChange={(e) => setNewTaskCallLink(e.target.value)}
+                    placeholder="Ссылка на звонок (необязательно)..."
+                />
                 <div className="flex flex-col gap-2">
                   <div className="grid grid-cols-2 gap-2">
                     <div className="flex flex-col gap-1">
@@ -370,7 +487,64 @@ export default function CalendarPage() {
                             onChange={(e) => setNewTaskTime(e.target.value)}
                          />
                     </div>
+                    <div className="flex flex-col gap-1">
+                         <Label className="text-xs text-muted-foreground">Приоритет</Label>
+                         <Select value={newTaskPriority} onValueChange={(v: Priority) => setNewTaskPriority(v)}>
+                           <SelectTrigger>
+                             <SelectValue />
+                           </SelectTrigger>
+                           <SelectContent>
+                             <SelectItem value="high">
+                                <div className="flex items-center gap-2"><Flame className="h-4 w-4 text-red-500"/> Высокий</div>
+                             </SelectItem>
+                             <SelectItem value="medium">
+                                <div className="flex items-center gap-2"><Zap className="h-4 w-4 text-yellow-500"/> Средний</div>
+                             </SelectItem>
+                             <SelectItem value="low">
+                                <div className="flex items-center gap-2"><Coffee className="h-4 w-4 text-blue-500"/> Низкий</div>
+                             </SelectItem>
+                           </SelectContent>
+                         </Select>
+                    </div>
                   </div>
+
+                  <div className="flex flex-col gap-1">
+                       <Label className="text-xs text-muted-foreground">Повтор</Label>
+                       <Select value={newTaskRecurring || "none"} onValueChange={(v) => setNewTaskRecurring(v === "none" ? undefined : v as RecurringInterval)}>
+                         <SelectTrigger>
+                           <SelectValue placeholder="Не повторять" />
+                         </SelectTrigger>
+                         <SelectContent>
+                           <SelectItem value="none">Не повторять</SelectItem>
+                           <SelectItem value="daily">Каждый день</SelectItem>
+                           <SelectItem value="weekly">Каждую неделю</SelectItem>
+                           <SelectItem value="monthly">Каждый месяц</SelectItem>
+                           <SelectItem value="yearly">Каждый год</SelectItem>
+                         </SelectContent>
+                       </Select>
+                  </div>
+
+                  <div className="flex flex-col gap-1 mt-2">
+                       <Label className="text-xs text-muted-foreground">Теги</Label>
+                       <div className="flex flex-wrap gap-1 mb-2 min-h-[20px]">
+                           {newTaskTags.map(tag => (
+                               <Badge key={tag} variant="secondary" className="gap-1 pr-1">
+                                   {tag}
+                                   <Button type="button" variant="ghost" size="icon" className="h-3 w-3 p-0 hover:bg-transparent" onClick={() => removeTag(tag)}>
+                                       <X className="h-2 w-2" />
+                                   </Button>
+                               </Badge>
+                           ))}
+                       </div>
+                       <Input 
+                           value={tagInput}
+                           onChange={(e) => setTagInput(e.target.value)}
+                           onKeyDown={handleAddTag}
+                           placeholder="Добавить тег (Enter)..."
+                           className="h-8"
+                       />
+                  </div>
+
                   <div className="flex items-center space-x-2 mt-2">
                     <Checkbox id="notify" checked={notify} onCheckedChange={(c) => setNotify(!!c)} />
                     <Label htmlFor="notify">Уведомить в Telegram</Label>
