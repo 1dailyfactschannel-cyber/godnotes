@@ -1,7 +1,7 @@
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useLocation, Link } from "wouter";
-import { selectDirectory, getStoreValue, setStoreValue, telegramRequest } from '@/lib/electron';
+import { selectDirectory, getStoreValue, setStoreValue, telegramRequest, isElectron } from '@/lib/electron';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -216,11 +216,22 @@ export default function AppLayout() {
 
   const handleAddSpace = async () => {
     try {
-      const result = await selectDirectory();
+      let result: string | null = null;
+      
+      if (isElectron()) {
+        result = await selectDirectory();
+      } else {
+        // Web version: simulate a path or use a unique ID
+        result = `space-${Date.now()}`;
+      }
+
       if (result) {
         setPendingSpacePath(result);
         // Default name is the folder name
-        const folderName = result.split(/[/\\]/).pop() || 'Новое пространство';
+        const folderName = isElectron() 
+          ? (result.split(/[/\\]/).pop() || 'Новое пространство')
+          : 'Новое пространство';
+          
         setSpaceNameInput(folderName);
         setSpaceNameDialogOpen(true);
       }

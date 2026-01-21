@@ -43,12 +43,27 @@ export const selectDirectory = async () => {
 };
 
 export const getStoreValue = async (key: string) => {
-  if (!electron) return null;
+  if (!electron) {
+    try {
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : null;
+    } catch (e) {
+      console.error('Error reading from localStorage', e);
+      return null;
+    }
+  }
   return await electron.getStoreValue(key);
 };
 
 export const setStoreValue = async (key: string, value: any) => {
-  if (!electron) return;
+  if (!electron) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.error('Error writing to localStorage', e);
+    }
+    return;
+  }
   await electron.setStoreValue(key, value);
 };
 
