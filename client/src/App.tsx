@@ -15,6 +15,7 @@ const Profile = lazy(() => import("@/pages/Profile"));
 const CalendarPage = lazy(() => import("@/pages/CalendarPage"));
 const TodoPage = lazy(() => import("@/pages/Todo"));
 const TaskWindow = lazy(() => import("@/pages/TaskWindow"));
+const SharedNotePage = lazy(() => import("@/pages/SharedNotePage"));
 const ResetPasswordPage = lazy(() => import("@/pages/ResetPassword"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -52,6 +53,9 @@ function AppRoutes() {
         </Route>
         <Route path="/task/:taskId">
           {isAuthenticated ? <TaskWindow /> : <Redirect to="/login" />}
+        </Route>
+        <Route path="/share/:noteId">
+          <SharedNotePage />
         </Route>
         <Route path="/reset-password">
           <ResetPasswordPage />

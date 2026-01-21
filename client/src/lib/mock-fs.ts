@@ -4,6 +4,7 @@ import { account, databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 import { ID, Query, Permission, Role, Models } from 'appwrite';
 import { fs, getDocumentsPath, isElectron, selectDirectory, getStoreValue, setStoreValue } from './electron';
 import { useTasks } from './tasks-store';
+import { hashPassword } from '@/lib/utils';
 
 const saveTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -52,9 +53,22 @@ export type FileSystemItem = {
   isPinned?: boolean;
   isFavorite?: boolean;
   tags?: string[];
+  isProtected?: boolean;
+  isPublic?: boolean;
 };
 
 export type User = Models.User<Models.Preferences>;
+
+export type AIConfig = {
+  provider: 'openai' | 'anthropic' | 'custom';
+  apiKey: string;
+  baseUrl?: string;
+  model: string;
+};
+
+export type SecurityConfig = {
+  hashedPassword: string | null;
+};
 
 interface FileSystemState {
   items: FileSystemItem[];
@@ -75,6 +89,9 @@ interface FileSystemState {
   syncManifest: Record<string, number>;
   syncInterval: NodeJS.Timeout | null;
   isOfflineMode: boolean;
+  aiConfig: AIConfig;
+  securityConfig: SecurityConfig;
+  unlockedNotes: string[];
   
   toggleOfflineMode: () => void;
   updateUserPrefs: (prefs: Record<string, any>) => Promise<void>;
@@ -115,6 +132,17 @@ interface FileSystemState {
   startPeriodicSync: () => void;
   stopPeriodicSync: () => void;
   syncBackground: () => Promise<void>;
+  searchGlobal: (query: string) => Promise<FileSystemItem[]>;
+  updateAIConfig: (config: Partial<AIConfig>) => void;
+  toggleLock: (id: string) => void;
+  setMasterPassword: (password: string) => Promise<void>;
+  checkMasterPassword: (password: string) => Promise<boolean>;
+  unlockNote: (id: string, password: string) => Promise<boolean>;
+  lockNote: (id: string) => void;
+  togglePublic: (id: string) => Promise<string | null>;
+  createVersion: (id: string) => Promise<void>;
+  getVersions: (id: string) => Promise<FileSystemItem[]>;
+  restoreVersion: (id: string, content: string) => Promise<void>;
 }
 
 const initialItems: FileSystemItem[] = [
@@ -139,6 +167,23 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   syncManifest: {},
   syncInterval: null,
   isOfflineMode: localStorage.getItem('isOfflineMode') === 'true',
+  aiConfig: (() => {
+    try {
+      const saved = localStorage.getItem('aiConfig');
+      return saved ? JSON.parse(saved) : { provider: 'openai', apiKey: '', model: 'gpt-4o' };
+    } catch {
+      return { provider: 'openai', apiKey: '', model: 'gpt-4o' };
+    }
+  })(),
+  securityConfig: (() => {
+    try {
+      const saved = localStorage.getItem('securityConfig');
+      return saved ? JSON.parse(saved) : { hashedPassword: null };
+    } catch {
+      return { hashedPassword: null };
+    }
+  })(),
+  unlockedNotes: [],
   hotkeys: (() => {
     const defaults = {
       commandPalette: 'Ctrl+K',
@@ -255,7 +300,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         [
           Query.equal('userId', user.$id), 
           Query.limit(1000),
-          Query.select(['$id', 'title', 'folderId', '$createdAt', 'isFavorite', 'tags'])
+          Query.select(['$id', 'title', 'folderId', '$createdAt', 'isFavorite', 'tags', '$permissions'])
         ]
       );
 
@@ -270,6 +315,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
           createdAt: new Date(n.$createdAt).getTime(),
           isFavorite: n.isFavorite,
           tags: n.tags || [],
+          isPublic: n.$permissions && n.$permissions.some((p: string) => p.includes('role:any') || p.includes('any')),
         }))
         .filter(item => !item.tags?.some((t: string) => t.startsWith('deleted:')));
 
@@ -1029,6 +1075,125 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
   },
 
+  searchGlobal: async (query: string) => {
+    if (!query) return [];
+    
+    // Client-side search
+    const localResults = get().items.filter(i => 
+       i.type === 'file' && !i.tags?.some(t => t.startsWith('deleted:')) &&
+       (i.name.toLowerCase().includes(query.toLowerCase()) ||
+       (i.content && i.content.toLowerCase().includes(query.toLowerCase())))
+    );
+
+    if (get().isOfflineMode) {
+       return localResults;
+    }
+
+    try {
+       const res = await databases.listDocuments(
+         DATABASE_ID,
+         COLLECTIONS.NOTES,
+         [Query.search('content', query), Query.limit(10)]
+       );
+
+       const serverItems: FileSystemItem[] = res.documents.map((n: any) => ({
+          id: n.$id,
+          name: n.title,
+          type: 'file',
+          parentId: n.folderId || null,
+          content: n.content,
+          createdAt: new Date(n.$createdAt).getTime(),
+          isFavorite: n.isFavorite,
+          tags: n.tags || [],
+       }));
+
+       const serverIds = new Set(serverItems.map(i => i.id));
+       const filteredLocal = localResults.filter(i => !serverIds.has(i.id));
+       
+       return [...serverItems, ...filteredLocal];
+    } catch (e) {
+       // console.error("Global search failed (likely no index), falling back to local");
+       return localResults;
+    }
+  },
+
+  updateAIConfig: (config) => {
+    set(state => {
+      const newConfig = { ...state.aiConfig, ...config };
+      localStorage.setItem('aiConfig', JSON.stringify(newConfig));
+      return { aiConfig: newConfig };
+    });
+  },
+
+  toggleLock: async (id) => {
+    const state = get();
+    const item = state.items.find(i => i.id === id);
+    if (!item) return;
+
+    const newProtectedState = !item.isProtected;
+    const oldTags = item.tags || [];
+    let newTags: string[];
+
+    if (newProtectedState) {
+        if (!oldTags.includes('protected')) {
+            newTags = [...oldTags, 'protected'];
+        } else {
+            newTags = oldTags;
+        }
+    } else {
+        newTags = oldTags.filter(t => t !== 'protected');
+    }
+
+    // Optimistic update
+    set(state => ({
+      items: state.items.map(i => i.id === id ? { ...i, isProtected: newProtectedState, tags: newTags } : i),
+    }));
+
+    if (state.isAuthenticated) {
+        try {
+            const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
+            await databases.updateDocument(DATABASE_ID, collectionId, id, { tags: newTags });
+        } catch (e) {
+            console.error('Failed to sync lock state:', e);
+            // Revert
+            set(state => ({
+                items: state.items.map(i => i.id === id ? { ...i, isProtected: !newProtectedState, tags: oldTags } : i),
+            }));
+        }
+    }
+  },
+
+  setMasterPassword: async (password) => {
+    const hashedPassword = await hashPassword(password);
+    const config = { hashedPassword };
+    localStorage.setItem('securityConfig', JSON.stringify(config));
+    set({ securityConfig: config });
+  },
+
+  checkMasterPassword: async (password) => {
+    const currentHash = get().securityConfig.hashedPassword;
+    if (!currentHash) return true; // No password set
+    const hash = await hashPassword(password);
+    return hash === currentHash;
+  },
+
+  unlockNote: async (id, password) => {
+    const isValid = await get().checkMasterPassword(password);
+    if (isValid) {
+        set(state => ({
+            unlockedNotes: [...state.unlockedNotes, id]
+        }));
+        return true;
+    }
+    return false;
+  },
+
+  lockNote: (id) => {
+    set(state => ({
+        unlockedNotes: state.unlockedNotes.filter(noteId => noteId !== id)
+    }));
+  },
+
   setSearchQuery: (query) => {
     set({ searchQuery: query });
   },
@@ -1181,4 +1346,168 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       }));
     }
   },
+
+  togglePublic: async (id) => {
+    const state = get();
+    const item = state.items.find(i => i.id === id);
+    if (!item) return null;
+
+    if (!state.isAuthenticated || state.isOfflineMode || !state.user) {
+         return null;
+    }
+
+    const newIsPublic = !item.isPublic;
+    
+    // Optimistic update
+    set((state) => ({
+      items: state.items.map(i => i.id === id ? { ...i, isPublic: newIsPublic } : i),
+    }));
+
+    try {
+        const permissions = [
+            Permission.read(Role.user(state.user.$id)),
+            Permission.update(Role.user(state.user.$id)),
+            Permission.delete(Role.user(state.user.$id)),
+        ];
+
+        if (newIsPublic) {
+            permissions.push(Permission.read(Role.any()));
+        }
+
+        await databases.updateDocument(
+            DATABASE_ID, 
+            COLLECTIONS.NOTES, 
+            id, 
+            {}, 
+            permissions
+        );
+
+        if (newIsPublic) {
+            return `${window.location.origin}/#/share/${id}`;
+        }
+    } catch (e) {
+        console.error("Failed to toggle public access:", e);
+        // Revert
+        set((state) => ({
+            items: state.items.map(i => i.id === id ? { ...i, isPublic: !newIsPublic } : i),
+        }));
+        return null;
+    }
+    return null;
+  },
+
+  createVersion: async (id) => {
+    const state = get();
+    const item = state.items.find(i => i.id === id);
+    if (!item || !state.user) return;
+
+    // Ensure we have the latest content
+    let content = item.content;
+    if (content === undefined) {
+         try {
+             const doc = await databases.getDocument(DATABASE_ID, COLLECTIONS.NOTES, id);
+             content = doc.content;
+         } catch (e) {
+             console.error('Failed to fetch content for versioning:', e);
+             return;
+         }
+    }
+
+    try {
+      await databases.createDocument(
+        DATABASE_ID,
+        COLLECTIONS.NOTES,
+        ID.unique(),
+        {
+          title: `${item.name} (v.${new Date().toLocaleString()})`,
+          content: content,
+          folderId: null, // No folder, so it doesn't show up in tree if we missed filter, but we filter by tag
+          userId: state.user.$id,
+          tags: [`version:of:${id}`],
+          isFavorite: false
+        },
+        [
+            Permission.read(Role.user(state.user.$id)),
+            Permission.update(Role.user(state.user.$id)),
+            Permission.delete(Role.user(state.user.$id)),
+        ]
+      );
+    } catch (error) {
+      console.error('Failed to create version:', error);
+    }
+  },
+
+  getVersions: async (id) => {
+    const state = get();
+    if (!state.user) return [];
+
+    try {
+        // We cannot search by tag easily if it is not indexed, but tags are usually indexed or we can filter client side if we fetch all (bad).
+        // Appwrite supports array search.
+        const res = await databases.listDocuments(
+            DATABASE_ID,
+            COLLECTIONS.NOTES,
+            [
+                Query.equal('userId', state.user.$id),
+                Query.search('tags', `version:of:${id}`), // Assuming tags are searchable
+                Query.orderDesc('$createdAt')
+            ]
+        );
+        
+        // Fallback if search index is not ready or configured for tags: fetch recent notes and filter?
+        // Actually, 'tags' usually requires an index. If not indexed, Query.search might fail or Query.equal might fail for array.
+        // Let's try Query.equal for array element. Appwrite supports Query.equal('tags', 'value').
+        
+        return res.documents.map((n: any) => ({
+          id: n.$id,
+          name: n.title,
+          type: 'file',
+          parentId: null,
+          content: n.content,
+          createdAt: new Date(n.$createdAt).getTime(),
+          isFavorite: false,
+          tags: n.tags || [],
+        }));
+    } catch (error) {
+        // Fallback: try Query.equal
+         try {
+            const res = await databases.listDocuments(
+                DATABASE_ID,
+                COLLECTIONS.NOTES,
+                [
+                    Query.equal('userId', state.user.$id),
+                    Query.equal('tags', `version:of:${id}`),
+                    Query.orderDesc('$createdAt')
+                ]
+            );
+            return res.documents.map((n: any) => ({
+                id: n.$id,
+                name: n.title,
+                type: 'file',
+                parentId: null,
+                content: n.content,
+                createdAt: new Date(n.$createdAt).getTime(),
+                isFavorite: false,
+                tags: n.tags || [],
+            }));
+         } catch (e) {
+             console.error('Failed to get versions:', e);
+             return [];
+         }
+    }
+  },
+
+  restoreVersion: async (id, content) => {
+      const state = get();
+      // Update local state immediately
+      state.updateFileContent(id, content);
+      
+      // Force save to server immediately (bypass debounce if possible, or just let updateFileContent handle it)
+      // updateFileContent handles it via debounce. To force save, we might need to clear timeout and save.
+      // But updateFileContent is fine.
+      
+      // We might want to create a version of the *current* state before restoring? 
+      // Let's leave that to the user manual action for now to avoid complexity.
+  }
+
 }));

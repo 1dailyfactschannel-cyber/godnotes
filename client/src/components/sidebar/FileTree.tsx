@@ -17,11 +17,15 @@ import {
   Tag, 
   ArrowUpDown, 
   Check, 
-  CloudDownload 
+  CloudDownload,
+  Lock,
+  LockOpen,
+  Globe
 } from 'lucide-react';
 import { useFileSystem, FileSystemItem, SortOrder, compareItems } from '@/lib/mock-fs';
 import { cn } from '@/lib/utils';
 import { TagsDialog } from '@/components/tags/TagsDialog';
+import { useToast } from '@/hooks/use-toast';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -265,8 +269,12 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
     togglePin, 
     toggleFavorite, 
     moveItem, 
-    fetchContent 
+    fetchContent,
+    toggleLock,
+    togglePublic
   } = useFileSystem.getState();
+
+  const { toast } = useToast();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(item.name);
@@ -454,6 +462,8 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
                )}
                {item.isPinned && <Pin className="h-2 w-2 text-primary fill-primary shrink-0" />}
                {item.isFavorite && <Star className="h-2 w-2 text-yellow-500 fill-yellow-500 shrink-0 ml-0.5" />}
+               {item.isProtected && <Lock className="h-2 w-2 text-orange-500 shrink-0 ml-0.5" />}
+               {item.isPublic && <Globe className="h-2 w-2 text-blue-500 shrink-0 ml-0.5" />}
                {item.tags && item.tags.length > 0 && <Tag className="h-2 w-2 text-blue-400 shrink-0 ml-0.5" />}
                {isNotLoaded && (
                  <div 
@@ -529,6 +539,10 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
                     {item.isFavorite ? <StarOff className="mr-2 h-4 w-4" /> : <Star className="mr-2 h-4 w-4" />}
                     {item.isFavorite ? 'Убрать из избранного' : 'В избранное'}
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => toggleLock(item.id)}>
+                    {item.isProtected ? <LockOpen className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
+                    {item.isProtected ? 'Снять защиту' : 'Защитить'}
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={onOpenTags}>
                   <Tag className="mr-2 h-4 w-4" /> Теги
                 </DropdownMenuItem>
@@ -546,21 +560,25 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
           </div>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-48">
+      <ContextMenuContent className="w-48 bg-popover/95 backdrop-blur-sm border-sidebar-border shadow-xl">
         {item.type === 'folder' && (
           <>
-            <ContextMenuItem onClick={(e) => {
-            e.stopPropagation();
-            addFile(item.id);
-          }}>
-            <FilePlus className="mr-2 h-4 w-4" /> Новый файл
-          </ContextMenuItem>
-          <ContextMenuItem onClick={(e) => {
-            e.stopPropagation();
-            addFolder(item.id);
-          }}>
-            <FolderPlus className="mr-2 h-4 w-4" /> Новая папка
-          </ContextMenuItem>
+            <ContextMenuItem 
+              onClick={(e) => {
+                e.stopPropagation();
+                addFile(item.id);
+              }}
+            >
+              <FilePlus className="mr-2 h-4 w-4" /> Новый файл
+            </ContextMenuItem>
+            <ContextMenuItem 
+              onClick={(e) => {
+                e.stopPropagation();
+                addFolder(item.id);
+              }}
+            >
+              <FolderPlus className="mr-2 h-4 w-4" /> Новая папка
+            </ContextMenuItem>
             <ContextMenuSeparator />
           </>
         )}
@@ -571,6 +589,14 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
         <ContextMenuItem onClick={() => toggleFavorite(item.id)}>
             {item.isFavorite ? <StarOff className="mr-2 h-4 w-4" /> : <Star className="mr-2 h-4 w-4" />}
             {item.isFavorite ? 'Убрать из избранного' : 'В избранное'}
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => toggleLock(item.id)}>
+            {item.isProtected ? <LockOpen className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
+            {item.isProtected ? 'Снять защиту' : 'Защитить'}
+        </ContextMenuItem>
+        <ContextMenuItem onClick={handleTogglePublic}>
+            <Globe className="mr-2 h-4 w-4" />
+            {item.isPublic ? 'Закрыть доступ' : 'Открыть доступ'}
         </ContextMenuItem>
         <ContextMenuItem onClick={onOpenTags}>
             <Tag className="mr-2 h-4 w-4" /> Теги

@@ -55,7 +55,8 @@ import {
   Folder as FolderIcon,
   PaintBucket,
   Palette,
-  Search
+  Search,
+  History
 } from 'lucide-react';
 
 const lowlight = createLowlight(common);
@@ -72,6 +73,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TagsDialog } from '@/components/tags/TagsDialog';
+import { VersionHistoryDialog } from '@/components/editor/VersionHistoryDialog';
+import { AIAssistantBubbleMenu } from '@/components/editor/AIAssistantBubbleMenu';
 import { Logo } from '@/components/Logo';
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
@@ -139,8 +142,16 @@ import {
 import TurndownService from 'turndown';
 
 export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { isReadOnly?: boolean; searchTerm?: string }) {
-  const { items, activeFileId, updateFileContent, selectFile, hotkeys } = useFileSystem();
+  const { items, activeFileId, updateFileContent, selectFile, hotkeys, unlockedNotes } = useFileSystem();
   const activeFile = items.find(i => i.id === activeFileId);
+
+  if (activeFile?.isProtected && !unlockedNotes.includes(activeFile.id)) {
+    return (
+        <div className="h-full w-full bg-background relative flex items-center justify-center">
+            <LockScreen noteId={activeFile.id} />
+        </div>
+    );
+  }
 
   // Handle WikiLink clicks
   useEffect(() => {
@@ -289,8 +300,8 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             };
           },
           items: ({ query }: { query: string }) => {
-            return items
-              .filter(item => item.name.toLowerCase().includes(query.toLowerCase()))
+            return useFileSystem.getState().items
+              .filter(item => item.name.toLowerCase().includes(query.toLowerCase()) && item.type === 'file')
               .slice(0, 5);
           },
         },
@@ -882,6 +893,12 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
         onOpenChange={setIsTagsDialogOpen} 
       />
 
+      <VersionHistoryDialog 
+        fileId={activeFileId || ''}
+        open={isHistoryOpen}
+        onOpenChange={setIsHistoryOpen}
+      />
+
       {/* Reading Mode Overlay */}
       {isReadOnly && (
         <div className="absolute top-12 right-12 z-10 animate-in fade-in zoom-in duration-300">
@@ -1183,6 +1200,15 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
                 <Redo className="h-4 w-4" />
               </button>
             </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 px-0"
+              onClick={() => setIsHistoryOpen(true)}
+              title="История версий"
+            >
+              <History className="h-4 w-4" />
+            </Button>
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-8 w-8 px-0" title="Поиск в заметке">
@@ -1250,6 +1276,8 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
         )}
       >
         {editor && (
+          <>
+          <AIAssistantBubbleMenu editor={editor} />
           <BubbleMenu editor={editor} shouldShow={({ editor }) => editor.isActive('table')}>
             <div className="flex items-center gap-1 p-1 rounded-md border bg-popover shadow-md overflow-hidden">
               <Button 
@@ -1328,6 +1356,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
               </Button>
             </div>
           </BubbleMenu>
+          </>
         )}
 
         <div className={cn("max-w-3xl mx-auto py-12 transition-all duration-500", isReadOnly ? "opacity-100 scale-100" : "")}>

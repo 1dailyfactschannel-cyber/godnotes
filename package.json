@@ -14,13 +14,22 @@
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "electron:dev": "concurrently -k \"npm run dev:client\" \"wait-on http://localhost:5001 && cross-env PORT=5001 electron .\"",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "build:linux": "npm run build && electron-builder --linux"
   },
   "build": {
     "appId": "com.godnotes.app",
     "productName": "GodNotes",
     "directories": {
       "output": "dist-release-v1.1.9"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office",
+      "icon": "client/public/logo.svg"
     },
     "win": {
       "target": "nsis",

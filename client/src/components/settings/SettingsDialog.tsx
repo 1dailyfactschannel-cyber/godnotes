@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug, RefreshCw, HelpCircle } from 'lucide-react';
+import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug, RefreshCw, HelpCircle, Bot, Sparkles, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFileSystem, ThemeType } from '@/lib/mock-fs';
 import { useTasks } from '@/lib/tasks-store';
@@ -30,11 +30,28 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type SettingsTab = 'general' | 'theme' | 'hotkeys' | 'telegram' | 'about' | 'help';
+type SettingsTab = 'general' | 'theme' | 'hotkeys' | 'telegram' | 'about' | 'help' | 'ai' | 'security';
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
-  const { theme, setTheme, hotkeys, setHotkey, isOfflineMode, toggleOfflineMode, items, downloadAllFiles, updateUserPrefs } = useFileSystem();
+  const { theme, setTheme, hotkeys, setHotkey, isOfflineMode, toggleOfflineMode, items, downloadAllFiles, updateUserPrefs, aiConfig, updateAIConfig, setMasterPassword, securityConfig } = useFileSystem();
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const handleSetPassword = async () => {
+      if (!newPassword) {
+          toast({ title: "Ошибка", description: "Пароль не может быть пустым", variant: "destructive" });
+          return;
+      }
+      if (newPassword !== confirmPassword) {
+          toast({ title: "Ошибка", description: "Пароли не совпадают", variant: "destructive" });
+          return;
+      }
+      await setMasterPassword(newPassword);
+      toast({ title: "Успех", description: "Мастер-пароль обновлен" });
+      setNewPassword('');
+      setConfirmPassword('');
+  };
   const { telegramConfig, setTelegramConfig } = useTasks();
   const { toast } = useToast();
   const [isConnecting, setIsConnecting] = useState(false);
@@ -284,6 +301,16 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <NavButton active={activeTab === 'hotkeys'} onClick={() => setActiveTab('hotkeys')} label="Горячие клавиши" />
             <NavButton active={activeTab === 'telegram'} onClick={() => setActiveTab('telegram')} label="Telegram" />
             <div className="flex-1" />
+            <button
+              onClick={() => setActiveTab('ai')}
+              className={cn(
+                "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center",
+                activeTab === 'ai' ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              <Bot className="mr-2 h-4 w-4" />
+              AI Помощник
+            </button>
             <NavButton active={activeTab === 'help'} onClick={() => setActiveTab('help')} label="Как пользоваться" />
             <NavButton active={activeTab === 'about'} onClick={() => setActiveTab('about')} label="О приложении" />
           </div>
@@ -515,6 +542,16 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                        </Button>
                     )}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'ai' && (
+              <div className="space-y-6">
+                <h3 className="text-lg font-medium mb-4">AI Помощник</h3>
+                <div className="flex flex-col items-center justify-center h-[300px] text-muted-foreground">
+                  <Sparkles className="h-12 w-12 mb-4 opacity-50" />
+                  <p>Настройки AI будут доступны в следующем обновлении</p>
                 </div>
               </div>
             )}
