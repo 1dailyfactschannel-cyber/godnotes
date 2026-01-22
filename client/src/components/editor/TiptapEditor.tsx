@@ -17,6 +17,15 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight';
+
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    mermaid: {
+      setMermaid: (options?: { src: string }) => ReturnType;
+    };
+  }
+}
+
 import Highlight from '@tiptap/extension-highlight';
 import { Color } from '@tiptap/extension-color';
 import { common, createLowlight } from 'lowlight';
@@ -56,7 +65,8 @@ import {
   PaintBucket,
   Palette,
   Search,
-  History
+  History,
+  Sparkles
 } from 'lucide-react';
 
 const lowlight = createLowlight(common);
@@ -75,7 +85,9 @@ import {
 import { TagsDialog } from '@/components/tags/TagsDialog';
 import { VersionHistoryDialog } from '@/components/editor/VersionHistoryDialog';
 import { AIAssistantBubbleMenu } from '@/components/editor/AIAssistantBubbleMenu';
+import { useEditorStore } from '@/lib/editor-store';
 import { Logo } from '@/components/Logo';
+import { LockScreen } from '@/components/protection/LockScreen';
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -143,6 +155,7 @@ import TurndownService from 'turndown';
 
 export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { isReadOnly?: boolean; searchTerm?: string }) {
   const { items, activeFileId, updateFileContent, selectFile, hotkeys, unlockedNotes } = useFileSystem();
+  const { setEditor } = useEditorStore();
   const activeFile = items.find(i => i.id === activeFileId);
 
   if (activeFile?.isProtected && !unlockedNotes.includes(activeFile.id)) {
@@ -181,6 +194,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isTagsDialogOpen, setIsTagsDialogOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [localSearchQuery, setLocalSearchQuery] = useState('');
 
   const findNext = () => {
@@ -375,6 +389,11 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     },
     editable: !isReadOnly,
   });
+
+  useEffect(() => {
+    setEditor(editor);
+    return () => setEditor(null);
+  }, [editor, setEditor]);
 
   const uploadFiles = async (files: File[]) => {
     for (const file of files) {

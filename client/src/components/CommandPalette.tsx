@@ -39,7 +39,7 @@ export function CommandPalette() {
   const [isSearching, setIsSearching] = React.useState(false)
   
   // Optimized selectors to prevent re-renders on content change
-  const items = useFileSystem(state => state.items, compareItems)
+  const items = useFileSystem(state => state.items)
   const hotkeys = useFileSystem(state => state.hotkeys)
   const activeFileId = useFileSystem(state => state.activeFileId)
   const searchGlobal = useFileSystem(state => state.searchGlobal)
@@ -114,9 +114,7 @@ export function CommandPalette() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="overflow-hidden p-0 shadow-lg sm:max-w-[550px]">
-        <Command shouldFilter={false} className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5">
+    <CommandDialog open={open} onOpenChange={setOpen}>
           <CommandInput 
             placeholder={`Поиск файлов и команд... (${hotkeys.commandPalette || 'Ctrl+K'})`}
             value={query}
@@ -155,36 +153,32 @@ export function CommandPalette() {
                 </CommandItem>
               )}
 
-            <Plus className="mr-2 h-4 w-4" />
-            <span>Создать заметку</span>
-            <CommandShortcut>⌘N</CommandShortcut>
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => addFolder(getActiveParentId()))}>
-            <FolderPlus className="mr-2 h-4 w-4" />
-            <span>Создать папку</span>
-          </CommandItem>
-        </CommandGroup>
+              <CommandItem onSelect={() => runCommand(() => addFolder(getActiveParentId()))}>
+                <FolderPlus className="mr-2 h-4 w-4" />
+                <span>Создать папку</span>
+              </CommandItem>
+            </CommandGroup>
 
-        <CommandSeparator />
+            <CommandSeparator />
 
-        <CommandGroup heading="Тема">
-          <CommandItem onSelect={() => runCommand(() => setTheme('light'))}>
-            <Sun className="mr-2 h-4 w-4" />
-            <span>Светлая</span>
-            {theme === 'light' && <CommandShortcut>✓</CommandShortcut>}
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => setTheme('dark'))}>
-            <Moon className="mr-2 h-4 w-4" />
-            <span>Темная</span>
-            {theme === 'dark' && <CommandShortcut>✓</CommandShortcut>}
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => setTheme('system'))}>
-            <Laptop className="mr-2 h-4 w-4" />
-            <span>Системная</span>
-            {theme === 'system' && <CommandShortcut>✓</CommandShortcut>}
-          </CommandItem>
-        </CommandGroup>
-      </CommandList>
+            <CommandGroup heading="Тема">
+              <CommandItem onSelect={() => runCommand(() => setTheme('light-mode'))}>
+                <Sun className="mr-2 h-4 w-4" />
+                <span>Светлая</span>
+                {theme === 'light-mode' && <CommandShortcut>✓</CommandShortcut>}
+              </CommandItem>
+              <CommandItem onSelect={() => runCommand(() => setTheme('obsidian-dark'))}>
+                <Moon className="mr-2 h-4 w-4" />
+                <span>Темная (Obsidian)</span>
+                {theme === 'obsidian-dark' && <CommandShortcut>✓</CommandShortcut>}
+              </CommandItem>
+              <CommandItem onSelect={() => runCommand(() => setTheme('midnight-blue'))}>
+                <Moon className="mr-2 h-4 w-4" />
+                <span>Midnight Blue</span>
+                {theme === 'midnight-blue' && <CommandShortcut>✓</CommandShortcut>}
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
     </CommandDialog>
   )
 }

@@ -1,4 +1,4 @@
-import { Extension, InputRule } from '@tiptap/core';
+import { Extension, InputRule, Editor } from '@tiptap/core';
 import Suggestion from '@tiptap/suggestion';
 import { PluginKey } from 'prosemirror-state';
 import tippy, { Instance as TippyInstance } from 'tippy.js';
@@ -15,7 +15,7 @@ export const WikiLinkExtension = Extension.create({
       suggestion: {
         char: '[[',
         pluginKey: new PluginKey('wikiLink'),
-        command: ({ editor, range, props }) => {
+        command: ({ editor, range, props }: { editor: Editor, range: any, props: any }) => {
           // increase range.to by 1 when the second bracket is missing
           const { state } = editor;
           const { tr } = state;

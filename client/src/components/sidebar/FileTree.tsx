@@ -33,6 +33,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -594,7 +599,7 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
             {item.isProtected ? <LockOpen className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
             {item.isProtected ? 'Снять защиту' : 'Защитить'}
         </ContextMenuItem>
-        <ContextMenuItem onClick={handleTogglePublic}>
+        <ContextMenuItem onClick={() => togglePublic(item.id)}>
             <Globe className="mr-2 h-4 w-4" />
             {item.isPublic ? 'Закрыть доступ' : 'Открыть доступ'}
         </ContextMenuItem>

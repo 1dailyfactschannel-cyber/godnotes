@@ -16,7 +16,9 @@ import { FavoritesDialog } from '@/components/favorites/FavoritesDialog';
 import { UserProfileDialog } from '@/components/user/UserProfileDialog';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 const TiptapEditor = lazy(() => import('@/components/editor/TiptapEditor'));
-import { Search, Hash, ChevronRight, Minimize2, Square, X, Settings, Check, Clock, Star, Trash2, Sidebar, BookOpen, PenLine, FolderOpen, Plus, CheckCircle2, User, ChevronsUpDown, PanelLeft, Calendar as CalendarIcon, ListTodo, Send, Loader2, Unplug } from 'lucide-react';
+import { AIChatSidebar } from '@/components/editor/AIChatSidebar';
+import { useEditorStore } from '@/lib/editor-store';
+import { Search, Hash, ChevronRight, Minimize2, Square, X, Settings, Check, Clock, Star, Trash2, Sidebar, BookOpen, PenLine, FolderOpen, Plus, CheckCircle2, User, ChevronsUpDown, PanelLeft, Calendar as CalendarIcon, ListTodo, Send, Loader2, Unplug, Sparkles } from 'lucide-react';
 import { useFileSystem, ThemeType } from '@/lib/mock-fs';
 import { useTasks } from '@/lib/tasks-store';
 import { cn, isHotkeyMatch } from '@/lib/utils';
@@ -47,6 +49,7 @@ import { format } from 'date-fns';
 export default function AppLayout() {
   const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs, addFile } = useFileSystem();
   const { telegramConfig, setTelegramConfig } = useTasks();
+  const { isAiSidebarOpen, toggleAiSidebar } = useEditorStore();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [location, setLocation] = useLocation();
@@ -446,7 +449,7 @@ export default function AppLayout() {
            
            <div className="h-3 w-px bg-border mx-1" />
 
-           <div className="flex items-center gap-1 no-drag" style={{ WebkitAppRegion: 'no-drag' }}>
+           <div className="flex items-center gap-1 no-drag" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
               <Button variant="ghost" size="icon" className="h-5 w-5" onClick={handleAddSpace} title="Добавить пространство">
                 <Plus className="h-3.5 w-3.5" />
               </Button>
@@ -488,6 +491,18 @@ export default function AppLayout() {
                </div>
              </>
            )}
+        </div>
+        
+        <div className="flex items-center gap-1 no-drag px-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className={cn("h-7 w-7", isAiSidebarOpen ? "text-primary bg-primary/10" : "text-muted-foreground")}
+              onClick={toggleAiSidebar}
+              title="AI Ассистент"
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
         </div>
       </div>
 
@@ -652,6 +667,15 @@ export default function AppLayout() {
             </div>
           </div>
         </ResizablePanel>
+
+        {isAiSidebarOpen && (
+          <>
+            <ResizableHandle className="bg-transparent hover:bg-primary/20 w-1 transition-colors" />
+            <ResizablePanel defaultSize={25} minSize={20} maxSize={40} className="bg-sidebar border-l border-sidebar-border">
+              <AIChatSidebar />
+            </ResizablePanel>
+          </>
+        )}
       </ResizablePanelGroup>
     </div>
     

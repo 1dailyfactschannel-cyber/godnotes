@@ -85,7 +85,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/db/health", async (_req, res) => {
-    const backend = (storage as any).current?.constructor.name || storage.constructor.name;
+    const backend = storage.getBackendName();
     res.json({ ok: true, backend });
   });
 
@@ -171,18 +171,18 @@ export async function registerRoutes(
     }
 
     if (!user) {
-      console.log(`[Auth] User ${userId} not found in current storage. Storage type: ${storage.current.constructor.name}`);
+      console.log(`[Auth] User ${userId} not found in current storage. Storage type: ${storage.getBackendName()}`);
       // Debug: Check if any users exist
-      // @ts-ignore
-      const availableUsers = storage.current.users ? Array.from(storage.current.users.keys()) : [];
-      // @ts-ignore
+      const allUsers = await storage.listUsers();
+      const availableUsers = allUsers.map(u => u.id);
+      
       console.log(`[Auth] Available users in storage: ${availableUsers.join(', ')}`);
       
       res.status(401).json({ 
           message: "Unauthorized: User not found", 
           details: {
               userId,
-              storageType: storage.current.constructor.name,
+              storageType: storage.getBackendName(),
               availableUsersCount: availableUsers.length,
               // Only include IDs for debug, avoiding personal info leakage if possible, but here IDs are UUIDs
               availableUsers

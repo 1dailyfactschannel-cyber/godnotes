@@ -139,11 +139,11 @@ export const MermaidExtension = Node.create({
   
   addCommands() {
       return {
-          setMermaid: () => ({ commands }) => {
+          setMermaid: () => ({ commands }: { commands: any }) => {
               return commands.insertContent({
                   type: this.name,
               })
           }
-      }
+      } as any;
   }
 });

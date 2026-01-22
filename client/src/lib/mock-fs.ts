@@ -57,7 +57,7 @@ export type FileSystemItem = {
   isPublic?: boolean;
 };
 
-export type User = Models.User<Models.Preferences>;
+export type User = Models.User<Models.Preferences & { telegram?: string; telegramChatId?: string }>;
 
 export type AIConfig = {
   provider: 'openai' | 'anthropic' | 'custom';
@@ -120,6 +120,7 @@ interface FileSystemState {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  updateRecovery: (userId: string, secret: string, password: string, passwordAgain: string) => Promise<void>;
   logout: () => Promise<void>;
   togglePin: (id: string) => void;
   toggleFavorite: (id: string) => Promise<void>;
@@ -269,13 +270,14 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         .map((f: any) => ({
           id: f.$id,
           name: f.name,
-          type: 'folder',
+          type: 'folder' as const,
           parentId: f.parentId || null,
           createdAt: new Date(f.$createdAt).getTime(),
+          updatedAt: new Date(f.$updatedAt).getTime(),
           isFavorite: f.isFavorite,
           tags: f.tags || [],
         }))
-        .filter(item => !item.tags?.some(t => t.startsWith('deleted:')));
+        .filter(item => !item.tags?.some((t: string) => t.startsWith('deleted:')));
       
       set(state => {
         return {
@@ -309,10 +311,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         .map((n: any) => ({
           id: n.$id,
           name: n.title,
-          type: 'file',
+          type: 'file' as const,
           parentId: n.folderId || null,
           content: undefined, // Content is loaded lazily on open
           createdAt: new Date(n.$createdAt).getTime(),
+          updatedAt: new Date(n.$updatedAt).getTime(),
           isFavorite: n.isFavorite,
           tags: n.tags || [],
           isPublic: n.$permissions && n.$permissions.some((p: string) => p.includes('role:any') || p.includes('any')),
@@ -406,7 +409,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   checkAuth: async () => {
     set({ isAuthChecking: true });
     try {
-      const user = await account.get();
+      const user = await account.get() as unknown as User;
       set({ isAuthenticated: true, user });
 
       // Sync Telegram config
@@ -965,7 +968,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
                 const updatedFile = get().items.find(i => i.id === id);
                 if (updatedFile) {
                     const manifest = { ...get().syncManifest };
-                    manifest[id] = updatedFile.updatedAt;
+                    manifest[id] = updatedFile.updatedAt || Date.now();
                     set({ syncManifest: manifest });
                     get().saveSyncManifest();
                 }
@@ -1042,7 +1045,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     for (const file of files) {
         const localUpdated = manifest[file.id];
         // If local is missing or older than cloud
-        if (!localUpdated || localUpdated < file.updatedAt) {
+        if (!localUpdated || (file.updatedAt && localUpdated < file.updatedAt)) {
             try {
                 // Download content
                 const note = await databases.getDocument(DATABASE_ID, COLLECTIONS.NOTES, file.id);
@@ -1054,7 +1057,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
                     await fs.writeFile(localPath, content);
                     
                     // Update manifest
-                    manifest[file.id] = file.updatedAt;
+                    manifest[file.id] = file.updatedAt || Date.now();
                     manifestChanged = true;
                     
                     // If file is currently loaded in memory, update it
@@ -1242,6 +1245,16 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
          throw new Error("Ошибка конфигурации Appwrite: Необходимо добавить домен 'godnotes-8aoh.vercel.app' как Веб-платформу в консоли Appwrite (Overview -> Platforms -> Add Platform -> Web).");
       }
       
+      throw error;
+    }
+  },
+
+  updateRecovery: async (userId, secret, password, passwordAgain) => {
+    try {
+      // passwordAgain is not used in newer SDK versions but kept in function signature for compatibility
+      await account.updateRecovery(userId, secret, password);
+    } catch (error) {
+      console.error('Update recovery failed:', error);
       throw error;
     }
   },

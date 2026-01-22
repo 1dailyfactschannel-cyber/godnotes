@@ -1,11 +1,11 @@
 
 import { useState } from 'react';
 import { Editor } from '@tiptap/react';
-import { BubbleMenu } from '@tiptap/react';
+import { BubbleMenu } from '@tiptap/react/menus';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Loader2, Sparkles, Check, X, RefreshCw, Wand2 } from 'lucide-react';
+import { Loader2, Sparkles, Check, X, RefreshCw, Wand2, Plus } from 'lucide-react';
 import { generateText } from '@/lib/ai-service';
 import { toast } from '@/hooks/use-toast';
 import { useFileSystem } from '@/lib/mock-fs';
@@ -92,15 +92,10 @@ export function AIAssistantBubbleMenu({ editor }: AIAssistantBubbleMenuProps) {
 
   return (
     <BubbleMenu 
-      editor={editor} 
-      tippyOptions={{ duration: 100, placement: 'bottom-start' }}
-      shouldShow={({ editor, from, to }) => {
-        // Don't show if selection is empty
-        if (from === to) return false;
-        // Don't show if active in a table (conflicts with table menu)
-        if (editor.isActive('table')) return false;
-        // Don't show if link editing (optional)
-        return true;
+        editor={editor} 
+        shouldShow={({ editor, from, to }: any) => {
+        // Only show if selection is not empty
+        return from !== to && !editor.isActive('image') && !editor.isActive('codeBlock');
       }}
     >
       <Popover open={isOpen} onOpenChange={setIsOpen}>
@@ -186,7 +181,7 @@ export function AIAssistantBubbleMenu({ editor }: AIAssistantBubbleMenuProps) {
                     className="flex-1 h-8 text-xs" 
                     onClick={handleInsertBelow}
                   >
-                    <PlusIcon className="h-3.5 w-3.5 mr-1" />
+                    <Plus className="h-3.5 w-3.5 mr-1" />
                     Вставить ниже
                   </Button>
                   <Button 
@@ -206,10 +201,4 @@ export function AIAssistantBubbleMenu({ editor }: AIAssistantBubbleMenuProps) {
       </Popover>
     </BubbleMenu>
   );
-}
-
-function PlusIcon({ className }: { className?: string }) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-    )
 }

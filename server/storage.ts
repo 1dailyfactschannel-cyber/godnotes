@@ -14,7 +14,7 @@ import {
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import fs from 'fs';
 import path from 'path';
 
@@ -109,6 +109,7 @@ export class MemStorage implements IStorage {
       updatedAt: now,
       isDeleted: false,
       isFavorite: insertFolder.isFavorite ?? false,
+      tags: [],
     };
     this.folders.set(id, folder);
     return folder;
@@ -170,6 +171,8 @@ export class MemStorage implements IStorage {
       createdAt: now,
       updatedAt: now,
       isDeleted: false,
+      tags: [],
+      isFavorite: false,
     };
     this.notes.set(id, note);
     return note;
@@ -808,6 +811,10 @@ export class ProxyStorage implements IStorage {
 
   setStorage(storage: IStorage) {
     this.current = storage;
+  }
+
+  getBackendName(): string {
+    return this.current.constructor.name;
   }
 
   async getUser(id: string): Promise<User | undefined> { return this.current.getUser(id); }
