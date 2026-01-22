@@ -5,8 +5,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const width = 128;
-const height = 128;
+const width = 256;
+const height = 256;
 
 // Pixel Data Size (32bpp = 4 bytes per pixel)
 const pixelDataSize = width * height * 4;
