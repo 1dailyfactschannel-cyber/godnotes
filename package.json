@@ -2,7 +2,7 @@
   "name": "rest-express",
   "description": "A powerful note-taking application with Markdown support and cloud sync",
   "author": "1dailyfactschannel-cyber",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "license": "MIT",
   "main": "electron/main.js",
@@ -21,7 +21,7 @@
     "appId": "com.godnotes.app",
     "productName": "GodNotes",
     "directories": {
-      "output": "dist-release-v1.2.0"
+      "output": "dist-release-v1.2.1"
     },
     "linux": {
       "target": [
@@ -60,7 +60,7 @@
       {
         "provider": "github",
         "owner": "1dailyfactschannel-cyber",
-        "repo": "godnotes-releases"
+        "repo": "godnotes"
       }
     ]
   },

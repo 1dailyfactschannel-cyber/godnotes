@@ -428,7 +428,12 @@ if (!gotTheLock) {
         responseHeaders: {
           ...details.responseHeaders,
           'Content-Security-Policy': [
-            "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cloud.appwrite.io https://api.telegram.org https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://cloud.appwrite.io https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com wss:;"
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cloud.appwrite.io https://api.telegram.org https://fonts.googleapis.com https://fonts.gstatic.com; " +
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+            "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+            "font-src 'self' data: https://fonts.gstatic.com; " +
+            "img-src 'self' data: blob: https:; " +
+            "connect-src 'self' https://cloud.appwrite.io https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com wss:;"
           ]
         }
       });

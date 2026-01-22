@@ -6,6 +6,15 @@ export interface Release {
 
 export const changelog: Release[] = [
     {
+        version: '1.2.1',
+        date: '22 Янв 2026',
+        notes: [
+            'Исправлена ошибка Content Security Policy (CSP), блокирующая загрузку шрифтов Google Fonts',
+            'Исправлен URL репозитория для автоматических обновлений',
+            'Улучшена безопасность и стабильность работы десктопного приложения'
+        ]
+    },
+    {
         version: '1.2.0',
         date: '22 Янв 2026',
         notes: [
