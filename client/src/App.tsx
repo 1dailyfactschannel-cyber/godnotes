@@ -74,7 +74,16 @@ function App() {
 
   useEffect(() => {
     const root = window.document.body;
-    root.classList.remove('theme-midnight-blue', 'theme-graphite', 'theme-light-mode');
+    const themes = [
+      'theme-midnight-blue', 
+      'theme-graphite', 
+      'theme-light-mode', 
+      'theme-forest', 
+      'theme-sunset', 
+      'theme-ocean', 
+      'theme-cyberpunk'
+    ];
+    root.classList.remove(...themes);
     
     if (theme && theme !== 'obsidian-dark') {
       root.classList.add(`theme-${theme}`);

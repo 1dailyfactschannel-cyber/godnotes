@@ -188,7 +188,7 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={handleCreateFolder}>
-                <FolderPlus className="h-4 w-4" />
+                <Folder className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Новая папка</TooltipContent>
@@ -548,6 +548,26 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
                     {item.isProtected ? <LockOpen className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
                     {item.isProtected ? 'Снять защиту' : 'Защитить'}
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={async (e) => {
+                    e.stopPropagation();
+                    const wasPublic = item.isPublic;
+                    const link = await togglePublic(item.id);
+                    if (link) {
+                        navigator.clipboard.writeText(link);
+                        toast({
+                            title: "Доступ открыт",
+                            description: "Ссылка скопирована в буфер обмена",
+                        });
+                    } else if (wasPublic) {
+                        toast({
+                            title: "Доступ закрыт",
+                            description: "Заметка больше не доступна по ссылке",
+                        });
+                    }
+                }}>
+                    <Globe className="mr-2 h-4 w-4" />
+                    {item.isPublic ? 'Закрыть доступ' : 'Открыть доступ'}
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={onOpenTags}>
                   <Tag className="mr-2 h-4 w-4" /> Теги
                 </DropdownMenuItem>
@@ -599,7 +619,22 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
             {item.isProtected ? <LockOpen className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
             {item.isProtected ? 'Снять защиту' : 'Защитить'}
         </ContextMenuItem>
-        <ContextMenuItem onClick={() => togglePublic(item.id)}>
+        <ContextMenuItem onClick={async () => {
+             const wasPublic = item.isPublic;
+             const link = await togglePublic(item.id);
+             if (link) {
+                 navigator.clipboard.writeText(link);
+                 toast({
+                     title: "Доступ открыт",
+                     description: "Ссылка скопирована в буфер обмена",
+                 });
+             } else if (wasPublic) {
+                 toast({
+                     title: "Доступ закрыт",
+                     description: "Заметка больше не доступна по ссылке",
+                 });
+             }
+         }}>
             <Globe className="mr-2 h-4 w-4" />
             {item.isPublic ? 'Закрыть доступ' : 'Открыть доступ'}
         </ContextMenuItem>

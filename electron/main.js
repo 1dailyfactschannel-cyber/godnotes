@@ -428,7 +428,7 @@ if (!gotTheLock) {
         responseHeaders: {
           ...details.responseHeaders,
           'Content-Security-Policy': [
-            "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cloud.appwrite.io https://api.telegram.org; img-src 'self' data: blob: https:; connect-src 'self' https://cloud.appwrite.io https://api.telegram.org wss:;"
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cloud.appwrite.io https://api.telegram.org https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://cloud.appwrite.io https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com wss:;"
           ]
         }
       });

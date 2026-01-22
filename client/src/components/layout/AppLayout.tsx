@@ -510,7 +510,7 @@ export default function AppLayout() {
         <ResizablePanelGroup direction="horizontal">
           {/* Sidebar */}
           {isSidebarCollapsed ? (
-            <div className="w-12 h-full bg-sidebar border-r border-sidebar-border flex flex-col items-center py-4 gap-4 shrink-0 transition-all duration-300">
+            <ResizablePanel defaultSize={4} minSize={4} maxSize={4} className="bg-sidebar border-r border-sidebar-border flex flex-col items-center py-4 gap-4 shrink-0 transition-all duration-300">
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsSidebarCollapsed(false)}>
                 <Sidebar className="h-4 w-4" />
               </Button>
@@ -521,10 +521,10 @@ export default function AppLayout() {
               <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
                 <Search className="h-4 w-4" />
               </Button>
-            </div>
+            </ResizablePanel>
           ) : (
             <>
-              <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-sidebar flex flex-col min-w-[200px] transition-all duration-300">
+              <ResizablePanel id="sidebar-panel" order={1} defaultSize={20} minSize={15} maxSize={30} className="bg-sidebar flex flex-col min-w-[200px] transition-all duration-300">
                 {/* Sidebar Header */}
                 <div className="p-3 border-b border-sidebar-border bg-sidebar/50 backdrop-blur-sm sticky top-0 z-10 flex flex-col gap-3">
                   <div className="flex items-center justify-between">
@@ -627,7 +627,7 @@ export default function AppLayout() {
           </>
         )}
         
-        <ResizablePanel defaultSize={80}>
+        <ResizablePanel id="main-panel" order={2} defaultSize={isAiSidebarOpen ? 50 : 80} minSize={30}>
           <div className="flex flex-col h-full">
             <TabBar />
             {breadcrumbs.length > 0 && (
@@ -671,7 +671,7 @@ export default function AppLayout() {
         {isAiSidebarOpen && (
           <>
             <ResizableHandle className="bg-transparent hover:bg-primary/20 w-1 transition-colors" />
-            <ResizablePanel defaultSize={25} minSize={20} maxSize={40} className="bg-sidebar border-l border-sidebar-border">
+            <ResizablePanel id="ai-panel" order={3} defaultSize={30} minSize={20} maxSize={40} className="bg-sidebar border-l border-sidebar-border">
               <AIChatSidebar />
             </ResizablePanel>
           </>

@@ -1,12 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, X, Bot, User, Sparkles, Loader2, RefreshCw, Copy, Check, Globe, FileText } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Send, X, Bot, User, Sparkles, Loader2, RefreshCw, Copy, Check, Globe, FileText, CornerDownLeft, GitCompare, ChevronsUpDown, Plus } from 'lucide-react';
+import * as Diff from 'diff';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Toggle } from '@/components/ui/toggle';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from '@/lib/utils';
 import { useEditorStore } from '@/lib/editor-store';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useFileSystem, BUILT_IN_AI_CONFIG } from '@/lib/mock-fs';
 import { generateText } from '@/lib/ai-service';
 import { toast } from '@/hooks/use-toast';
 
@@ -19,8 +23,50 @@ interface Message {
 
 export function AIChatSidebar() {
   const { editor, setAiSidebarOpen } = useEditorStore();
-  const { aiConfig, searchGlobal } = useFileSystem();
+  const { aiConfig, searchGlobal, updateAIConfig, updateUserPrefs, isAuthenticated, user } = useFileSystem();
   const [useGlobalContext, setUseGlobalContext] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [newModelInput, setNewModelInput] = useState('');
+  const [modeJustChanged, setModeJustChanged] = useState(false);
+  const CUSTOM_CONFIG_KEY = 'aiCustomConfig';
+  const isBuiltIn = aiConfig.mode === 'builtin';
+
+  const saveCustomConfig = (cfg: any) => {
+    // Никогда не сохраняем встроенную конфигурацию как пользовательскую
+    if (cfg.apiKey === BUILT_IN_AI_CONFIG.apiKey) {
+      return;
+    }
+    try { 
+      const data = JSON.stringify(cfg);
+      localStorage.setItem(CUSTOM_CONFIG_KEY, data); 
+      
+      // Синхронизируем с облаком
+      if (isAuthenticated && user) {
+        updateUserPrefs({ aiCustomConfig: data })
+          .catch(err => console.error('Failed to sync custom AI config to cloud:', err));
+      }
+    } catch {}
+  };
+  const loadCustomConfig = (): any | null => {
+    try {
+      const raw = localStorage.getItem(CUSTOM_CONFIG_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch { return null; }
+  };
+  const normalizeProviderForModel = (m: string) => {
+    const lower = m.toLowerCase();
+    if (lower.includes('/') || lower.includes(':')) {
+      return { provider: 'openrouter' as const, baseUrl: 'https://openrouter.ai/api/v1' };
+    }
+    if (lower.startsWith('gpt')) {
+      return { provider: 'openai' as const, baseUrl: 'https://api.openai.com/v1' };
+    }
+    if (lower.startsWith('claude')) {
+      return { provider: 'anthropic' as const, baseUrl: 'https://api.anthropic.com' };
+    }
+    return { provider: aiConfig.provider, baseUrl: aiConfig.baseUrl };
+  };
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -96,9 +142,10 @@ export function AIChatSidebar() {
 
         if (selection) {
           context = `\n\nSelected text context:\n"${selection}"`;
-          systemPrompt += " The user has selected a portion of text. Focus your answer on the selected text.";
+          systemPrompt += " The user has selected a portion of text. Focus your answer on the selected text. If asked to edit/rewrite, provide the updated version clearly.";
         } else if (fullText) {
           context = `\n\nCurrent note content context (for reference):\n"${fullText.slice(0, 5000)}${fullText.length > 5000 ? '...' : ''}"`;
+          systemPrompt += " The user is viewing this note. If asked to edit/rewrite, use this content as the source. Provide the updated version clearly.";
         }
       }
 
@@ -154,13 +201,246 @@ export function AIChatSidebar() {
     }
   };
 
+  const reviewChanges = (text: string) => {
+    if (!editor) return;
+
+    const selection = editor.state.selection;
+    const isSelection = !selection.empty;
+    
+    const currentText = isSelection 
+      ? editor.state.doc.textBetween(selection.from, selection.to, '\n')
+      : editor.getText();
+      
+    if (!currentText) {
+      insertToEditor(text);
+      return;
+    }
+
+    const diffs = Diff.diffLines(currentText, text);
+    
+    let html = '';
+    diffs.forEach(part => {
+      const value = part.value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+        
+      if (part.added) {
+        html += `<span data-diff-type="added">${value}</span>`;
+      } else if (part.removed) {
+        html += `<span data-diff-type="removed">${value}</span>`;
+      } else {
+        html += value;
+      }
+    });
+
+    if (isSelection) {
+        editor.chain().focus().insertContent(html).run();
+    } else {
+        editor.chain().focus().setContent(html).run();
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full bg-sidebar border-l border-sidebar-border w-full">
+    <div className="flex flex-col h-full bg-sidebar border-l border-sidebar-border w-full relative">
       {/* Header */}
-      <div className="h-10 flex items-center justify-between px-4 border-b border-sidebar-border bg-sidebar/50 shrink-0">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Sparkles className="h-4 w-4 text-primary" />
-          <span>AI Ассистент</span>
+      <div className="h-12 flex items-center justify-between px-3 border-b border-sidebar-border bg-sidebar shrink-0 relative z-[100]" style={{ pointerEvents: 'auto' } as React.CSSProperties}>
+        <div className="flex items-center gap-2 overflow-hidden min-w-0 mr-2">
+          <Sparkles className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-sm font-semibold truncate">AI</span>
+        </div>
+        
+        <div className="flex items-center gap-1.5 flex-1 justify-end relative z-[101]" style={{ pointerEvents: 'auto' } as React.CSSProperties}>
+          <div
+            className="flex items-center bg-muted/80 rounded-lg p-1 border border-border/50 shrink-0 shadow-inner select-none relative z-[102] overflow-hidden"
+            onPointerDown={(e) => {
+              console.log('[AI Switch] Container PointerDown (z-102)');
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              console.log('[AI Switch] Container Click (z-102)');
+              e.stopPropagation();
+            }}
+            style={{ pointerEvents: 'auto' } as React.CSSProperties}
+          >
+            {/* Animated Background Slider */}
+            <motion.div
+              className="absolute bg-secondary rounded-md shadow-sm z-0"
+              initial={false}
+              animate={{
+                x: isBuiltIn ? 0 : 70, // Adjust width based on button size
+                width: isBuiltIn ? 70 : 55   // Width of "Готовая" vs "Своя"
+              }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              style={{ height: '28px' }}
+            />
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-7 text-[10px] px-3 select-none relative z-[103] transition-colors duration-200",
+                isBuiltIn ? "text-secondary-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+              onPointerDown={(e) => {
+                console.log('[AI Switch] BuiltIn Button PointerDown (z-103)', { target: e.target });
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                console.log('[AI Switch] BuiltIn Button Click (z-103)', {
+                  isBuiltInCurrent: isBuiltIn,
+                  aiConfigCurrent: aiConfig.apiKey ? aiConfig.apiKey.slice(0, 8) + '...' : 'none'
+                });
+                e.preventDefault();
+                e.stopPropagation();
+                if (!isBuiltIn) {
+                  saveCustomConfig({
+                    provider: aiConfig.provider,
+                    apiKey: aiConfig.apiKey,
+                    model: aiConfig.model,
+                    baseUrl: aiConfig.baseUrl,
+                    mode: 'custom'
+                  });
+                  updateAIConfig({ ...BUILT_IN_AI_CONFIG, mode: 'builtin' });
+                  toast({ title: "Режим переключен", description: "Включена готовая модель", variant: "default" });
+                  console.log('[AI Switch] Switched to BuiltIn', { newConfig: BUILT_IN_AI_CONFIG.model });
+                  setModeJustChanged(true);
+                  setTimeout(() => setModeJustChanged(false), 1200);
+                }
+              }}
+            >
+              Готовая
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-7 text-[10px] px-3 select-none relative z-[103] transition-colors duration-200",
+                !isBuiltIn ? "text-secondary-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+              onPointerDown={(e) => {
+                console.log('[AI Switch] Custom Button PointerDown (z-103)', { target: e.target });
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                console.log('[AI Switch] Custom Button Click (z-103)', { isBuiltInCurrent: isBuiltIn });
+                e.preventDefault();
+                e.stopPropagation();
+                if (isBuiltIn) {
+                  const saved = loadCustomConfig();
+                  if (saved) {
+                    updateAIConfig({
+                      provider: saved.provider || 'openai',
+                      apiKey: saved.apiKey || '',
+                      model: saved.model || 'gpt-4o',
+                      baseUrl: saved.baseUrl || undefined,
+                      mode: 'custom'
+                    });
+                    console.log('[AI Switch] Switched to Custom (loaded)', { model: saved.model });
+                  } else {
+                    const newCfg = { provider: 'openai' as const, apiKey: '', model: 'gpt-4o', baseUrl: undefined, mode: 'custom' as const };
+                    updateAIConfig(newCfg);
+                    saveCustomConfig(newCfg);
+                    console.log('[AI Switch] Switched to Custom (new)', { model: newCfg.model });
+                  }
+                  toast({ title: "Режим переключен", description: "Включена своя модель", variant: "default" });
+                  setModeJustChanged(true);
+                  setTimeout(() => setModeJustChanged(false), 1200);
+                }
+              }}
+            >
+              Своя
+            </Button>
+          </div>
+          
+          <motion.div
+            className={cn(
+              "ml-2 px-2 py-1 text-[10px] rounded-md border border-border/50 bg-background/60 max-w-[220px] truncate shrink-0 select-none",
+              modeJustChanged ? "ring-2 ring-primary border-primary/50" : ""
+            )}
+            animate={modeJustChanged ? {
+              scale: [1, 1.05, 1],
+              backgroundColor: ["rgba(var(--background), 0.6)", "rgba(var(--primary), 0.1)", "rgba(var(--background), 0.6)"]
+            } : {}}
+            transition={{ duration: 0.5 }}
+            title={`${isBuiltIn ? 'Готовая' : 'Своя'} • ${isBuiltIn ? BUILT_IN_AI_CONFIG.model : aiConfig.model} (${isBuiltIn ? BUILT_IN_AI_CONFIG.provider : aiConfig.provider})`}
+          >
+            <span className="font-medium">{isBuiltIn ? 'Готовая' : 'Своя'}</span>
+            <span className="mx-1 opacity-50">•</span>
+            <span className="truncate">{isBuiltIn ? BUILT_IN_AI_CONFIG.model : aiConfig.model}</span>
+          </motion.div>
+          
+          {!isBuiltIn && (
+             <Popover open={modelOpen} onOpenChange={setModelOpen}>
+                <PopoverTrigger asChild>
+                   <Button 
+                     variant="outline" 
+                     size="sm" 
+                     className="h-7 text-[10px] px-2 gap-1 max-w-[90px] justify-between bg-background/50 hover:bg-background border-border/50 shrink-0"
+                   >
+                      <span className="truncate">{aiConfig.model}</span>
+                      <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50" />
+                   </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-2" align="end">
+                   <div className="space-y-2">
+                      <h4 className="font-medium text-xs text-muted-foreground mb-1 px-1">Выбор модели</h4>
+                      <div className="max-h-[200px] overflow-y-auto space-y-1">
+                         {Array.from(new Set([aiConfig.model, ...(aiConfig.availableModels || [])])).filter(Boolean).map(m => (
+                            <Button 
+                              key={m} 
+                              variant={aiConfig.model === m ? "secondary" : "ghost"} 
+                              size="sm" 
+                              className="w-full justify-start h-7 text-xs" 
+                              onClick={() => {
+                                const np = normalizeProviderForModel(m);
+                                updateAIConfig({ model: m, provider: np.provider, baseUrl: np.baseUrl, mode: 'custom' });
+                                saveCustomConfig({ provider: np.provider, apiKey: aiConfig.apiKey, model: m, baseUrl: np.baseUrl, mode: 'custom' });
+                                setModelOpen(false);
+                              }}
+                            >
+                               {aiConfig.model === m && <Check className="mr-2 h-3 w-3" />}
+                               <span className="truncate">{m}</span>
+                            </Button>
+                         ))}
+                      </div>
+                      <div className="flex gap-1 pt-2 border-t">
+                         <Input 
+                            className="h-7 text-xs" 
+                            placeholder="Новая модель..." 
+                            value={newModelInput} 
+                            onChange={e => setNewModelInput(e.target.value)} 
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                    if (!newModelInput.trim()) return;
+                                    const currentModels = aiConfig.availableModels || [];
+                                    const newModels = Array.from(new Set([...currentModels, aiConfig.model, newModelInput.trim()]));
+                                    const np = normalizeProviderForModel(newModelInput.trim());
+                                    updateAIConfig({ availableModels: newModels, model: newModelInput.trim(), provider: np.provider, baseUrl: np.baseUrl, mode: 'custom' });
+                                    saveCustomConfig({ provider: np.provider, apiKey: aiConfig.apiKey, model: newModelInput.trim(), baseUrl: np.baseUrl, mode: 'custom' });
+                                    setNewModelInput('');
+                                    setModelOpen(false);
+                                }
+                            }}
+                         />
+                         <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => {
+                                if (!newModelInput.trim()) return;
+                                const currentModels = aiConfig.availableModels || [];
+                                const newModels = Array.from(new Set([...currentModels, aiConfig.model, newModelInput.trim()]));
+                                const np = normalizeProviderForModel(newModelInput.trim());
+                                updateAIConfig({ availableModels: newModels, model: newModelInput.trim(), provider: np.provider, baseUrl: np.baseUrl, mode: 'custom' });
+                                saveCustomConfig({ provider: np.provider, apiKey: aiConfig.apiKey, model: newModelInput.trim(), baseUrl: np.baseUrl, mode: 'custom' });
+                                setNewModelInput('');
+                                setModelOpen(false);
+                         }}>
+                            <Plus className="h-4 w-4" />
+                         </Button>
+                      </div>
+                   </div>
+                </PopoverContent>
+             </Popover>
+          )}
         </div>
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setAiSidebarOpen(false)}>
           <X className="h-4 w-4" />
@@ -173,7 +453,7 @@ export function AIChatSidebar() {
           <div
             key={msg.id}
             className={cn(
-              "flex gap-3 text-sm",
+              "flex gap-3 text-xs group",
               msg.role === 'user' ? "flex-row-reverse" : "flex-row"
             )}
           >
@@ -213,9 +493,18 @@ export function AIChatSidebar() {
                     size="icon" 
                     className="h-6 w-6" 
                     onClick={() => insertToEditor(msg.content)}
-                    title="Вставить в редактор"
+                    title="Вставить в заметку (заменит выделенное)"
                   >
-                    <Check className="h-3 w-3" />
+                    <CornerDownLeft className="h-3 w-3" />
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-6 w-6" 
+                    onClick={() => reviewChanges(msg.content)}
+                    title="Сравнить и применить (Diff)"
+                  >
+                    <GitCompare className="h-3 w-3" />
                   </Button>
                 </div>
               )}
@@ -223,7 +512,7 @@ export function AIChatSidebar() {
           </div>
         ))}
         {isLoading && (
-           <div className="flex gap-3 text-sm flex-row">
+           <div className="flex gap-3 text-xs flex-row">
               <div className="h-8 w-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center shrink-0">
                  <Bot className="h-4 w-4" />
               </div>
@@ -269,17 +558,17 @@ export function AIChatSidebar() {
         </div>
 
         <div className="relative">
-          <Input
+          <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={useGlobalContext ? "Спросите о любой заметке..." : "Спросите о текущем тексте..."}
-            className="pr-10 bg-background/50"
+            className="pr-10 bg-background/50 min-h-[100px] resize-none"
             disabled={isLoading}
           />
           <Button 
             size="icon" 
-            className="absolute right-1 top-1 h-7 w-7" 
+            className="absolute right-2 bottom-2 h-7 w-7" 
             onClick={handleSend}
             disabled={!input.trim() || isLoading}
           >

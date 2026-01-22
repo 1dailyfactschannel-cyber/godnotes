@@ -32,6 +32,8 @@ import { common, createLowlight } from 'lowlight';
 import { WikiLinkExtension, WikiLinkList } from '@/lib/tiptap-extensions/wiki-link';
 import { MermaidExtension } from '@/lib/tiptap-extensions/mermaid';
 import { ResizableImage } from '@/lib/tiptap-extensions/resizable-image';
+import { DiffMark } from '@/lib/tiptap-extensions/diff-mark';
+import { DiffControl } from '@/components/editor/DiffControl';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { useEffect, useCallback, useRef, useState } from 'react';
@@ -158,14 +160,6 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
   const { setEditor } = useEditorStore();
   const activeFile = items.find(i => i.id === activeFileId);
 
-  if (activeFile?.isProtected && !unlockedNotes.includes(activeFile.id)) {
-    return (
-        <div className="h-full w-full bg-background relative flex items-center justify-center">
-            <LockScreen noteId={activeFile.id} />
-        </div>
-    );
-  }
-
   // Handle WikiLink clicks
   useEffect(() => {
     const handleWikiLinkClick = (e: MouseEvent) => {
@@ -257,6 +251,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
         lowlight,
       }),
       MermaidExtension,
+      DiffMark,
       WikiLinkExtension.configure({
         suggestion: {
           render: () => {
@@ -323,7 +318,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     ],
     editorProps: {
       attributes: {
-        class: 'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[calc(100vh-250px)] px-8 py-4 text-lg leading-relaxed',
+        class: 'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[calc(100vh-250px)] px-8 py-4 text-base leading-relaxed',
       },
       handleTextInput(view, from, to, text) {
         if (text === '/') {
@@ -874,6 +869,14 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
   };
 
 
+  const fontSizes = [
+    { label: 'Маленький', value: '12px' },
+    { label: 'Обычный', value: '16px' },
+    { label: 'Средний', value: '20px' },
+    { label: 'Крупный', value: '24px' },
+    { label: 'Огромный', value: '32px' },
+  ];
+
   if (!activeFile) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground bg-background/50 animate-in fade-in duration-500">
@@ -896,13 +899,13 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     );
   }
 
-  const fontSizes = [
-    { label: 'Маленький', value: '12px' },
-    { label: 'Обычный', value: '16px' },
-    { label: 'Средний', value: '20px' },
-    { label: 'Крупный', value: '24px' },
-    { label: 'Огромный', value: '32px' },
-  ];
+  if (activeFile?.isProtected && !unlockedNotes.includes(activeFile.id)) {
+    return (
+        <div className="h-full w-full bg-background relative flex items-center justify-center">
+            <LockScreen noteId={activeFile.id} />
+        </div>
+    );
+  }
 
   return (
     <div className="h-full w-full flex flex-col bg-background animate-in fade-in duration-300">
@@ -1296,6 +1299,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       >
         {editor && (
           <>
+          <DiffControl editor={editor} />
           <AIAssistantBubbleMenu editor={editor} />
           <BubbleMenu editor={editor} shouldShow={({ editor }) => editor.isActive('table')}>
             <div className="flex items-center gap-1 p-1 rounded-md border bg-popover shadow-md overflow-hidden">

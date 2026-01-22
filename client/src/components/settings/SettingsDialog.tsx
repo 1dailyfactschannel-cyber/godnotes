@@ -1,4 +1,11 @@
 import { useState, useEffect } from 'react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -15,9 +22,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug, RefreshCw, HelpCircle, Bot, Sparkles, Shield } from 'lucide-react';
+import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug, RefreshCw, HelpCircle, Bot, Sparkles, Shield, Key, Globe, Cpu } from 'lucide-react';
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from '@/lib/utils';
-import { useFileSystem, ThemeType } from '@/lib/mock-fs';
+import { useFileSystem, ThemeType, BUILT_IN_AI_CONFIG } from '@/lib/mock-fs';
 import { useTasks } from '@/lib/tasks-store';
 import { telegramRequest, selectDirectory, getStoreValue, setStoreValue, isElectron, electron } from '@/lib/electron';
 import { useToast } from '@/hooks/use-toast';
@@ -34,9 +42,58 @@ type SettingsTab = 'general' | 'theme' | 'hotkeys' | 'telegram' | 'about' | 'hel
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
-  const { theme, setTheme, hotkeys, setHotkey, isOfflineMode, toggleOfflineMode, items, downloadAllFiles, updateUserPrefs, aiConfig, updateAIConfig, setMasterPassword, securityConfig } = useFileSystem();
+  const { theme, setTheme, hotkeys, setHotkey, isOfflineMode, toggleOfflineMode, items, downloadAllFiles, updateUserPrefs, aiConfig, updateAIConfig, setMasterPassword, securityConfig, isAuthenticated, user } = useFileSystem();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showAiHelp, setShowAiHelp] = useState(false);
+
+  const CUSTOM_CONFIG_KEY = 'aiCustomConfig';
+  const saveCustomConfig = (cfg: any) => {
+    // Никогда не сохраняем встроенную конфигурацию как пользовательскую
+    if (cfg.apiKey === BUILT_IN_AI_CONFIG.apiKey) {
+      return;
+    }
+    try {
+      const data = JSON.stringify(cfg);
+      localStorage.setItem(CUSTOM_CONFIG_KEY, data);
+      
+      // Синхронизируем с облаком для сохранности
+      if (isAuthenticated && user) {
+        updateUserPrefs({ aiCustomConfig: data })
+          .catch(err => console.error('Failed to sync custom AI config to cloud:', err));
+      }
+    } catch {}
+  };
+  const loadCustomConfig = (): any | null => {
+    try {
+      const raw = localStorage.getItem(CUSTOM_CONFIG_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+
+  const isBuiltIn = aiConfig.mode === 'builtin';
+  const [aiMode, setAiMode] = useState<'builtin' | 'custom'>(isBuiltIn ? 'builtin' : 'custom');
+
+  // Local state for inputs to prevent global store updates on every keystroke
+  const [localApiKey, setLocalApiKey] = useState(aiConfig.apiKey);
+  const [localModel, setLocalModel] = useState(aiConfig.model);
+  const [localBaseUrl, setLocalBaseUrl] = useState(aiConfig.baseUrl || '');
+
+  // Sync local state when aiConfig changes (e.g. switching modes)
+  useEffect(() => {
+    setLocalApiKey(aiConfig.apiKey);
+    setLocalModel(aiConfig.model);
+    setLocalBaseUrl(aiConfig.baseUrl || '');
+  }, [aiConfig]);
+
+  useEffect(() => {
+    if (open) {
+      setAiMode(isBuiltIn ? 'builtin' : 'custom');
+    }
+  }, [open]);
 
   const handleSetPassword = async () => {
       if (!newPassword) {
@@ -548,10 +605,212 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
             {activeTab === 'ai' && (
               <div className="space-y-6">
-                <h3 className="text-lg font-medium mb-4">AI Помощник</h3>
-                <div className="flex flex-col items-center justify-center h-[300px] text-muted-foreground">
-                  <Sparkles className="h-12 w-12 mb-4 opacity-50" />
-                  <p>Настройки AI будут доступны в следующем обновлении</p>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium">AI Помощник</h3>
+                  <Button variant="ghost" size="sm" onClick={() => setShowAiHelp(true)}>
+                    <HelpCircle className="h-4 w-4 mr-2" />
+                    Инструкция
+                  </Button>
+                </div>
+                <div className="space-y-6 max-w-md">
+                  <RadioGroup
+                    value={aiMode}
+                    onValueChange={(val) => {
+                      const newMode = val as 'builtin' | 'custom';
+                      if (newMode === 'builtin') {
+                        // Сохраняем текущие кастомные настройки перед переключением на встроенные
+                        saveCustomConfig({ 
+                          provider: aiConfig.provider, 
+                          apiKey: localApiKey, 
+                          model: localModel, 
+                          baseUrl: localBaseUrl,
+                          mode: 'custom'
+                        });
+                        setAiMode('builtin');
+                        updateAIConfig({ ...BUILT_IN_AI_CONFIG, mode: 'builtin' });
+                      } else {
+                        setAiMode('custom');
+                        const saved = loadCustomConfig();
+                        if (saved) {
+                          setLocalApiKey(saved.apiKey || '');
+                          setLocalModel(saved.model || '');
+                          setLocalBaseUrl(saved.baseUrl || '');
+                          updateAIConfig({ 
+                            provider: saved.provider || 'openai', 
+                            apiKey: saved.apiKey || '', 
+                            model: saved.model || 'gpt-4o', 
+                            baseUrl: saved.baseUrl,
+                            mode: 'custom'
+                          });
+                        } else {
+                          // Инициализируем пустую пользовательскую конфигурацию
+                          const startConfig = { 
+                            provider: 'openai' as const, 
+                            apiKey: '', 
+                            model: 'gpt-4o', 
+                            baseUrl: '',
+                            mode: 'custom' as const
+                          };
+                          setLocalApiKey('');
+                          setLocalModel('gpt-4o');
+                          setLocalBaseUrl('');
+                          updateAIConfig(startConfig);
+                          saveCustomConfig(startConfig);
+                        }
+                      }
+                    }}
+                    className="grid grid-cols-2 gap-4"
+                  >
+                    <div>
+                      <RadioGroupItem value="builtin" id="builtin" className="peer sr-only" />
+                      <Label
+                        htmlFor="builtin"
+                        className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer h-full"
+                      >
+                        <Sparkles className="mb-3 h-6 w-6 text-primary" />
+                        <div className="text-center space-y-1">
+                          <div className="font-semibold">Готовая модель</div>
+                          <div className="text-xs text-muted-foreground">Бесплатно, без настройки</div>
+                        </div>
+                      </Label>
+                    </div>
+                    <div>
+                      <RadioGroupItem value="custom" id="custom" className="peer sr-only" />
+                      <Label
+                        htmlFor="custom"
+                        className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer h-full"
+                      >
+                        <Settings className="mb-3 h-6 w-6" />
+                        <div className="text-center space-y-1">
+                          <div className="font-semibold">Своя модель</div>
+                          <div className="text-xs text-muted-foreground">OpenAI, Anthropic и др.</div>
+                        </div>
+                      </Label>
+                    </div>
+                  </RadioGroup>
+
+                  {aiMode === 'builtin' ? (
+                     <div className="p-4 bg-muted/50 rounded-lg text-sm text-muted-foreground border">
+                        <p className="flex items-center gap-2 mb-2 text-foreground font-medium">
+                            <CheckCircle2 className="h-4 w-4 text-green-500" />
+                            AI готов к работе
+                        </p>
+                        <p className="mb-2">Используется встроенная модель <strong>Gemini 2.0</strong>.</p>
+                        <p>Вы можете сразу пользоваться чатом и AI-функциями в редакторе.</p>
+                     </div>
+                  ) : (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <div className="grid gap-2">
+                        <Label>Провайдер</Label>
+                        <Select 
+                          value={aiConfig.provider} 
+                          onValueChange={(val: any) => {
+                            // Предлагаем дефолтную модель только если текущее поле пустое
+                            // или содержит дефолтную модель другого провайдера
+                            const isDefaultModel = !localModel || 
+                                                 ['gpt-4o', 'claude-3-5-sonnet-20240620', 'google/gemini-2.0-flash-lite-001', 'google/gemini-2.0-flash-exp:free', 'gpt-3.5-turbo'].includes(localModel);
+                            
+                            let nextModel = localModel;
+                            if (isDefaultModel) {
+                              nextModel = val === 'anthropic' ? 'claude-3-5-sonnet-20240620' : 
+                                          val === 'openrouter' ? 'google/gemini-2.0-flash-lite-001' : 
+                                          val === 'openai' ? 'gpt-4o' : localModel;
+                            }
+                            
+                            setLocalModel(nextModel);
+                            updateAIConfig({ provider: val, model: nextModel });
+                            if (aiMode === 'custom') {
+                              saveCustomConfig({ provider: val, apiKey: localApiKey, model: nextModel, baseUrl: localBaseUrl });
+                            }
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Выберите провайдера" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="openai">OpenAI</SelectItem>
+                            <SelectItem value="anthropic">Anthropic</SelectItem>
+                            <SelectItem value="openrouter">OpenRouter.ai</SelectItem>
+                            <SelectItem value="custom">Custom (Local LLM)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label>API Key</Label>
+                        <Input 
+                          type="password" 
+                          value={localApiKey} 
+                          onChange={(e) => setLocalApiKey(e.target.value)}
+                          onBlur={() => {
+                            const newConfig = { ...aiConfig, apiKey: localApiKey };
+                            updateAIConfig({ apiKey: localApiKey });
+                            if (aiMode === 'custom') {
+                              saveCustomConfig({ ...newConfig, model: localModel, baseUrl: localBaseUrl });
+                            }
+                          }}
+                          placeholder="sk-..."
+                          autoComplete="new-password"
+                          className="font-mono"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            {aiConfig.provider === 'openrouter' ? 'Ключ от openrouter.ai' : 'Ваш API ключ'}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label>Модель</Label>
+                        <Input 
+                          value={localModel} 
+                          onChange={(e) => setLocalModel(e.target.value)}
+                          onBlur={() => {
+                            const newConfig = { ...aiConfig, model: localModel };
+                            updateAIConfig({ model: localModel });
+                            if (aiMode === 'custom') {
+                              saveCustomConfig({ ...newConfig, apiKey: localApiKey, baseUrl: localBaseUrl });
+                            }
+                          }}
+                          placeholder={aiConfig.provider === 'openrouter' ? 'tngtech/deepseek-r1t2-chimera:free' : 'gpt-3.5-turbo'}
+                        />
+                        {aiConfig.provider === 'openrouter' && (
+                            <p className="text-xs text-muted-foreground">
+                                Например: anthropic/claude-3-opus, google/gemini-pro
+                            </p>
+                        )}
+                      </div>
+
+                      {aiConfig.provider === 'custom' && (
+                        <div className="grid gap-2">
+                          <Label>Base URL</Label>
+                          <Input 
+                            value={localBaseUrl} 
+                            onChange={(e) => setLocalBaseUrl(e.target.value)}
+                            onBlur={() => {
+                              const newConfig = { ...aiConfig, baseUrl: localBaseUrl };
+                              updateAIConfig({ baseUrl: localBaseUrl });
+                              if (aiMode === 'custom') {
+                                saveCustomConfig({ ...newConfig, provider: aiConfig.provider, apiKey: localApiKey, model: localModel });
+                              }
+                            }}
+                            placeholder="https://api.openai.com/v1"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="pt-4 p-4 bg-muted/50 rounded-lg text-sm text-muted-foreground">
+                    <p className="flex items-center gap-2 mb-2">
+                        <Sparkles className="h-4 w-4" />
+                        <strong>Возможности AI:</strong>
+                    </p>
+                    <ul className="list-disc list-inside space-y-1 ml-1">
+                        <li>Генерация текста и идей</li>
+                        <li>Исправление ошибок и переписывание</li>
+                        <li>Поиск по базе знаний (RAG)</li>
+                        <li>Чат с контекстом заметок</li>
+                    </ul>
+                  </div>
                 </div>
               </div>
             )}
@@ -653,6 +912,31 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             >
               Удалить
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showAiHelp} onOpenChange={setShowAiHelp}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Как подключить AI?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 pt-2">
+              <p>Для работы AI функций необходимо получить API ключ у одного из провайдеров:</p>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li><strong>OpenRouter (Рекомендуется):</strong> Зарегистрируйтесь на openrouter.ai, создайте ключ. Доступны бесплатные модели (например, DeepSeek).</li>
+                <li><strong>OpenAI:</strong> Требуется аккаунт с привязанной картой (GPT-3.5/4).</li>
+                <li><strong>Anthropic:</strong> Требуется аккаунт Claude API.</li>
+              </ul>
+              <p className="text-sm font-medium mt-2">Порядок действий:</p>
+              <ol className="list-decimal list-inside space-y-1 text-sm">
+                <li>Выберите провайдера в списке.</li>
+                <li>Вставьте полученный ключ в поле "API Key".</li>
+                <li>Модель подставится автоматически, но вы можете изменить её.</li>
+              </ol>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setShowAiHelp(false)}>Понятно</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

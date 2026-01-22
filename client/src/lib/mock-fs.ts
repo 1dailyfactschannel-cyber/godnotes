@@ -57,17 +57,42 @@ export type FileSystemItem = {
   isPublic?: boolean;
 };
 
-export type User = Models.User<Models.Preferences & { telegram?: string; telegramChatId?: string }>;
+export type User = Models.User<Models.Preferences & { 
+  telegram?: string; 
+  telegramChatId?: string;
+  aiConfig?: string;
+  aiCustomConfig?: string;
+}>;
 
 export type AIConfig = {
-  provider: 'openai' | 'anthropic' | 'custom';
+  provider: 'openai' | 'anthropic' | 'custom' | 'openrouter';
   apiKey: string;
   baseUrl?: string;
   model: string;
+  mode?: 'builtin' | 'custom';
+  availableModels?: string[];
 };
 
 export type SecurityConfig = {
   hashedPassword: string | null;
+};
+
+// Настройки AI по умолчанию (вшитые)
+// Заполните apiKey, чтобы у пользователей сразу работал AI без настройки
+export const BUILT_IN_AI_CONFIG: AIConfig = {
+  provider: 'openrouter',
+  apiKey: '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',
+  baseUrl: 'https://openrouter.ai/api/v1',
+  model: 'google/gemini-2.0-flash-exp:free',
+  mode: 'builtin',
+  availableModels: [
+    'google/gemini-2.0-flash-exp:free',
+    'google/gemini-2.0-flash-thinking-exp:free',
+    'google/gemini-2.0-pro-exp-02-05:free',
+    'google/gemini-exp-1206:free',
+    'mistralai/mistral-7b-instruct:free',
+    'openchat/openchat-7b:free',
+  ]
 };
 
 interface FileSystemState {
@@ -171,9 +196,27 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   aiConfig: (() => {
     try {
       const saved = localStorage.getItem('aiConfig');
-      return saved ? JSON.parse(saved) : { provider: 'openai', apiKey: '', model: 'gpt-4o' };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Если сохраненная конфигурация - это встроенная (по API ключу)
+        // то принудительно ставим режим builtin
+        if (parsed.apiKey === BUILT_IN_AI_CONFIG.apiKey) {
+          parsed.mode = 'builtin';
+          parsed.availableModels = BUILT_IN_AI_CONFIG.availableModels;
+          
+          if (!BUILT_IN_AI_CONFIG.availableModels?.includes(parsed.model) || 
+              parsed.model === 'google/gemini-2.0-flash-lite-001') {
+            parsed.model = BUILT_IN_AI_CONFIG.model;
+          }
+          return parsed;
+        }
+        // Если режима нет, но это не встроенная, значит custom
+        if (!parsed.mode) parsed.mode = 'custom';
+        return parsed;
+      }
+      return BUILT_IN_AI_CONFIG;
     } catch {
-      return { provider: 'openai', apiKey: '', model: 'gpt-4o' };
+      return BUILT_IN_AI_CONFIG;
     }
   })(),
   securityConfig: (() => {
@@ -302,7 +345,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         [
           Query.equal('userId', user.$id), 
           Query.limit(1000),
-          Query.select(['$id', 'title', 'folderId', '$createdAt', 'isFavorite', 'tags', '$permissions'])
+          Query.select(['$id', 'title', 'folderId', '$createdAt', '$updatedAt', 'isFavorite', 'tags', '$permissions'])
         ]
       );
 
@@ -415,6 +458,31 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       // Sync Telegram config
       const currentConfig = useTasks.getState().telegramConfig;
       const cloudChatId = user.prefs?.telegramChatId;
+      
+      // Sync AI config from cloud
+      const cloudAiConfig = user.prefs?.aiConfig;
+      if (cloudAiConfig) {
+        try {
+          const parsed = JSON.parse(cloudAiConfig);
+          set({ aiConfig: parsed });
+          localStorage.setItem('aiConfig', cloudAiConfig);
+        } catch (e) {
+          console.error('Failed to parse cloud AI config:', e);
+        }
+      } else if (localStorage.getItem('aiConfig')) {
+        // Migration: if cloud is empty but local has config, push to cloud
+        get().updateUserPrefs({ aiConfig: localStorage.getItem('aiConfig') })
+          .catch(e => console.error('Failed to migrate local AI config to cloud:', e));
+      }
+
+      // Sync custom AI config (backup)
+      const cloudCustomConfig = user.prefs?.aiCustomConfig;
+      if (cloudCustomConfig) {
+        localStorage.setItem('aiCustomConfig', cloudCustomConfig);
+      } else if (localStorage.getItem('aiCustomConfig')) {
+        get().updateUserPrefs({ aiCustomConfig: localStorage.getItem('aiCustomConfig') })
+          .catch(e => console.error('Failed to migrate local custom AI config to cloud:', e));
+      }
 
       // 1. If Cloud has a value (even empty string), it is the source of truth
       if (cloudChatId !== undefined && cloudChatId !== null) {
@@ -841,7 +909,19 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
         // Only save to Appwrite if authenticated and online
         if (state.isAuthenticated && !state.isOfflineMode) {
-            await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { content });
+            const updatedDoc = await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { content });
+            
+            // Update local metadata and manifest with new timestamp
+            const newUpdatedAt = new Date(updatedDoc.$updatedAt).getTime();
+            set(s => ({
+                items: s.items.map(i => i.id === id ? { ...i, updatedAt: newUpdatedAt } : i)
+            }));
+
+            if (state.localDocumentsPath && isElectron()) {
+                const manifest = { ...get().syncManifest, [id]: newUpdatedAt };
+                set({ syncManifest: manifest });
+                await get().saveSyncManifest();
+            }
         }
       } catch (error) {
         console.error('Failed to update note content:', error);
@@ -871,17 +951,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     const file = state.items.find(i => i.id === id);
     
     // If content is missing and we are authenticated, fetch it
-    // Appwrite listDocuments returns full documents by default, so we might already have content.
-    // However, if we optimized listDocuments to not return content (using Query.select), we would need this.
-    // In fetchNotes above, we didn't use Query.select, so we have the content.
-    // But for robustness, or if we change fetchNotes later:
     if (file && file.content === undefined && file.type === 'file' && state.isAuthenticated) {
-      try {
-        const note = await databases.getDocument(DATABASE_ID, COLLECTIONS.NOTES, id);
-        get().loadFileContent(id, note.content || "");
-      } catch (e) {
-        console.error('Failed to lazy load note content', e);
-      }
+        await get().fetchContent(id);
     }
   },
 
@@ -942,13 +1013,20 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         const exists = await fs.exists(localPath);
         
         if (exists) {
-            // Check manifest or timestamp if possible, but for now we prioritize local if it exists
-            // to support offline mode. However, if syncBackground runs, it should update local.
-            const res = await fs.readFile(localPath);
-            if (res.success && res.content !== undefined) {
-                content = res.content;
-                loadedFromLocal = true;
-                get().loadFileContent(id, content);
+            // Check if local version is up-to-date using manifest
+            await state.loadSyncManifest();
+            const manifest = get().syncManifest;
+            const localUpdated = manifest[id] || 0;
+            const remoteUpdated = file.updatedAt || 0;
+
+            // If local is newer or same as remote, use it
+            if (localUpdated >= remoteUpdated) {
+                const res = await fs.readFile(localPath);
+                if (res.success && res.content !== undefined) {
+                    content = res.content;
+                    loadedFromLocal = true;
+                    get().loadFileContent(id, content);
+                }
             }
         }
     }
@@ -973,10 +1051,19 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
                     get().saveSyncManifest();
                 }
             }
-
         } catch (e) {
-            console.error('Failed to fetch note content', e);
-            throw e;
+            console.error('Failed to fetch note content from cloud', e);
+            
+            // If cloud fails, try local as fallback even if outdated
+            if (state.localDocumentsPath && isElectron() && fs) {
+                const localPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
+                if (await fs.exists(localPath)) {
+                    const res = await fs.readFile(localPath);
+                    if (res.success && res.content !== undefined) {
+                        get().loadFileContent(id, res.content);
+                    }
+                }
+            }
         }
     }
   },
@@ -1042,32 +1129,51 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
     const files = get().items.filter(i => i.type === 'file');
     
-    for (const file of files) {
+    // Identify files that need syncing
+    const filesToSync = files.filter(file => {
         const localUpdated = manifest[file.id];
-        // If local is missing or older than cloud
-        if (!localUpdated || (file.updatedAt && localUpdated < file.updatedAt)) {
+        return !localUpdated || (file.updatedAt && localUpdated < file.updatedAt);
+    });
+
+    if (filesToSync.length > 0) {
+        // Batch process downloads to reduce requests
+        const BATCH_SIZE = 10;
+        for (let i = 0; i < filesToSync.length; i += BATCH_SIZE) {
+            const batch = filesToSync.slice(i, i + BATCH_SIZE);
             try {
-                // Download content
-                const note = await databases.getDocument(DATABASE_ID, COLLECTIONS.NOTES, file.id);
-                const content = note.content || "";
-                
-                // Write to disk
-                const localPath = `${state.localDocumentsPath}/GodNotes/${file.id}.md`;
-                if (fs) {
-                    await fs.writeFile(localPath, content);
+                // Fetch full content for the batch
+                const res = await databases.listDocuments(
+                    DATABASE_ID,
+                    COLLECTIONS.NOTES,
+                    [
+                        Query.equal('$id', batch.map(f => f.id)),
+                        Query.limit(BATCH_SIZE)
+                    ]
+                );
+
+                for (const note of res.documents) {
+                    const file = batch.find(f => f.id === note.$id);
+                    if (!file) continue;
+
+                    const content = note.content || "";
+                    const localPath = `${state.localDocumentsPath}/GodNotes/${file.id}.md`;
                     
-                    // Update manifest
-                    manifest[file.id] = file.updatedAt || Date.now();
-                    manifestChanged = true;
-                    
-                    // If file is currently loaded in memory, update it
-                    const currentItem = get().items.find(i => i.id === file.id);
-                    if (currentItem && currentItem.content !== undefined) {
-                         get().loadFileContent(file.id, content);
+                    if (fs) {
+                        await fs.writeFile(localPath, content);
+                        
+                        // Update manifest
+                        manifest[file.id] = file.updatedAt || Date.now();
+                        manifestChanged = true;
+                        
+                        // If file is currently loaded in memory, update it
+                        const currentItem = get().items.find(i => i.id === file.id);
+                        if (currentItem && currentItem.content !== undefined) {
+                             get().loadFileContent(file.id, content);
+                        }
                     }
                 }
             } catch (e) {
-                console.error(`Failed to sync file ${file.name}`, e);
+                console.error(`Failed to sync batch ${i}`, e);
             }
         }
     }
@@ -1124,6 +1230,14 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     set(state => {
       const newConfig = { ...state.aiConfig, ...config };
       localStorage.setItem('aiConfig', JSON.stringify(newConfig));
+      
+      // Синхронизируем с облаком, если пользователь авторизован
+      if (state.isAuthenticated && state.user) {
+        state.updateUserPrefs({
+          aiConfig: JSON.stringify(newConfig)
+        }).catch(err => console.error('Failed to sync AI config to cloud:', err));
+      }
+      
       return { aiConfig: newConfig };
     });
   },
@@ -1396,7 +1510,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         );
 
         if (newIsPublic) {
-            return `${window.location.origin}/#/share/${id}`;
+            const baseUrl = isElectron() ? 'https://godnotes-8aoh.vercel.app' : window.location.origin;
+            return `${baseUrl}/#/share/${id}`;
         }
     } catch (e) {
         console.error("Failed to toggle public access:", e);
