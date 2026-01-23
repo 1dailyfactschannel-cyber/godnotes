@@ -90,6 +90,17 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   }, [aiConfig]);
 
   useEffect(() => {
+    const handleOpenSettings = (e: any) => {
+      if (e.detail?.tab) {
+        setActiveTab(e.detail.tab);
+      }
+      onOpenChange(true);
+    };
+    window.addEventListener('godnotes:open-settings', handleOpenSettings);
+    return () => window.removeEventListener('godnotes:open-settings', handleOpenSettings);
+  }, [onOpenChange]);
+
+  useEffect(() => {
     if (open) {
       setAiMode(isBuiltIn ? 'builtin' : 'custom');
     }
@@ -357,6 +368,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <NavButton active={activeTab === 'theme'} onClick={() => setActiveTab('theme')} label="Внешний вид" />
             <NavButton active={activeTab === 'hotkeys'} onClick={() => setActiveTab('hotkeys')} label="Горячие клавиши" />
             <NavButton active={activeTab === 'telegram'} onClick={() => setActiveTab('telegram')} label="Telegram" />
+            <NavButton active={activeTab === 'security'} onClick={() => setActiveTab('security')} label="Безопасность" />
             <div className="flex-1" />
             <button
               onClick={() => setActiveTab('ai')}
@@ -509,11 +521,49 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <div className="space-y-6">
                 <h3 className="text-lg font-medium mb-4">Горячие клавиши</h3>
                 <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-muted-foreground mt-4 mb-2">Глобальные</h4>
                   <HotkeySetting 
                     label="Командная панель" 
                     value={hotkeys.commandPalette || 'Ctrl+K'} 
                     onChange={(v) => setHotkey('commandPalette', v)} 
                   />
+                  <HotkeySetting 
+                    label="Создать заметку" 
+                    value={hotkeys.newNote || 'Ctrl+Alt+N'} 
+                    onChange={(v) => setHotkey('newNote', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Создать папку" 
+                    value={hotkeys.newFolder || 'Ctrl+Alt+F'} 
+                    onChange={(v) => setHotkey('newFolder', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Поиск" 
+                    value={hotkeys.search || 'Ctrl+F'} 
+                    onChange={(v) => setHotkey('search', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Настройки" 
+                    value={hotkeys.settings || 'Ctrl+,'} 
+                    onChange={(v) => setHotkey('settings', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Показать/Скрыть меню" 
+                    value={hotkeys.toggleSidebar || 'Ctrl+\\'} 
+                    onChange={(v) => setHotkey('toggleSidebar', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Показать/Скрыть AI-ассистент" 
+                    value={hotkeys.toggleAiSidebar || 'Ctrl+Shift+A'} 
+                    onChange={(v) => setHotkey('toggleAiSidebar', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Zen-режим" 
+                    value={hotkeys.toggleZenMode || 'Ctrl+Shift+Z'} 
+                    onChange={(v) => setHotkey('toggleZenMode', v)} 
+                  />
+                  
+                  <h4 className="text-sm font-medium text-muted-foreground mt-4 mb-2">Редактор</h4>
                   <HotkeySetting 
                     label="Жирный (Bold)" 
                     value={hotkeys.bold || 'Ctrl+B'} 
@@ -525,29 +575,75 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     onChange={(v) => setHotkey('italic', v)} 
                   />
                   <HotkeySetting 
+                    label="Подчеркнутый (Underline)" 
+                    value={hotkeys.underline || 'Ctrl+U'} 
+                    onChange={(v) => setHotkey('underline', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Зачеркнутый (Strikethrough)" 
+                    value={hotkeys.strikethrough || 'Ctrl+Shift+S'} 
+                    onChange={(v) => setHotkey('strikethrough', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Код (Code)" 
+                    value={hotkeys.code || 'Ctrl+E'} 
+                    onChange={(v) => setHotkey('code', v)} 
+                  />
+                  <HotkeySetting 
                     label="Вставить ссылку" 
                     value={hotkeys.link || 'Ctrl+L'} 
                     onChange={(v) => setHotkey('link', v)} 
                   />
+                  
+                  <h4 className="text-sm font-medium text-muted-foreground mt-4 mb-2">Списки</h4>
                   <HotkeySetting 
                     label="Список задач" 
                     value={hotkeys.taskList || 'Ctrl+Shift+9'} 
                     onChange={(v) => setHotkey('taskList', v)} 
                   />
                   <HotkeySetting 
-                    label="Создать заметку" 
-                    value={hotkeys.newNote || 'Ctrl+Alt+N'} 
-                    onChange={(v) => setHotkey('newNote', v)} 
+                    label="Нумерованный список" 
+                    value={hotkeys.orderedList || 'Ctrl+Shift+7'} 
+                    onChange={(v) => setHotkey('orderedList', v)} 
                   />
                   <HotkeySetting 
-                    label="Настройки" 
-                    value={hotkeys.settings || 'Ctrl+,'} 
-                    onChange={(v) => setHotkey('settings', v)} 
+                    label="Маркированный список" 
+                    value={hotkeys.bulletList || 'Ctrl+Shift+8'} 
+                    onChange={(v) => setHotkey('bulletList', v)} 
+                  />
+                  
+                  <h4 className="text-sm font-medium text-muted-foreground mt-4 mb-2">Заголовки</h4>
+                  <HotkeySetting 
+                    label="Заголовок 1" 
+                    value={hotkeys.heading1 || 'Ctrl+1'} 
+                    onChange={(v) => setHotkey('heading1', v)} 
                   />
                   <HotkeySetting 
-                    label="Показать/Скрыть меню" 
-                    value={hotkeys.toggleSidebar || 'Ctrl+\\'} 
-                    onChange={(v) => setHotkey('toggleSidebar', v)} 
+                    label="Заголовок 2" 
+                    value={hotkeys.heading2 || 'Ctrl+2'} 
+                    onChange={(v) => setHotkey('heading2', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Заголовок 3" 
+                    value={hotkeys.heading3 || 'Ctrl+3'} 
+                    onChange={(v) => setHotkey('heading3', v)} 
+                  />
+                  
+                  <h4 className="text-sm font-medium text-muted-foreground mt-4 mb-2">Дополнительно</h4>
+                  <HotkeySetting 
+                    label="Таблица" 
+                    value={hotkeys.toggleTable || 'Ctrl+Shift+T'} 
+                    onChange={(v) => setHotkey('toggleTable', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Отменить" 
+                    value={hotkeys.undo || 'Ctrl+Z'} 
+                    onChange={(v) => setHotkey('undo', v)} 
+                  />
+                  <HotkeySetting 
+                    label="Повторить" 
+                    value={hotkeys.redo || 'Ctrl+Y'} 
+                    onChange={(v) => setHotkey('redo', v)} 
                   />
                 </div>
               </div>
@@ -599,6 +695,50 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                        </Button>
                     )}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'security' && (
+              <div className="space-y-6 max-w-md">
+                <h3 className="text-lg font-medium mb-4">Безопасность</h3>
+                <div className="p-4 rounded-lg border bg-muted/50">
+                  <div className="flex items-center gap-3 mb-3">
+                    <Shield className="h-5 w-5" />
+                    <div>
+                      <div className="font-medium">Мастер-пароль</div>
+                      <div className="text-xs text-muted-foreground">
+                        {securityConfig.hashedPassword ? 'Пароль установлен' : 'Пароль не установлен'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid gap-3">
+                    <div className="grid gap-2">
+                      <Label>Новый пароль</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="Введите новый пароль" 
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Повторите пароль</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="Повторите пароль" 
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                      />
+                    </div>
+                    <Button className="mt-2" onClick={handleSetPassword}>
+                      <Key className="h-4 w-4 mr-2" />
+                      Сохранить пароль
+                    </Button>
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Мастер-пароль защищает доступ к приватным заметкам. Не забывайте его.
                 </div>
               </div>
             )}
@@ -1026,3 +1166,4 @@ function HotkeySetting({ label, value, onChange }: { label: string, value: strin
     </div>
   );
 }
+

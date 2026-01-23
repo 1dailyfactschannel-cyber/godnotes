@@ -15,13 +15,15 @@ import { FileTree } from '@/components/sidebar/FileTree';
 import { FavoritesDialog } from '@/components/favorites/FavoritesDialog';
 import { UserProfileDialog } from '@/components/user/UserProfileDialog';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
+import ErrorBoundary from '@/components/ErrorBoundary';
 const TiptapEditor = lazy(() => import('@/components/editor/TiptapEditor'));
 import { AIChatSidebar } from '@/components/editor/AIChatSidebar';
 import { useEditorStore } from '@/lib/editor-store';
-import { Search, Hash, ChevronRight, Minimize2, Square, X, Settings, Check, Clock, Star, Trash2, Sidebar, BookOpen, PenLine, FolderOpen, Plus, CheckCircle2, User, ChevronsUpDown, PanelLeft, Calendar as CalendarIcon, ListTodo, Send, Loader2, Unplug, Sparkles } from 'lucide-react';
+import { Search, Hash, ChevronRight, Minimize2, Maximize2, Square, X, Settings, Check, Clock, Star, Trash2, Sidebar, BookOpen, PenLine, FolderOpen, Plus, CheckCircle2, User, ChevronsUpDown, PanelLeft, Calendar as CalendarIcon, ListTodo, Send, Loader2, Unplug, Sparkles, Share2 } from 'lucide-react';
 import { useFileSystem, ThemeType } from '@/lib/mock-fs';
 import { useTasks } from '@/lib/tasks-store';
 import { cn, isHotkeyMatch } from '@/lib/utils';
+import { GraphView } from '@/components/graph/GraphView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,7 +49,7 @@ import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 
 export default function AppLayout() {
-  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs, addFile } = useFileSystem();
+  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs, addFile, addFolder, isZenMode, toggleZenMode } = useFileSystem();
   const { telegramConfig, setTelegramConfig } = useTasks();
   const { isAiSidebarOpen, toggleAiSidebar } = useEditorStore();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -61,6 +63,7 @@ export default function AppLayout() {
   const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [userProfileOpen, setUserProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isGraphOpen, setIsGraphOpen] = useState(false);
 
   const [spaceNameDialogOpen, setSpaceNameDialogOpen] = useState(false);
   const [pendingSpacePath, setPendingSpacePath] = useState<string | null>(null);
@@ -193,6 +196,12 @@ export default function AppLayout() {
   }, []);
 
   useEffect(() => {
+    if (isZenMode && isAiSidebarOpen) {
+      toggleAiSidebar();
+    }
+  }, [isZenMode]);
+
+  useEffect(() => {
     const handleGlobalHotkeys = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
 
@@ -200,6 +209,12 @@ export default function AppLayout() {
         e.preventDefault();
         const currentFile = items.find(i => i.id === activeFileId);
         addFile(currentFile?.parentId || null);
+      }
+
+      if (isHotkeyMatch(e, hotkeys.newFolder || 'Ctrl+Alt+F')) {
+        e.preventDefault();
+        const currentFile = items.find(i => i.id === activeFileId);
+        addFolder(currentFile?.parentId || null);
       }
 
       if (isHotkeyMatch(e, hotkeys.settings || 'Ctrl+,')) {
@@ -211,11 +226,30 @@ export default function AppLayout() {
         e.preventDefault();
         setIsSidebarCollapsed(prev => !prev);
       }
+
+      if (isHotkeyMatch(e, hotkeys.toggleAiSidebar || 'Ctrl+Shift+A')) {
+        e.preventDefault();
+        toggleAiSidebar();
+      }
+
+      if (isHotkeyMatch(e, hotkeys.toggleZenMode || 'Ctrl+Shift+Z')) {
+        e.preventDefault();
+        toggleZenMode();
+      }
+
+      if (isHotkeyMatch(e, hotkeys.search || 'Ctrl+F')) {
+        e.preventDefault();
+        // Logic to focus search input if exists
+        const searchInput = document.querySelector('input[type="search"]');
+        if (searchInput) {
+          (searchInput as HTMLInputElement).focus();
+        }
+      }
     };
 
     document.addEventListener('keydown', handleGlobalHotkeys);
     return () => document.removeEventListener('keydown', handleGlobalHotkeys);
-  }, [hotkeys, addFile, items, activeFileId]);
+  }, [hotkeys, addFile, addFolder, items, activeFileId, toggleAiSidebar, toggleZenMode]);
 
   useEffect(() => {
     // Initialize local file system for sync
@@ -416,7 +450,39 @@ export default function AppLayout() {
     .slice(0, 5);
 
   return (
-    <div className={cn("h-screen w-full bg-background text-foreground overflow-hidden flex flex-col border border-sidebar-border transition-all duration-500", themeClass)}>
+    <div className={cn(
+      "h-screen w-full bg-background text-foreground overflow-hidden flex flex-col border border-sidebar-border transition-all duration-500", 
+      themeClass,
+      isZenMode && "zen-mode"
+    )}>
+      <style>{`
+        .zen-mode #sidebar-panel, 
+        .zen-mode .custom-title-bar-left,
+        .zen-mode .custom-title-bar-center,
+        .zen-mode .tab-bar-container,
+        .zen-mode .breadcrumbs-container,
+        .zen-mode .status-bar {
+          display: none !important;
+        }
+        .zen-mode .custom-title-bar {
+          background: transparent !important;
+          border-bottom: none !important;
+          position: absolute;
+          top: 0;
+          right: 0;
+          width: auto;
+          z-index: 50;
+        }
+        .zen-mode #main-panel {
+          flex: 1 !important;
+          max-width: 100% !important;
+        }
+        .zen-mode .editor-container {
+          max-width: 800px;
+          margin: 0 auto;
+          width: 100%;
+        }
+      `}</style>
       
       <UserProfileDialog open={userProfileOpen} onOpenChange={setUserProfileOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
@@ -442,8 +508,8 @@ export default function AppLayout() {
       </Dialog>
 
       {/* Custom Title Bar */}
-      <div className="h-9 bg-sidebar border-b border-sidebar-border flex items-center justify-between px-3 select-none app-drag-region shrink-0">
-        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground/70">
+      <div className="h-9 bg-sidebar border-b border-sidebar-border flex items-center justify-between px-3 select-none app-drag-region shrink-0 custom-title-bar">
+        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground/70 custom-title-bar-left">
            <Logo className="h-4 w-4 text-foreground" />
            <span className="text-foreground tracking-tight">Godnotes</span>
            
@@ -477,7 +543,7 @@ export default function AppLayout() {
            </div>
 
            {breadcrumbs.length > 0 && (
-             <>
+             <div className="flex items-center gap-1 custom-title-bar-center">
                <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
                <div className="flex items-center gap-1 text-[10px]">
                  {breadcrumbs.map((item, index) => (
@@ -489,11 +555,20 @@ export default function AppLayout() {
                    </div>
                  ))}
                </div>
-             </>
+             </div>
            )}
         </div>
         
         <div className="flex items-center gap-1 no-drag px-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className={cn("h-7 w-7", isZenMode ? "text-primary bg-primary/10" : "text-muted-foreground")}
+              onClick={toggleZenMode}
+              title={isZenMode ? "Выйти из Zen-режима" : "Zen-режим (фокус)"}
+            >
+              <Maximize2 className="h-4 w-4" />
+            </Button>
             <Button 
               variant="ghost" 
               size="icon" 
@@ -546,6 +621,15 @@ export default function AppLayout() {
                            <ListTodo className="h-4 w-4" />
                          </Button>
                       </Link>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className={cn("h-7 w-7", isGraphOpen ? "text-primary bg-primary/10" : "text-muted-foreground")} 
+                        onClick={() => setIsGraphOpen(true)}
+                        title="Граф связей"
+                      >
+                         <Share2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
 
@@ -568,7 +652,7 @@ export default function AppLayout() {
                 
                 <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
                   {searchQuery ? (
-                    <FileTree items={filteredItems} />
+                    <FileTree items={filteredItems} searchQuery={searchQuery} />
                   ) : (
                     <FileTree />
                   )}
@@ -629,9 +713,11 @@ export default function AppLayout() {
         
         <ResizablePanel id="main-panel" order={2} defaultSize={isAiSidebarOpen ? 50 : 80} minSize={30}>
           <div className="flex flex-col h-full">
-            <TabBar />
+            <div className="tab-bar-container">
+              <TabBar />
+            </div>
             {breadcrumbs.length > 0 && (
-              <div className="flex items-center px-8 py-2 text-xs text-muted-foreground border-b border-sidebar-border/50 shrink-0">
+              <div className="flex items-center px-8 py-2 text-xs text-muted-foreground border-b border-sidebar-border/50 shrink-0 breadcrumbs-container">
                 {breadcrumbs.map((item, index) => (
                   <div key={item.id} className="flex items-center">
                     {index > 0 && <ChevronRight className="h-3 w-3 mx-1 opacity-40" />}
@@ -660,11 +746,13 @@ export default function AppLayout() {
                 ))}
               </div>
             )}
-            <div className="flex-1 overflow-hidden">
-              <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">Загрузка редактора...</div>}>
-                <TiptapEditor isReadOnly={isReadOnly} searchTerm={searchHighlight} />
-              </Suspense>
-            </div>
+            <div className="flex-1 overflow-hidden editor-container">
+                <ErrorBoundary fallback={<div className="flex items-center justify-center h-full">Ошибка загрузки редактора</div>}>
+                  <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">Загрузка редактора...</div>}>
+                    <TiptapEditor isReadOnly={isReadOnly} searchTerm={searchHighlight} />
+                  </Suspense>
+                </ErrorBoundary>
+              </div>
           </div>
         </ResizablePanel>
 
@@ -680,7 +768,7 @@ export default function AppLayout() {
     </div>
     
     {/* Windows Status Bar */}
-    <div className="h-6 bg-sidebar border-t border-sidebar-border flex items-center justify-between px-3 text-[10px] text-muted-foreground/60 select-none shrink-0">
+    <div className="h-6 bg-sidebar border-t border-sidebar-border flex items-center justify-between px-3 text-[10px] text-muted-foreground/60 select-none shrink-0 status-bar">
        <div className="flex items-center gap-4">
           <span className="hover:text-foreground cursor-pointer transition-colors">Стр 1, Кол 1</span>
           <span className="hover:text-foreground cursor-pointer transition-colors">{breadcrumbs.length > 0 ? (breadcrumbs[breadcrumbs.length - 1].content?.length || 0) : 0} симв.</span>
@@ -693,6 +781,7 @@ export default function AppLayout() {
     <TrashDialog open={trashOpen} onOpenChange={setTrashOpen} />
     <FavoritesDialog open={favoritesOpen} onOpenChange={setFavoritesOpen} />
     <CommandPalette />
+    {isGraphOpen && <GraphView onClose={() => setIsGraphOpen(false)} />}
   </div>
   );
 }

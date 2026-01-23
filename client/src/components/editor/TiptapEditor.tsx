@@ -9,7 +9,29 @@ import { TextStyle } from '@tiptap/extension-text-style';
 import { Link } from '@tiptap/extension-link';
 // import { Image } from '@tiptap/extension-image';
 import { Youtube } from '@tiptap/extension-youtube';
-import { Extension } from '@tiptap/core';
+import Heading from '@tiptap/extension-heading';
+import { Extension, Editor, Range } from '@tiptap/core';
+
+// Custom Heading with ID support for anchor links
+const CustomHeading = Heading.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      id: {
+        default: null,
+        parseHTML: element => element.getAttribute('id'),
+        renderHTML: attributes => {
+          if (!attributes.id) {
+            return {};
+          }
+          return { id: attributes.id };
+        },
+      },
+    };
+  },
+}).configure({
+  levels: [1, 2, 3],
+});
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import { Table } from '@tiptap/extension-table';
@@ -63,12 +85,16 @@ import {
   Plus,
   Trash2,
   CheckSquare,
+  File as FileIcon,
   Folder as FolderIcon,
   PaintBucket,
   Palette,
   Search,
-  History,
-  Sparkles
+  History, 
+  Sparkles,
+  ListTree,
+  LayoutTemplate,
+  Check
 } from 'lucide-react';
 
 const lowlight = createLowlight(common);
@@ -77,6 +103,7 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Select,
   SelectContent,
@@ -90,6 +117,8 @@ import { AIAssistantBubbleMenu } from '@/components/editor/AIAssistantBubbleMenu
 import { useEditorStore } from '@/lib/editor-store';
 import { Logo } from '@/components/Logo';
 import { LockScreen } from '@/components/protection/LockScreen';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { ToastAction } from '@/components/ui/toast';
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -156,11 +185,11 @@ import {
 import TurndownService from 'turndown';
 
 export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { isReadOnly?: boolean; searchTerm?: string }) {
-  const { items, activeFileId, updateFileContent, selectFile, hotkeys, unlockedNotes } = useFileSystem();
+  const { items, activeFileId, updateFileContent, applyTemplate, selectFile, hotkeys, unlockedNotes, lastSavedAt, lastSavedFileId, isOfflineMode } = useFileSystem();
   const { setEditor } = useEditorStore();
   const activeFile = items.find(i => i.id === activeFileId);
 
-  // Handle WikiLink clicks
+  // Handle WikiLink clicks and hovers
   useEffect(() => {
     const handleWikiLinkClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -173,9 +202,39 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       }
     };
 
+    const handleMouseOver = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const wikiLink = target.closest('.wiki-link');
+      if (wikiLink) {
+        const id = wikiLink.getAttribute('data-id');
+        if (id && id !== activeFileId) {
+          const rect = wikiLink.getBoundingClientRect();
+          if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+          previewTimerRef.current = setTimeout(() => {
+            setPreviewNoteId(id);
+            setPreviewPosition({ top: rect.bottom + 5, left: rect.left });
+          }, 400); // 400ms delay for hover
+        }
+      }
+    };
+
+    const handleMouseOut = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.wiki-link')) {
+        if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+        setPreviewNoteId(null);
+      }
+    };
+
     document.addEventListener('click', handleWikiLinkClick);
-    return () => document.removeEventListener('click', handleWikiLinkClick);
-  }, [selectFile]);
+    document.addEventListener('mouseover', handleMouseOver);
+    document.addEventListener('mouseout', handleMouseOut);
+    return () => {
+      document.removeEventListener('click', handleWikiLinkClick);
+      document.removeEventListener('mouseover', handleMouseOver);
+      document.removeEventListener('mouseout', handleMouseOut);
+    };
+  }, [selectFile, activeFileId]);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const [isLinkEditing, setIsLinkEditing] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -190,6 +249,40 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
   const [isTagsDialogOpen, setIsTagsDialogOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
+  const [previewPosition, setPreviewPosition] = useState<{ top: number; left: number } | null>(null);
+  const [headings, setHeadings] = useState<{ level: number; text: string; pos: number; id: string }[]>([]);
+  const previewTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isSavedVisible, setIsSavedVisible] = useState(false);
+
+  useEffect(() => {
+    if (lastSavedFileId && activeFileId && lastSavedFileId === activeFileId && lastSavedAt) {
+      setIsSavedVisible(true);
+      const t = setTimeout(() => setIsSavedVisible(false), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [lastSavedAt, lastSavedFileId, activeFileId]);
+
+  const TEMPLATES = [
+    {
+      name: 'План встречи',
+      content: '<h2>План встречи</h2><p><strong>Дата:</strong> ${new Date().toLocaleDateString()}</p><p><strong>Участники:</strong> </p><h3>Повестка дня</h3><ul><li></li></ul><h3>Итоги</h3><ul><li></li></ul><h3>Задачи</h3><ul data-type="taskList"><li data-checked="false"></li></ul>'
+    },
+    {
+      name: 'Список дел',
+      content: '<h2>✅ Список дел</h2><ul data-type="taskList"><li data-checked="false">Приоритет 1</li><li data-checked="false">Приоритет 2</li><li data-checked="false"></li></ul>'
+    },
+    {
+      name: 'Рецензия на книгу',
+      content: '<h2>📚 Рецензия на книгу</h2><p><strong>Автор:</strong> </p><p><strong>Оценка:</strong> ⭐⭐⭐⭐⭐</p><h3>Основные мысли</h3><blockquote></blockquote><h3>Что применить</h3><ul><li></li></ul>'
+    },
+    {
+      name: 'Техническое задание',
+      content: '<h2>📋 Техническое задание</h2><h3>1. Описание проекта</h3><p></p><h3>2. Функциональные требования</h3><ul><li></li></ul><h3>3. Стек технологий</h3><p></p>'
+    }
+  ];
+
+  
 
   const findNext = () => {
     const win: any = window;
@@ -198,18 +291,16 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     }
   };
 
-
-
-
-
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         // На некоторых версиях StarterKit уже включает link,
         // поэтому явно отключаем его, чтобы не было дубля.
+        heading: false,
         link: false as any,
         codeBlock: false, // Disable default codeBlock to use lowlight
       }),
+      CustomHeading,
       Typography,
       TextStyle,
       Color,
@@ -351,6 +442,24 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
           return true;
         }
 
+        if (isHotkeyMatch(event, hotkeys.underline || 'Ctrl+U')) {
+          editor?.chain().focus().toggleUnderline().run();
+          event.preventDefault();
+          return true;
+        }
+
+        if (isHotkeyMatch(event, hotkeys.strikethrough || 'Ctrl+Shift+S')) {
+          editor?.chain().focus().toggleStrike().run();
+          event.preventDefault();
+          return true;
+        }
+
+        if (isHotkeyMatch(event, hotkeys.code || 'Ctrl+E')) {
+          editor?.chain().focus().toggleCode().run();
+          event.preventDefault();
+          return true;
+        }
+
         if (isHotkeyMatch(event, hotkeys.link || 'Ctrl+L')) {
           if (editor?.isActive('link')) {
             editor?.chain().focus().extendMarkRange('link').unsetLink().run();
@@ -367,9 +476,54 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
           return true;
         }
 
-        const isMod = event.metaKey || event.ctrlKey;
-        if (isMod && event.shiftKey && event.key === '7') {
+        if (isHotkeyMatch(event, hotkeys.orderedList || 'Ctrl+Shift+7')) {
           editor?.chain().focus().toggleOrderedList().run();
+          event.preventDefault();
+          return true;
+        }
+
+        if (isHotkeyMatch(event, hotkeys.bulletList || 'Ctrl+Shift+8')) {
+          editor?.chain().focus().toggleBulletList().run();
+          event.preventDefault();
+          return true;
+        }
+
+        if (isHotkeyMatch(event, hotkeys.heading1 || 'Ctrl+1')) {
+          editor?.chain().focus().toggleHeading({ level: 1 }).run();
+          event.preventDefault();
+          return true;
+        }
+
+        if (isHotkeyMatch(event, hotkeys.heading2 || 'Ctrl+2')) {
+          editor?.chain().focus().toggleHeading({ level: 2 }).run();
+          event.preventDefault();
+          return true;
+        }
+
+        if (isHotkeyMatch(event, hotkeys.heading3 || 'Ctrl+3')) {
+          editor?.chain().focus().toggleHeading({ level: 3 }).run();
+          event.preventDefault();
+          return true;
+        }
+
+        if (isHotkeyMatch(event, hotkeys.toggleTable || 'Ctrl+Shift+T')) {
+          if (editor?.isActive('table')) {
+            editor?.chain().focus().exitCode().run();
+          } else {
+            editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+          }
+          event.preventDefault();
+          return true;
+        }
+
+        if (isHotkeyMatch(event, hotkeys.undo || 'Ctrl+Z')) {
+          editor?.chain().focus().undo().run();
+          event.preventDefault();
+          return true;
+        }
+
+        if (isHotkeyMatch(event, hotkeys.redo || 'Ctrl+Y')) {
+          editor?.chain().focus().redo().run();
           event.preventDefault();
           return true;
         }
@@ -381,6 +535,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       if (activeFileId) {
         updateFileContent(activeFileId, editor.getHTML());
       }
+      updateHeadings();
     },
     editable: !isReadOnly,
   });
@@ -389,6 +544,37 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     setEditor(editor);
     return () => setEditor(null);
   }, [editor, setEditor]);
+
+  const updateHeadings = useCallback(() => {
+    if (!editor) return;
+    const items: { level: number; text: string; pos: number; id: string }[] = [];
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'heading') {
+        const text = node.textContent;
+        const id = node.attrs.id || text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        
+        if (!node.attrs.id && id) {
+          editor.commands.command(({ tr }) => {
+            tr.setNodeMarkup(pos, undefined, { ...node.attrs, id });
+            return true;
+          });
+        }
+
+        items.push({
+          level: node.attrs.level,
+          text,
+          pos,
+          id
+        });
+      }
+    });
+    setHeadings(items);
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    updateHeadings();
+  }, [editor, activeFileId, updateHeadings]);
 
   const uploadFiles = async (files: File[]) => {
     for (const file of files) {
@@ -853,8 +1039,27 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     const html = editor.getHTML();
     const turndownService = new TurndownService({
       headingStyle: 'atx',
-      codeBlockStyle: 'fenced'
+      codeBlockStyle: 'fenced',
+      hr: '---',
+      bulletListMarker: '-',
+      strongDelimiter: '**',
+      emDelimiter: '_',
     });
+
+    // Добавляем правило для сохранения переносов строк (br)
+    turndownService.addRule('br', {
+      filter: 'br',
+      replacement: () => '  \n'
+    });
+
+    // Правило для пустых параграфов, чтобы они не пропадали
+    turndownService.addRule('emptyParagraph', {
+      filter: (node) => {
+        return node.nodeName === 'P' && node.innerHTML === '<br>';
+      },
+      replacement: () => '\n\n'
+    });
+
     const markdown = turndownService.turndown(html);
     
     const blob = new Blob([markdown], { type: 'text/markdown' });
@@ -929,10 +1134,64 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
           </div>
         </div>
       )}
+      
+      {!isReadOnly && isSavedVisible && (
+        <div className="absolute bottom-12 right-48 z-10 animate-in fade-in zoom-in duration-300">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-secondary/30 border border-border rounded-full text-xs">
+            <Check className="h-4 w-4 text-green-600" />
+            данные сохранены
+          </div>
+        </div>
+      )}
 
       {/* Toolbar */}
       {!isReadOnly && (
         <div className="flex items-center gap-1 p-2 border-b border-border bg-sidebar/50 backdrop-blur-sm overflow-x-auto no-scrollbar animate-in slide-in-from-top duration-300">
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Popover>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-8 w-8 p-0"
+                    >
+                      <LayoutTemplate className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Вставить шаблон</TooltipContent>
+              </Tooltip>
+              <PopoverContent align="start" className="w-56 p-2 bg-popover/95 backdrop-blur-sm border-sidebar-border shadow-xl">
+                <div className="text-[10px] font-bold text-muted-foreground px-2 py-1 uppercase tracking-widest mb-1">
+                  Выберите шаблон
+                </div>
+                <div className="flex flex-col gap-1">
+                  {TEMPLATES.map((template) => (
+                    <Button
+                      key={template.name}
+                      variant="ghost"
+                      size="sm"
+                      className="justify-start font-normal text-xs h-8"
+                      onClick={() => {
+                        if (activeFileId) {
+                          applyTemplate(activeFileId, template.content);
+                          toast({
+                            title: "Шаблон применен",
+                            description: `Добавлен шаблон: ${template.name}`
+                          });
+                        }
+                      }}
+                    >
+                      {template.name}
+                    </Button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
           <div className="flex items-center gap-0.5 shrink-0">
             <Select
               onValueChange={(value) => {
@@ -1255,6 +1514,68 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
                 </div>
               </PopoverContent>
             </Popover>
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-8 w-8 px-0",
+                    headings.length > 0 && "text-primary"
+                  )}
+                  title="Оглавление"
+                >
+                  <ListTree className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-0" align="end">
+                <div className="p-3 border-b border-border/50 bg-muted/20">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Оглавление</h4>
+                </div>
+                <ScrollArea className="max-h-[400px]">
+                  <div className="p-2">
+                    {headings.length === 0 ? (
+                      <div className="p-4 text-center text-xs text-muted-foreground italic">
+                        Заголовки не найдены
+                      </div>
+                    ) : (
+                      headings.map((heading, index) => (
+                        <button
+                          key={`${heading.pos}-${index}`}
+                          onClick={() => {
+                            // Focus the editor
+                            editor?.commands.focus();
+                            
+                            // Scroll to the heading by its ID
+                            const element = document.getElementById(heading.id);
+                            if (element) {
+                              element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              
+                              // Highlight the heading temporarily
+                              element.classList.add('bg-primary/20');
+                              setTimeout(() => element.classList.remove('bg-primary/20'), 2000);
+                            } else {
+                              // Fallback to position if ID not found
+                              editor?.commands.focus(heading.pos);
+                            }
+                          }}
+                          className={cn(
+                            "w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors hover:bg-accent hover:text-accent-foreground flex items-center gap-2",
+                            heading.level === 1 && "font-semibold",
+                            heading.level === 2 && "pl-4",
+                            heading.level === 3 && "pl-8"
+                          )}
+                        >
+                          <span className="opacity-40 font-mono text-[10px]">H{heading.level}</span>
+                          <span className="truncate">{heading.text}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              </PopoverContent>
+            </Popover>
             <Button
               variant="ghost"
               size="sm"
@@ -1498,8 +1819,86 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             </div>
           )}
           <EditorContent editor={editor} />
+          
+          {/* Backlinks Section */}
+          {activeFile.backlinks && activeFile.backlinks.length > 0 && (
+            <div className="mt-12 pt-8 border-t border-border/50 px-8">
+              <div className="flex items-center gap-2 mb-4 text-muted-foreground">
+                <LinkIcon className="h-4 w-4" />
+                <h3 className="text-sm font-semibold uppercase tracking-wider">Обратные ссылки ({activeFile.backlinks.length})</h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {activeFile.backlinks.map(backlinkId => {
+                  const backlinkFile = items.find(i => i.id === backlinkId);
+                  if (!backlinkFile) return null;
+                  return (
+                    <button
+                      key={backlinkId}
+                      onClick={() => selectFile(backlinkId)}
+                      className="flex items-start gap-3 p-3 rounded-lg border border-border/40 bg-muted/30 hover:bg-accent/50 hover:border-accent transition-all text-left group"
+                    >
+                      <div className="mt-0.5">
+                        <FileIcon className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                        <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                          {backlinkFile.name}
+                        </div>
+                        {backlinkFile.content && (
+                          <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5 opacity-70">
+                            {backlinkFile.content.replace(/<[^>]*>/g, ' ').substring(0, 100)}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {previewNoteId && previewPosition && (
+        <NotePreview id={previewNoteId} position={previewPosition} />
+      )}
+    </div>
+  );
+}
+
+// Hover Preview Component
+function NotePreview({ id, position }: { id: string; position: { top: number; left: number } }) {
+  const { items } = useFileSystem();
+  const note = items.find(i => i.id === id);
+
+  if (!note) return null;
+
+  return (
+    <div 
+      className="fixed z-[1000] w-72 bg-popover border border-border shadow-xl rounded-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200 pointer-events-none"
+      style={{ top: position.top, left: position.left }}
+    >
+      <div className="p-3 border-b border-border/50 bg-muted/30">
+        <div className="flex items-center gap-2">
+          <FileIcon className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold truncate">{note.name}</span>
+        </div>
+      </div>
+      <div className="p-3 max-h-48 overflow-hidden">
+        <div 
+          className="text-[10px] leading-relaxed text-muted-foreground line-clamp-6 prose-xs dark:prose-invert"
+          dangerouslySetInnerHTML={{ __html: note.content || 'Нет содержимого' }}
+        />
+      </div>
+      {note.tags && note.tags.length > 0 && (
+        <div className="px-3 pb-3 flex flex-wrap gap-1">
+          {note.tags.map(tag => (
+            <span key={tag} className="text-[9px] px-1 py-0.5 bg-primary/10 text-primary rounded-md">
+              #{tag}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

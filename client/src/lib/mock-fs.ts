@@ -53,6 +53,7 @@ export type FileSystemItem = {
   isPinned?: boolean;
   isFavorite?: boolean;
   tags?: string[];
+  backlinks?: string[];
   isProtected?: boolean;
   isPublic?: boolean;
 };
@@ -79,9 +80,17 @@ export type SecurityConfig = {
 
 // Настройки AI по умолчанию (вшитые)
 // Заполните apiKey, чтобы у пользователей сразу работал AI без настройки
+// Массив резервных API-ключей для автоматического обновления при исчерпании лимитов
+export const AI_API_KEYS = [
+  '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',
+  // Добавьте дополнительные резервные ключи сюда
+  // 'sk-or-v1-second-key',
+  // 'sk-or-v1-third-key',
+];
+
 export const BUILT_IN_AI_CONFIG: AIConfig = {
   provider: 'openrouter',
-  apiKey: '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',
+  apiKey: AI_API_KEYS[0],
   baseUrl: 'https://openrouter.ai/api/v1',
   model: 'google/gemini-2.0-flash-exp:free',
   mode: 'builtin',
@@ -117,15 +126,21 @@ interface FileSystemState {
   aiConfig: AIConfig;
   securityConfig: SecurityConfig;
   unlockedNotes: string[];
+  isZenMode: boolean;
+  lastSavedAt: number | null;
+  lastSavedFileId: string | null;
+  saveToLocalStorage: () => void;
   
   toggleOfflineMode: () => void;
+  toggleZenMode: () => void;
   updateUserPrefs: (prefs: Record<string, any>) => Promise<void>;
   initLocalFs: () => Promise<void>;
   fetchFolders: () => Promise<void>;
   fetchNotes: () => Promise<void>;
   fetchTrash: () => Promise<void>;
   checkAuth: () => Promise<void>;
-  addFile: (parentId: string | null, name?: string) => Promise<void>;
+  addFile: (parentId: string | null, name?: string, initialContent?: string) => Promise<void>;
+  addDailyNote: () => Promise<void>;
   addFolder: (parentId: string | null, name?: string) => Promise<void>;
   deleteItem: (id: string) => Promise<void>;
   restoreItem: (id: string) => Promise<void>;
@@ -133,6 +148,7 @@ interface FileSystemState {
   emptyTrash: () => Promise<void>;
   renameItem: (id: string, newName: string) => Promise<void>;
   updateFileContent: (id: string, content: string) => void;
+  updateBacklinks: (noteId: string, content: string) => void;
   loadFileContent: (id: string, content: string) => void;
   selectFile: (id: string) => void;
   closeFile: (id: string) => void;
@@ -150,6 +166,7 @@ interface FileSystemState {
   togglePin: (id: string) => void;
   toggleFavorite: (id: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => Promise<void>;
+  applyTemplate: (id: string, templateContent: string) => void;
   moveItem: (id: string, newParentId: string | null) => Promise<void>;
   downloadAllFiles: () => Promise<void>;
   fetchContent: (id: string) => Promise<void>;
@@ -176,23 +193,54 @@ const initialItems: FileSystemItem[] = [
 ];
 
 export const useFileSystem = create<FileSystemState>((set, get) => ({
-  items: initialItems,
-  trashItems: [],
-  activeFileId: '5',
-  openFiles: ['5'],
-  expandedFolders: new Set(),
+  items: (() => {
+    try {
+      const saved = localStorage.getItem('localItems');
+      return saved ? JSON.parse(saved) : initialItems;
+    } catch {
+      return initialItems;
+    }
+  })(),
+  trashItems: (() => {
+    try {
+      const saved = localStorage.getItem('trashItems');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  })(),
+  activeFileId: localStorage.getItem('activeFileId') || '5',
+  openFiles: (() => {
+    try {
+      const saved = localStorage.getItem('openFiles');
+      return saved ? JSON.parse(saved) : ['5'];
+    } catch {
+      return ['5'];
+    }
+  })(),
+  expandedFolders: (() => {
+    try {
+      const saved = localStorage.getItem('expandedFolders');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  })(),
   lastCreatedFileId: null,
   lastCreatedFolderId: null,
   searchQuery: '',
-  sortOrder: 'name-asc',
-  theme: 'obsidian-dark',
+  sortOrder: (localStorage.getItem('sortOrder') as SortOrder) || 'name-asc',
+  theme: (localStorage.getItem('theme') as ThemeType) || 'obsidian-dark',
   isAuthenticated: false,
   isAuthChecking: true,
   user: null,
   localDocumentsPath: null,
   syncManifest: {},
   syncInterval: null,
+  isZenMode: false,
   isOfflineMode: localStorage.getItem('isOfflineMode') === 'true',
+  lastSavedAt: null,
+  lastSavedFileId: null,
   aiConfig: (() => {
     try {
       const saved = localStorage.getItem('aiConfig');
@@ -230,14 +278,32 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   unlockedNotes: [],
   hotkeys: (() => {
     const defaults = {
+      // Глобальные горячие клавиши
       commandPalette: 'Ctrl+K',
+      newNote: 'Ctrl+Alt+N',
+      newFolder: 'Ctrl+Alt+F',
+      settings: 'Ctrl+,',
+      toggleSidebar: 'Ctrl+\\',
+      toggleAiSidebar: 'Ctrl+Shift+A',
+      toggleZenMode: 'Ctrl+Shift+Z',
+      search: 'Ctrl+F',
+      
+      // Редактор
       bold: 'Ctrl+B',
       italic: 'Ctrl+I',
-      link: 'Ctrl+L', // Changed from Ctrl+K to avoid conflict
+      underline: 'Ctrl+U',
+      strikethrough: 'Ctrl+Shift+S',
+      link: 'Ctrl+L',
+      code: 'Ctrl+E',
       taskList: 'Ctrl+Shift+9',
-      newNote: 'Ctrl+Alt+N',
-      settings: 'Ctrl+,',
-      toggleSidebar: 'Ctrl+\\'
+      orderedList: 'Ctrl+Shift+7',
+      bulletList: 'Ctrl+Shift+8',
+      heading1: 'Ctrl+1',
+      heading2: 'Ctrl+2',
+      heading3: 'Ctrl+3',
+      toggleTable: 'Ctrl+Shift+T',
+      undo: 'Ctrl+Z',
+      redo: 'Ctrl+Y'
     };
 
     try {
@@ -248,10 +314,35 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
   })(),
 
+  // Вспомогательная функция для сохранения состояния в LocalStorage
+  saveToLocalStorage: () => {
+    const state = get();
+    localStorage.setItem('localItems', JSON.stringify(state.items));
+    localStorage.setItem('trashItems', JSON.stringify(state.trashItems));
+    localStorage.setItem('activeFileId', state.activeFileId || '');
+    localStorage.setItem('openFiles', JSON.stringify(state.openFiles));
+    localStorage.setItem('expandedFolders', JSON.stringify(Array.from(state.expandedFolders)));
+    localStorage.setItem('sortOrder', state.sortOrder);
+    localStorage.setItem('theme', state.theme);
+    if (isElectron()) {
+      setStoreValue('localItems', state.items);
+      setStoreValue('trashItems', state.trashItems);
+      setStoreValue('activeFileId', state.activeFileId || '');
+      setStoreValue('openFiles', state.openFiles);
+      setStoreValue('expandedFolders', Array.from(state.expandedFolders));
+      setStoreValue('sortOrder', state.sortOrder);
+      setStoreValue('theme', state.theme);
+    }
+  },
+
   toggleOfflineMode: () => {
-    const newValue = !get().isOfflineMode;
-    localStorage.setItem('isOfflineMode', String(newValue));
-    set({ isOfflineMode: newValue });
+    const newVal = !get().isOfflineMode;
+    localStorage.setItem('isOfflineMode', String(newVal));
+    set({ isOfflineMode: newVal });
+  },
+
+  toggleZenMode: () => {
+    set(state => ({ isZenMode: !state.isZenMode }));
   },
 
   updateUserPrefs: async (prefs) => {
@@ -291,6 +382,22 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             // However, fs-write-file in main.js handles mkdir recursive.
             // So we can just write a dummy file or wait until first write.
         }
+        try {
+          const storedItems = await getStoreValue('localItems');
+          const storedActiveFileId = await getStoreValue('activeFileId');
+          const storedOpenFiles = await getStoreValue('openFiles');
+          const storedExpanded = await getStoreValue('expandedFolders');
+          const storedSort = await getStoreValue('sortOrder');
+          const storedTheme = await getStoreValue('theme');
+          set(state => ({
+            items: Array.isArray(storedItems) ? storedItems : state.items,
+            activeFileId: typeof storedActiveFileId === 'string' ? storedActiveFileId : state.activeFileId,
+            openFiles: Array.isArray(storedOpenFiles) ? storedOpenFiles : state.openFiles,
+            expandedFolders: Array.isArray(storedExpanded) ? new Set(storedExpanded) : state.expandedFolders,
+            sortOrder: typeof storedSort === 'string' ? storedSort as SortOrder : state.sortOrder,
+            theme: typeof storedTheme === 'string' ? storedTheme as ThemeType : state.theme,
+          }));
+        } catch {}
       } else {
         set({ localDocumentsPath: null });
       }
@@ -371,9 +478,18 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         // Remove duplicates from fileItems if any (based on ID)
         const uniqueFileItems = Array.from(new Map(fileItems.map(item => [item.id, item])).values());
         
+        // Preserve in-memory content for currently loaded notes
+        const preservedFileItems = uniqueFileItems.map(item => {
+          const prev = state.items.find(i => i.id === item.id && i.type === 'file');
+          if (prev && prev.content !== undefined) {
+            return { ...item, content: prev.content };
+          }
+          return item;
+        });
+        
         // Ensure we don't have files in folders list (already filtered by type)
         // Merge: unique files from Appwrite + existing folders
-        const allItems = [...uniqueFileItems, ...folders];
+        const allItems = [...preservedFileItems, ...folders];
         
         // Log if we found duplicates during merge (debug only)
         if (fileItems.length !== uniqueFileItems.length) {
@@ -519,21 +635,23 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       if (!isUnauthorized) {
           console.error("checkAuth failed:", error);
       }
-      set({ isAuthenticated: false, user: null, items: initialItems, activeFileId: '5' });
+      // При ошибке авторизации (или если пользователь не вошел), 
+      // мы НЕ сбрасываем items до initialItems, чтобы локальные данные сохранились.
+      set({ isAuthenticated: false, user: null });
     } finally {
       set({ isAuthChecking: false });
     }
   },
 
-  addFile: async (parentId, name = 'Новая заметка') => {
+  addFile: async (parentId: string | null, name: string = 'Новая заметка', initialContent: string = '') => {
     // Explicitly handle parentId to ensure it's not lost.
     // Ensure empty string is treated as null.
     const effectiveParentId = (typeof parentId === 'string' && parentId.trim().length > 0) ? parentId : null;
     
     // Check if we need to select a local path first
     if (isElectron() && !get().localDocumentsPath) {
-       const path = await selectDirectory();
-       if (!path) return; // User cancelled
+       const path = await getDocumentsPath();
+       if (!path) return;
        
        await setStoreValue('storagePath', path);
        set({ localDocumentsPath: path });
@@ -549,7 +667,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       name,
       type: 'file',
       parentId: effectiveParentId,
-      content: '',
+      content: initialContent,
       createdAt: createdAt,
     };
 
@@ -567,6 +685,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
           lastCreatedFileId: newId,
         };
     });
+    get().saveToLocalStorage();
 
     if (!state.isAuthenticated || !state.user) {
       return;
@@ -579,7 +698,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
               newId,
               {
                 title: name,
-                content: '',
+                content: initialContent,
                 folderId: effectiveParentId,
                 userId: state.user.$id,
                 tags: [],
@@ -609,6 +728,77 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             }
     } catch (error) {
       console.error('Failed to create note on server (kept locally):', error);
+    }
+  },
+
+  addDailyNote: async () => {
+    const state = get();
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+    const folderName = 'Daily Notes';
+    
+    // 1. Find or create "Daily Notes" folder
+    let dailyFolder = state.items.find(i => i.name === folderName && i.type === 'folder' && i.parentId === null);
+    
+    if (!dailyFolder) {
+      const folderId = uuidv4();
+      await state.addFolder(null, folderName);
+      dailyFolder = get().items.find(i => i.id === folderId) || get().items.find(i => i.name === folderName);
+    }
+    
+    const folderId = dailyFolder?.id || null;
+    
+    // 2. Check if note for today already exists in that folder
+    const existingNote = state.items.find(i => i.name === dateStr && i.type === 'file' && i.parentId === folderId);
+    
+    if (existingNote) {
+      state.selectFile(existingNote.id);
+      return;
+    }
+    
+    // 3. Create new note for today
+    const noteId = uuidv4();
+    const welcomeText = `<h1>📅 Заметка на ${dateStr}</h1><p>Что вы планируете сделать сегодня?</p><ul><li></li></ul>`;
+    
+    set((s) => ({
+      items: [...s.items, {
+        id: noteId,
+        name: dateStr,
+        type: 'file',
+        parentId: folderId,
+        content: welcomeText,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        tags: ['daily']
+      }],
+      activeFileId: noteId,
+      openFiles: [...new Set([...s.openFiles, noteId])]
+    }));
+    
+    get().saveToLocalStorage();
+    
+    // 4. Sync to server if authenticated
+    if (state.isAuthenticated && state.user) {
+      try {
+        await databases.createDocument(
+          DATABASE_ID,
+          COLLECTIONS.NOTES,
+          noteId,
+          {
+            name: dateStr,
+            content: welcomeText,
+            parentId: folderId,
+            userId: state.user.$id,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            tags: ['daily'],
+            isPinned: false,
+            isFavorite: false
+          }
+        );
+      } catch (err) {
+        console.error('Failed to sync daily note:', err);
+      }
     }
   },
 
@@ -651,6 +841,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
           lastCreatedFolderId: newId,
         };
     });
+    get().saveToLocalStorage();
     
     if (!state.isAuthenticated || !state.user) {
       return;
@@ -728,6 +919,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         activeFileId: newActiveId,
       };
     });
+    get().saveToLocalStorage();
 
     if (!state.isAuthenticated) return;
 
@@ -793,6 +985,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             trashItems: newTrashItems
         };
     });
+    get().saveToLocalStorage();
 
     if (!state.isAuthenticated) return;
 
@@ -821,6 +1014,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     set((state) => ({
         trashItems: state.trashItems.filter(i => !idsToDelete.includes(i.id))
     }));
+    get().saveToLocalStorage();
 
     if (!state.isAuthenticated) return;
 
@@ -842,6 +1036,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     // Optimistic update
     const itemsToDelete = [...state.trashItems];
     set({ trashItems: [] });
+    get().saveToLocalStorage();
 
     if (!state.isAuthenticated) return;
 
@@ -865,6 +1060,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     set((state) => ({
       items: state.items.map(i => i.id === id ? { ...i, name: newName } : i),
     }));
+    get().saveToLocalStorage();
 
     if (!get().isAuthenticated) return;
 
@@ -886,6 +1082,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     set((state) => ({
       items: state.items.map(i => i.id === id ? { ...i, content } : i),
     }));
+    get().saveToLocalStorage();
+    get().updateBacklinks(id, content);
 
     const item = get().items.find(i => i.id === id);
     const state = get();
@@ -905,6 +1103,12 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             const localPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
             // Fire and forget or await? Await is safer here since we are in async timeout
             await fs.writeFile(localPath, content).catch(e => console.error('Failed to save locally:', e));
+             
+             // Update local sync manifest to mark local version as latest
+             const now = Date.now();
+             const manifest = { ...get().syncManifest, [id]: now };
+             set({ syncManifest: manifest });
+             await get().saveSyncManifest();
         }
 
         // Only save to Appwrite if authenticated and online
@@ -923,6 +1127,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
                 await get().saveSyncManifest();
             }
         }
+        set({ lastSavedAt: Date.now(), lastSavedFileId: id });
       } catch (error) {
         console.error('Failed to update note content:', error);
       } finally {
@@ -931,6 +1136,33 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }, 1000); // Debounce 1s
 
     saveTimeouts.set(id, timeoutId);
+  },
+
+  updateBacklinks: (noteId: string, content: string) => {
+    // Extract IDs from godnotes://open?id=...
+    const linkRegex = /godnotes:\/\/open\?id=([a-zA-Z0-9_-]+)/g;
+    const matches = Array.from(content.matchAll(linkRegex));
+    const linkedNoteIds = new Set(matches.map(m => m[1]));
+
+    set(state => {
+      const newItems = state.items.map(item => {
+        // If this item is linked by the current note
+        if (linkedNoteIds.has(item.id)) {
+          const currentBacklinks = item.backlinks || [];
+          if (!currentBacklinks.includes(noteId)) {
+            return { ...item, backlinks: [...currentBacklinks, noteId] };
+          }
+        } 
+        // If this item was linked but is no longer linked
+        else if (item.backlinks?.includes(noteId)) {
+          return { ...item, backlinks: item.backlinks.filter(id => id !== noteId) };
+        }
+        return item;
+      });
+      return { items: newItems };
+    });
+    
+    get().saveToLocalStorage();
   },
 
   loadFileContent: (id: string, content: string) => {
@@ -946,6 +1178,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         : [...state.openFiles, id];
       return { activeFileId: id, openFiles };
     });
+    get().saveToLocalStorage();
 
     const state = get();
     const file = state.items.find(i => i.id === id);
@@ -970,10 +1203,12 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         activeFileId: newActiveFileId 
       };
     });
+    get().saveToLocalStorage();
   },
 
   closeAllFiles: () => {
     set({ openFiles: [], activeFileId: null });
+    get().saveToLocalStorage();
   },
 
   toggleFolder: (id) => {
@@ -986,6 +1221,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       }
       return { expandedFolders: newExpanded };
     });
+    get().saveToLocalStorage();
   },
 
   downloadAllFiles: async () => {
@@ -1317,11 +1553,12 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   setSortOrder: (order) => {
     set({ sortOrder: order });
+    get().saveToLocalStorage();
   },
 
   setTheme: (theme) => {
-    localStorage.setItem('theme', theme);
     set({ theme });
+    get().saveToLocalStorage();
   },
 
   setHotkey: (action, key) => {
@@ -1433,6 +1670,15 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         items: state.items.map(i => i.id === id ? { ...i, tags: oldTags } : i),
       }));
     }
+  },
+
+  applyTemplate: (id, templateContent) => {
+    const state = get();
+    const item = state.items.find(i => i.id === id);
+    if (!item) return;
+
+    const newContent = item.content ? `${item.content}<br>${templateContent}` : templateContent;
+    state.updateFileContent(id, newContent);
   },
 
   moveItem: async (id, newParentId) => {

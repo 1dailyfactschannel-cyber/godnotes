@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, X, Bot, User, Sparkles, Loader2, RefreshCw, Copy, Check, Globe, FileText, CornerDownLeft, GitCompare, ChevronsUpDown, Plus } from 'lucide-react';
+import { Send, X, Bot, User, Sparkles, Loader2, RefreshCw, Copy, Check, Globe, FileText, CornerDownLeft, GitCompare, ChevronsUpDown, Plus, Tags, FileSearch } from 'lucide-react';
 import * as Diff from 'diff';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import { useEditorStore } from '@/lib/editor-store';
 import { useFileSystem, BUILT_IN_AI_CONFIG } from '@/lib/mock-fs';
 import { generateText } from '@/lib/ai-service';
 import { toast } from '@/hooks/use-toast';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface Message {
   id: string;
@@ -23,13 +24,17 @@ interface Message {
 
 export function AIChatSidebar() {
   const { editor, setAiSidebarOpen } = useEditorStore();
-  const { aiConfig, searchGlobal, updateAIConfig, updateUserPrefs, isAuthenticated, user } = useFileSystem();
+  const { items, activeFileId, aiConfig, searchGlobal, updateAIConfig, updateTags, updateUserPrefs, isAuthenticated, user } = useFileSystem();
   const [useGlobalContext, setUseGlobalContext] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [newModelInput, setNewModelInput] = useState('');
   const [modeJustChanged, setModeJustChanged] = useState(false);
+  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const CUSTOM_CONFIG_KEY = 'aiCustomConfig';
   const isBuiltIn = aiConfig.mode === 'builtin';
+
+  const activeFile = items.find(i => i.id === activeFileId);
 
   const saveCustomConfig = (cfg: any) => {
     // Никогда не сохраняем встроенную конфигурацию как пользовательскую
@@ -198,6 +203,82 @@ export function AIChatSidebar() {
   const insertToEditor = (text: string) => {
     if (editor) {
       editor.chain().focus().insertContent(text).run();
+    }
+  };
+
+  const handleGenerateTags = async () => {
+    if (!activeFile || !editor || isGeneratingTags) return;
+    
+    const content = editor.getText();
+    if (!content || content.length < 20) {
+      toast({ title: "Недостаточно текста", description: "Напишите что-нибудь в заметке, чтобы AI мог подобрать теги", variant: "destructive" });
+      return;
+    }
+
+    setIsGeneratingTags(true);
+    try {
+      const prompt = `Проанализируй текст этой заметки и предложи 3-5 наиболее подходящих тегов (одним словом каждый). 
+      Верни ТОЛЬКО список тегов через запятую, без лишних слов и пояснений.
+      
+      Текст заметки:
+      "${content.slice(0, 3000)}"`;
+
+      const response = await generateText(prompt, "You are a helpful assistant that generates relevant tags for notes.");
+      
+      if (response.error) throw new Error(response.error);
+
+      const newTags = response.text
+        .split(',')
+        .map(t => t.trim().toLowerCase())
+        .filter(t => t && t.length > 1 && !activeFile.tags?.includes(t));
+
+      if (newTags.length > 0) {
+        const updatedTags = [...(activeFile.tags || []), ...newTags];
+        await updateTags(activeFile.id, updatedTags);
+        toast({ title: "Теги добавлены", description: `Добавлено: ${newTags.join(', ')}` });
+      } else {
+        toast({ title: "Новых тегов не найдено", description: "AI не смог предложить новых подходящих тегов" });
+      }
+    } catch (error: any) {
+      toast({ title: "Ошибка генерации тегов", description: error.message, variant: "destructive" });
+    } finally {
+      setIsGeneratingTags(false);
+    }
+  };
+
+  const handleGenerateSummary = async () => {
+    if (!activeFile || !editor || isGeneratingSummary) return;
+    
+    const content = editor.getText();
+    if (!content || content.length < 50) {
+      toast({ title: "Недостаточно текста", description: "Напишите более длинную заметку для создания саммари", variant: "destructive" });
+      return;
+    }
+
+    setIsGeneratingSummary(true);
+    try {
+      const prompt = `Создай краткое и емкое резюме (summary) этой заметки на русском языке. 
+      Оно должно быть не более 3-4 предложений и отражать основную суть.
+      
+      Текст заметки:
+      "${content.slice(0, 5000)}"`;
+
+      const response = await generateText(prompt, "You are a helpful assistant that summarizes notes.");
+      
+      if (response.error) throw new Error(response.error);
+
+      const aiMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `**Краткое резюме заметки:**\n\n${response.text}`,
+        timestamp: Date.now(),
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+    } catch (error: any) {
+      toast({ title: "Ошибка создания резюме", description: error.message, variant: "destructive" });
+    } finally {
+      setIsGeneratingSummary(false);
     }
   };
 
@@ -449,6 +530,49 @@ export function AIChatSidebar() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar" ref={scrollRef}>
+        {/* Quick Actions */}
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-8 text-[10px] gap-2 bg-background/40 hover:bg-background/60 border-border/50"
+                  onClick={handleGenerateTags}
+                  disabled={isGeneratingTags || !activeFile}
+                >
+                  {isGeneratingTags ? <Loader2 className="h-3 w-3 animate-spin" /> : <Tags className="h-3 w-3 text-primary" />}
+                  Теги
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Автоматически подобрать теги для заметки</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-8 text-[10px] gap-2 bg-background/40 hover:bg-background/60 border-border/50"
+                  onClick={handleGenerateSummary}
+                  disabled={isGeneratingSummary || !activeFile}
+                >
+                  {isGeneratingSummary ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSearch className="h-3 w-3 text-primary" />}
+                  Саммари
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Создать краткое резюме заметки</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+
         {messages.map((msg) => (
           <div
             key={msg.id}
