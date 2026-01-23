@@ -79,10 +79,15 @@ export type SecurityConfig = {
 };
 
 // Настройки AI по умолчанию (вшитые)
-// Заполните apiKey, чтобы у пользователей сразу работал AI без настройки
+// Пул ключей для автоматической ротации
+export const AI_KEY_POOL = [
+  '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', // Primary
+  // Добавьте сюда дополнительные ключи
+];
+
 export const BUILT_IN_AI_CONFIG: AIConfig = {
   provider: 'openrouter',
-  apiKey: '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',
+  apiKey: AI_KEY_POOL[0], 
   baseUrl: 'https://openrouter.ai/api/v1',
   model: 'google/gemini-2.0-flash-exp:free',
   mode: 'builtin',
@@ -122,6 +127,9 @@ interface FileSystemState {
   lastSavedAt: number | null;
   lastSavedFileId: string | null;
   saveToLocalStorage: () => void;
+  sessionRefreshInterval: NodeJS.Timeout | null;
+  startSessionRefresh: () => void;
+  stopSessionRefresh: () => void;
   
   toggleOfflineMode: () => void;
   toggleZenMode: () => void;
@@ -238,6 +246,13 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       const saved = localStorage.getItem('aiConfig');
       if (saved) {
         const parsed = JSON.parse(saved);
+        
+        // Check for old invalid key and reset if found
+        const OLD_INVALID_KEY = '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';
+        if (parsed.apiKey === OLD_INVALID_KEY) {
+             return BUILT_IN_AI_CONFIG;
+        }
+
         // Если сохраненная конфигурация - это встроенная (по API ключу)
         // то принудительно ставим режим builtin
         if (parsed.apiKey === BUILT_IN_AI_CONFIG.apiKey) {
@@ -544,6 +559,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     try {
       const user = await account.get() as unknown as User;
       set({ isAuthenticated: true, user });
+      get().startSessionRefresh();
 
       // Sync Telegram config
       const currentConfig = useTasks.getState().telegramConfig;
@@ -700,9 +716,12 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
                     console.error('[addFile] Failed to fix folderId:', fixErr);
                 }
             }
-    } catch (error) {
-      console.error('Failed to create note on server (kept locally):', error);
-    }
+    } catch (error: any) {
+        console.error('Failed to create note on server (kept locally):', error);
+        if (error.code === 401) {
+            set({ isAuthenticated: false, user: null });
+        }
+      }
   },
 
   addDailyNote: async () => {
@@ -853,8 +872,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
                  console.error('[addFolder] Failed to fix parentId:', fixErr);
              }
         }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create folder on server (kept locally):', error);
+      if (error.code === 401) {
+          set({ isAuthenticated: false, user: null });
+      }
     }
   },
 
@@ -919,8 +941,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
          await databases.updateDocument(DATABASE_ID, collectionId, item.id, { tags: newTags });
       }
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to delete item:', error);
+      if (error.code === 401) {
+          set({ isAuthenticated: false, user: null });
+      }
       // Revert logic would be complex, let's assume success or partial success.
     }
   },
@@ -970,8 +995,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             const newTags = (item.tags || []).filter(t => !t.startsWith('deleted:'));
             await databases.updateDocument(DATABASE_ID, collectionId, item.id, { tags: newTags });
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error('Failed to restore item:', error);
+        if (error.code === 401) {
+            set({ isAuthenticated: false, user: null });
+        }
     }
   },
 
@@ -998,8 +1026,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
             await databases.deleteDocument(DATABASE_ID, collectionId, item.id);
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error('Failed to permanently delete item:', error);
+        if (error.code === 401) {
+            set({ isAuthenticated: false, user: null });
+        }
     }
   },
 
@@ -1019,8 +1050,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
             return databases.deleteDocument(DATABASE_ID, collectionId, item.id);
         }));
-    } catch (error) {
+    } catch (error: any) {
         console.error('Failed to empty trash:', error);
+        if (error.code === 401) {
+            set({ isAuthenticated: false, user: null });
+        }
         // Re-fetch to ensure consistency if something failed
         await get().fetchTrash();
     }
@@ -1044,8 +1078,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       } else {
         await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { title: newName });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to rename item:', error);
+      if (error.code === 401) {
+          set({ isAuthenticated: false, user: null });
+      }
       set((state) => ({
         items: state.items.map(i => i.id === id ? { ...i, name: item.name } : i),
       }));
@@ -1102,8 +1139,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             }
         }
         set({ lastSavedAt: Date.now(), lastSavedFileId: id });
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to update note content:', error);
+        if (error.code === 401) {
+            set({ isAuthenticated: false, user: null });
+        }
       } finally {
         saveTimeouts.delete(id);
       }
@@ -1585,6 +1625,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   logout: async () => {
+    get().stopSessionRefresh();
     try {
       await account.deleteSession('current');
     } catch (e) {
@@ -1613,8 +1654,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     try {
       const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
       await databases.updateDocument(DATABASE_ID, collectionId, id, { isFavorite: !item.isFavorite });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to toggle favorite:', error);
+      if (error.code === 401) {
+          set({ isAuthenticated: false, user: null });
+      }
       // Revert
       set((state) => ({
         items: state.items.map(i => i.id === id ? { ...i, isFavorite: item.isFavorite } : i),
@@ -1686,8 +1730,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       // Note: "folderId" for notes, "parentId" for folders.
       const data = item.type === 'folder' ? { parentId: newParentId } : { folderId: newParentId };
       await databases.updateDocument(DATABASE_ID, collectionId, id, data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to move item:', error);
+      if (error.code === 401) {
+          set({ isAuthenticated: false, user: null });
+      }
       set((state) => ({
         items: state.items.map(i => i.id === id ? { ...i, parentId: oldParentId } : i),
       }));
@@ -1780,8 +1827,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             Permission.delete(Role.user(state.user.$id)),
         ]
       );
-    } catch (error) {
-      console.error('Failed to create version:', error);
+    } catch (error: any) {
+      console.error('Failed to create note:', error);
+      if (error.code === 401) {
+          set({ isAuthenticated: false, user: null });
+      }
     }
   },
 
@@ -1856,6 +1906,35 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       
       // We might want to create a version of the *current* state before restoring? 
       // Let's leave that to the user manual action for now to avoid complexity.
+  },
+
+  startSessionRefresh: () => {
+    const state = get();
+    if (state.sessionRefreshInterval) return;
+
+    // Ping Appwrite every 30 minutes to keep session alive
+    const interval = setInterval(async () => {
+      try {
+        await account.get();
+        // console.log('Session refreshed');
+      } catch (error: any) {
+        console.error('Session refresh failed:', error);
+        if (error.code === 401) {
+          get().stopSessionRefresh();
+          set({ isAuthenticated: false, user: null });
+        }
+      }
+    }, 30 * 60 * 1000); // 30 minutes
+
+    set({ sessionRefreshInterval: interval });
+  },
+
+  stopSessionRefresh: () => {
+    const state = get();
+    if (state.sessionRefreshInterval) {
+      clearInterval(state.sessionRefreshInterval);
+      set({ sessionRefreshInterval: null });
+    }
   }
 
 }));
