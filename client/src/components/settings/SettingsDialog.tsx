@@ -521,49 +521,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <div className="space-y-6">
                 <h3 className="text-lg font-medium mb-4">Горячие клавиши</h3>
                 <div className="space-y-2">
-                  <h4 className="text-sm font-medium text-muted-foreground mt-4 mb-2">Глобальные</h4>
                   <HotkeySetting 
                     label="Командная панель" 
                     value={hotkeys.commandPalette || 'Ctrl+K'} 
                     onChange={(v) => setHotkey('commandPalette', v)} 
                   />
-                  <HotkeySetting 
-                    label="Создать заметку" 
-                    value={hotkeys.newNote || 'Ctrl+Alt+N'} 
-                    onChange={(v) => setHotkey('newNote', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Создать папку" 
-                    value={hotkeys.newFolder || 'Ctrl+Alt+F'} 
-                    onChange={(v) => setHotkey('newFolder', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Поиск" 
-                    value={hotkeys.search || 'Ctrl+F'} 
-                    onChange={(v) => setHotkey('search', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Настройки" 
-                    value={hotkeys.settings || 'Ctrl+,'} 
-                    onChange={(v) => setHotkey('settings', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Показать/Скрыть меню" 
-                    value={hotkeys.toggleSidebar || 'Ctrl+\\'} 
-                    onChange={(v) => setHotkey('toggleSidebar', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Показать/Скрыть AI-ассистент" 
-                    value={hotkeys.toggleAiSidebar || 'Ctrl+Shift+A'} 
-                    onChange={(v) => setHotkey('toggleAiSidebar', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Zen-режим" 
-                    value={hotkeys.toggleZenMode || 'Ctrl+Shift+Z'} 
-                    onChange={(v) => setHotkey('toggleZenMode', v)} 
-                  />
-                  
-                  <h4 className="text-sm font-medium text-muted-foreground mt-4 mb-2">Редактор</h4>
                   <HotkeySetting 
                     label="Жирный (Bold)" 
                     value={hotkeys.bold || 'Ctrl+B'} 
@@ -575,75 +537,29 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     onChange={(v) => setHotkey('italic', v)} 
                   />
                   <HotkeySetting 
-                    label="Подчеркнутый (Underline)" 
-                    value={hotkeys.underline || 'Ctrl+U'} 
-                    onChange={(v) => setHotkey('underline', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Зачеркнутый (Strikethrough)" 
-                    value={hotkeys.strikethrough || 'Ctrl+Shift+S'} 
-                    onChange={(v) => setHotkey('strikethrough', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Код (Code)" 
-                    value={hotkeys.code || 'Ctrl+E'} 
-                    onChange={(v) => setHotkey('code', v)} 
-                  />
-                  <HotkeySetting 
                     label="Вставить ссылку" 
                     value={hotkeys.link || 'Ctrl+L'} 
                     onChange={(v) => setHotkey('link', v)} 
                   />
-                  
-                  <h4 className="text-sm font-medium text-muted-foreground mt-4 mb-2">Списки</h4>
                   <HotkeySetting 
                     label="Список задач" 
                     value={hotkeys.taskList || 'Ctrl+Shift+9'} 
                     onChange={(v) => setHotkey('taskList', v)} 
                   />
                   <HotkeySetting 
-                    label="Нумерованный список" 
-                    value={hotkeys.orderedList || 'Ctrl+Shift+7'} 
-                    onChange={(v) => setHotkey('orderedList', v)} 
+                    label="Создать заметку" 
+                    value={hotkeys.newNote || 'Ctrl+Alt+N'} 
+                    onChange={(v) => setHotkey('newNote', v)} 
                   />
                   <HotkeySetting 
-                    label="Маркированный список" 
-                    value={hotkeys.bulletList || 'Ctrl+Shift+8'} 
-                    onChange={(v) => setHotkey('bulletList', v)} 
-                  />
-                  
-                  <h4 className="text-sm font-medium text-muted-foreground mt-4 mb-2">Заголовки</h4>
-                  <HotkeySetting 
-                    label="Заголовок 1" 
-                    value={hotkeys.heading1 || 'Ctrl+1'} 
-                    onChange={(v) => setHotkey('heading1', v)} 
+                    label="Настройки" 
+                    value={hotkeys.settings || 'Ctrl+,'} 
+                    onChange={(v) => setHotkey('settings', v)} 
                   />
                   <HotkeySetting 
-                    label="Заголовок 2" 
-                    value={hotkeys.heading2 || 'Ctrl+2'} 
-                    onChange={(v) => setHotkey('heading2', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Заголовок 3" 
-                    value={hotkeys.heading3 || 'Ctrl+3'} 
-                    onChange={(v) => setHotkey('heading3', v)} 
-                  />
-                  
-                  <h4 className="text-sm font-medium text-muted-foreground mt-4 mb-2">Дополнительно</h4>
-                  <HotkeySetting 
-                    label="Таблица" 
-                    value={hotkeys.toggleTable || 'Ctrl+Shift+T'} 
-                    onChange={(v) => setHotkey('toggleTable', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Отменить" 
-                    value={hotkeys.undo || 'Ctrl+Z'} 
-                    onChange={(v) => setHotkey('undo', v)} 
-                  />
-                  <HotkeySetting 
-                    label="Повторить" 
-                    value={hotkeys.redo || 'Ctrl+Y'} 
-                    onChange={(v) => setHotkey('redo', v)} 
+                    label="Показать/Скрыть меню" 
+                    value={hotkeys.toggleSidebar || 'Ctrl+\\'} 
+                    onChange={(v) => setHotkey('toggleSidebar', v)} 
                   />
                 </div>
               </div>

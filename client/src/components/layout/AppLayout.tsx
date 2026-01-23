@@ -15,7 +15,7 @@ import { FileTree } from '@/components/sidebar/FileTree';
 import { FavoritesDialog } from '@/components/favorites/FavoritesDialog';
 import { UserProfileDialog } from '@/components/user/UserProfileDialog';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
-import ErrorBoundary from '@/components/ErrorBoundary';
+import ErrorBoundary from '@/components/ErrorBoundary.tsx';
 const TiptapEditor = lazy(() => import('@/components/editor/TiptapEditor'));
 import { AIChatSidebar } from '@/components/editor/AIChatSidebar';
 import { useEditorStore } from '@/lib/editor-store';
@@ -49,7 +49,7 @@ import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 
 export default function AppLayout() {
-  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs, addFile, addFolder, isZenMode, toggleZenMode } = useFileSystem();
+  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs, addFile, isZenMode, toggleZenMode } = useFileSystem();
   const { telegramConfig, setTelegramConfig } = useTasks();
   const { isAiSidebarOpen, toggleAiSidebar } = useEditorStore();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -211,12 +211,6 @@ export default function AppLayout() {
         addFile(currentFile?.parentId || null);
       }
 
-      if (isHotkeyMatch(e, hotkeys.newFolder || 'Ctrl+Alt+F')) {
-        e.preventDefault();
-        const currentFile = items.find(i => i.id === activeFileId);
-        addFolder(currentFile?.parentId || null);
-      }
-
       if (isHotkeyMatch(e, hotkeys.settings || 'Ctrl+,')) {
         e.preventDefault();
         setSettingsOpen(true);
@@ -226,30 +220,11 @@ export default function AppLayout() {
         e.preventDefault();
         setIsSidebarCollapsed(prev => !prev);
       }
-
-      if (isHotkeyMatch(e, hotkeys.toggleAiSidebar || 'Ctrl+Shift+A')) {
-        e.preventDefault();
-        toggleAiSidebar();
-      }
-
-      if (isHotkeyMatch(e, hotkeys.toggleZenMode || 'Ctrl+Shift+Z')) {
-        e.preventDefault();
-        toggleZenMode();
-      }
-
-      if (isHotkeyMatch(e, hotkeys.search || 'Ctrl+F')) {
-        e.preventDefault();
-        // Logic to focus search input if exists
-        const searchInput = document.querySelector('input[type="search"]');
-        if (searchInput) {
-          (searchInput as HTMLInputElement).focus();
-        }
-      }
     };
 
     document.addEventListener('keydown', handleGlobalHotkeys);
     return () => document.removeEventListener('keydown', handleGlobalHotkeys);
-  }, [hotkeys, addFile, addFolder, items, activeFileId, toggleAiSidebar, toggleZenMode]);
+  }, [hotkeys, addFile, items, activeFileId]);
 
   useEffect(() => {
     // Initialize local file system for sync

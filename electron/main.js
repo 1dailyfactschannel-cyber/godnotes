@@ -249,6 +249,34 @@ ipcMain.handle('export-pdf', async (event, htmlContent, defaultFilename) => {
   }
 });
 
+ipcMain.handle('import-pdf', async () => {
+  try {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Выберите PDF файл для импорта',
+      filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+      properties: ['openFile']
+    });
+
+    if (canceled || filePaths.length === 0) {
+      return { success: false, error: 'Cancelled' };
+    }
+
+    const filePath = filePaths[0];
+    const dataBuffer = await fs.readFile(filePath);
+    const pdf = require('pdf-parse');
+    const data = await pdf(dataBuffer);
+
+    return { 
+      success: true, 
+      text: data.text, 
+      filename: path.basename(filePath, '.pdf') 
+    };
+  } catch (error) {
+    log.error('Import PDF error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Configure logging
 log.transports.file.level = 'info';
 autoUpdater.logger = log;
@@ -433,7 +461,7 @@ if (!gotTheLock) {
             "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
             "font-src 'self' data: https://fonts.gstatic.com; " +
             "img-src 'self' data: blob: https:; " +
-            "connect-src 'self' https://cloud.appwrite.io https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com wss:;"
+            "connect-src 'self' https://cloud.appwrite.io https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com https://github.com https://objects.githubusercontent.com https://1.1.1.1 wss:;"
           ]
         }
       });

@@ -20,7 +20,9 @@ import {
   CloudDownload,
   Lock,
   LockOpen,
-  Globe
+  Globe,
+  FileDown,
+  Calendar
 } from 'lucide-react';
 import { useFileSystem, FileSystemItem, SortOrder, compareItems } from '@/lib/mock-fs';
 import { cn } from '@/lib/utils';
@@ -113,11 +115,12 @@ const useVisibleItems = (
   }, [items, expandedFolders, sortOrder, isSearch]);
 };
 
-export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
+export function FileTree({ items: propItems, searchQuery }: { items?: FileSystemItem[], searchQuery?: string }) {
   const storeItems = useFileSystem(state => state.items);
   const expandedFolders = useFileSystem(state => state.expandedFolders);
   const sortOrder = useFileSystem(state => state.sortOrder);
-  const { addFile, addFolder, moveItem, setSortOrder, downloadAllFiles, activeFileId, lastCreatedFileId, lastCreatedFolderId } = useFileSystem();
+  const { addFile, addDailyNote, addFolder, moveItem, setSortOrder, downloadAllFiles, activeFileId, lastCreatedFileId, lastCreatedFolderId } = useFileSystem();
+  const { toast } = useToast();
   const [taggingItemId, setTaggingItemId] = useState<string | null>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   
@@ -156,6 +159,60 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
     addFolder(parentId);
   };
 
+  async function handleImportPdf(parentId?: string | null) {
+    if (!isElectron() || !window.electron?.importPdf) {
+      toast({
+        title: "Недоступно",
+        description: "Импорт PDF доступен только в настольной версии приложения",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const result = await window.electron.importPdf();
+      if (result.success && result.text) {
+        let effectiveParentId = parentId;
+        if (effectiveParentId === undefined) {
+          const state = useFileSystem.getState();
+          const activeItem = state.items.find(i => i.id === state.activeFileId);
+          if (activeItem) {
+            effectiveParentId = activeItem.type === 'folder' ? activeItem.id : activeItem.parentId;
+          } else {
+            effectiveParentId = null;
+          }
+        }
+        
+        // Simple HTML conversion for Tiptap
+        const htmlContent = result.text
+          .split('\n')
+          .filter(line => line.trim().length > 0)
+          .map(line => `<p>${line}</p>`)
+          .join('');
+
+        await addFile(effectiveParentId || null, result.filename || 'Импортированная заметка', htmlContent);
+        
+        toast({
+          title: "Импорт завершен",
+          description: `Файл "${result.filename}" успешно импортирован`,
+        });
+      } else if (result.error && result.error !== 'Cancelled') {
+        toast({
+          title: "Ошибка импорта",
+          description: result.error,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Import PDF failed:', error);
+      toast({
+        title: "Ошибка",
+        description: "Произошла ошибка при импорте PDF",
+        variant: "destructive",
+      });
+    }
+  }
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
@@ -174,8 +231,19 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
       onDrop={handleDrop}
     >
       <div className="p-2 flex items-center justify-between shrink-0">
-        <span className="text-[10px] font-bold text-muted-foreground px-2 uppercase tracking-widest">Файлы</span>
+        <span className="text-[10px] font-bold text-muted-foreground px-2 uppercase tracking-widest">
+          {isSearch ? `Найдено: ${items.length}` : 'Файлы'}
+        </span>
         <div className="flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => addDailyNote()}>
+                <Calendar className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Ежедневная заметка</TooltipContent>
+          </Tooltip>
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={handleCreateFile}>
@@ -192,6 +260,15 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
               </Button>
             </TooltipTrigger>
             <TooltipContent>Новая папка</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => handleImportPdf()}>
+                <FileDown className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Импорт PDF</TooltipContent>
           </Tooltip>
 
           {isElectron() && (
@@ -244,6 +321,8 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
               item={item} 
               level={level} 
               onOpenTags={() => setTaggingItemId(item.id)}
+              searchQuery={searchQuery}
+              onImportPdf={handleImportPdf}
             />
           )}
         />
@@ -258,7 +337,7 @@ export function FileTree({ items: propItems }: { items?: FileSystemItem[] }) {
   );
 }
 
-const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, level: number, onOpenTags: () => void }) => {
+const FileTreeRow = memo(({ item, level, onOpenTags, searchQuery, onImportPdf }: { item: FileSystemItem, level: number, onOpenTags: () => void, searchQuery?: string, onImportPdf: (parentId?: string | null) => void }) => {
   const expandedFolders = useFileSystem(state => state.expandedFolders);
   const activeFileId = useFileSystem(state => state.activeFileId);
   const lastCreatedFolderId = useFileSystem(state => state.lastCreatedFolderId);
@@ -321,6 +400,52 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
   const isExpanded = expandedFolders.has(item.id);
   const isActive = activeFileId === item.id;
   const isNotLoaded = item.type === 'file' && item.content === undefined;
+
+  const snippet = useMemo(() => {
+    if (!searchQuery || item.type !== 'file' || !item.content) return null;
+    
+    // Strip HTML and decode entities
+    const div = document.createElement('div');
+    div.innerHTML = item.content;
+    const text = div.textContent || div.innerText || '';
+    
+    const query = searchQuery.toLowerCase();
+    const index = text.toLowerCase().indexOf(query);
+    if (index === -1) return null;
+
+    const start = Math.max(0, index - 30);
+    const end = Math.min(text.length, index + searchQuery.length + 50);
+    let snippetText = text.slice(start, end);
+    
+    if (start > 0) snippetText = '...' + snippetText;
+    if (end < text.length) snippetText = snippetText + '...';
+
+    // Highlight the match
+    const parts = snippetText.split(new RegExp(`(${searchQuery})`, 'gi'));
+    return (
+      <span className="truncate block">
+        {parts.map((part, i) => (
+          part.toLowerCase() === searchQuery.toLowerCase() 
+            ? <mark key={i} className="bg-yellow-500/30 text-yellow-200 rounded-sm px-0.5">{part}</mark> 
+            : <span key={i}>{part}</span>
+        ))}
+      </span>
+    );
+  }, [searchQuery, item.content, item.type]);
+
+  const highlightedName = useMemo(() => {
+    if (!searchQuery) return <span>{item.name}</span>;
+    const parts = item.name.split(new RegExp(`(${searchQuery})`, 'gi'));
+    return (
+      <span className="truncate block">
+        {parts.map((part, i) => (
+          part.toLowerCase() === searchQuery.toLowerCase() 
+            ? <mark key={i} className="bg-primary/40 text-primary-foreground rounded-sm px-0.5 font-bold">{part}</mark> 
+            : <span key={i}>{part}</span>
+        ))}
+      </span>
+    );
+  }, [searchQuery, item.name]);
 
   const handleManualDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -470,18 +595,6 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
                {item.isProtected && <Lock className="h-2 w-2 text-orange-500 shrink-0 ml-0.5" />}
                {item.isPublic && <Globe className="h-2 w-2 text-blue-500 shrink-0 ml-0.5" />}
                {item.tags && item.tags.length > 0 && <Tag className="h-2 w-2 text-blue-400 shrink-0 ml-0.5" />}
-               {isNotLoaded && (
-                 <div 
-                   className="ml-1 cursor-pointer hover:bg-sidebar-accent rounded-sm p-0.5 group/download" 
-                   onClick={handleManualDownload}
-                   title="Файл не загружен. Нажмите чтобы скачать."
-                 >
-                   <CloudDownload className={cn(
-                     "h-2.5 w-2.5 text-muted-foreground group-hover/download:text-primary transition-colors",
-                     isDownloading && "animate-pulse text-primary"
-                   )} />
-                 </div>
-               )}
             </span>
             {isEditing ? (
               <input
@@ -496,10 +609,17 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
                 className="bg-sidebar-accent text-sidebar-foreground border-none outline-none h-5 w-full text-sm px-1 rounded focus:ring-1 focus:ring-primary/50"
               />
             ) : (
-              <span className={cn(
-                "truncate font-medium transition-colors",
-                item.type === 'folder' ? "text-muted-foreground group-hover:text-sidebar-foreground" : (isActive ? "text-foreground" : "")
-              )}>{item.name}</span>
+              <div className="flex flex-col min-w-0 overflow-hidden">
+                <span className={cn(
+                  "truncate font-medium transition-colors",
+                  item.type === 'folder' ? "text-muted-foreground group-hover:text-sidebar-foreground" : (isActive ? "text-foreground" : "")
+                )}>{highlightedName}</span>
+                {snippet && (
+                  <span className="text-[10px] text-muted-foreground/60 truncate opacity-80 group-hover:opacity-100 transition-opacity">
+                    {snippet}
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
@@ -533,6 +653,14 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
                       }}
                     >
                       <FolderPlus className="mr-2 h-4 w-4" /> Новая папка
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onImportPdf(item.id);
+                      }}
+                    >
+                      <FileDown className="mr-2 h-4 w-4" /> Импорт PDF
                     </DropdownMenuItem>
                   </>
                 )}
@@ -603,6 +731,14 @@ const FileTreeRow = memo(({ item, level, onOpenTags }: { item: FileSystemItem, l
               }}
             >
               <FolderPlus className="mr-2 h-4 w-4" /> Новая папка
+            </ContextMenuItem>
+            <ContextMenuItem 
+              onClick={(e) => {
+                e.stopPropagation();
+                onImportPdf(item.id);
+              }}
+            >
+              <FileDown className="mr-2 h-4 w-4" /> Импорт PDF
             </ContextMenuItem>
             <ContextMenuSeparator />
           </>

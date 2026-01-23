@@ -442,24 +442,6 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
           return true;
         }
 
-        if (isHotkeyMatch(event, hotkeys.underline || 'Ctrl+U')) {
-          editor?.chain().focus().toggleUnderline().run();
-          event.preventDefault();
-          return true;
-        }
-
-        if (isHotkeyMatch(event, hotkeys.strikethrough || 'Ctrl+Shift+S')) {
-          editor?.chain().focus().toggleStrike().run();
-          event.preventDefault();
-          return true;
-        }
-
-        if (isHotkeyMatch(event, hotkeys.code || 'Ctrl+E')) {
-          editor?.chain().focus().toggleCode().run();
-          event.preventDefault();
-          return true;
-        }
-
         if (isHotkeyMatch(event, hotkeys.link || 'Ctrl+L')) {
           if (editor?.isActive('link')) {
             editor?.chain().focus().extendMarkRange('link').unsetLink().run();
@@ -476,54 +458,9 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
           return true;
         }
 
-        if (isHotkeyMatch(event, hotkeys.orderedList || 'Ctrl+Shift+7')) {
+        const isMod = event.metaKey || event.ctrlKey;
+        if (isMod && event.shiftKey && event.key === '7') {
           editor?.chain().focus().toggleOrderedList().run();
-          event.preventDefault();
-          return true;
-        }
-
-        if (isHotkeyMatch(event, hotkeys.bulletList || 'Ctrl+Shift+8')) {
-          editor?.chain().focus().toggleBulletList().run();
-          event.preventDefault();
-          return true;
-        }
-
-        if (isHotkeyMatch(event, hotkeys.heading1 || 'Ctrl+1')) {
-          editor?.chain().focus().toggleHeading({ level: 1 }).run();
-          event.preventDefault();
-          return true;
-        }
-
-        if (isHotkeyMatch(event, hotkeys.heading2 || 'Ctrl+2')) {
-          editor?.chain().focus().toggleHeading({ level: 2 }).run();
-          event.preventDefault();
-          return true;
-        }
-
-        if (isHotkeyMatch(event, hotkeys.heading3 || 'Ctrl+3')) {
-          editor?.chain().focus().toggleHeading({ level: 3 }).run();
-          event.preventDefault();
-          return true;
-        }
-
-        if (isHotkeyMatch(event, hotkeys.toggleTable || 'Ctrl+Shift+T')) {
-          if (editor?.isActive('table')) {
-            editor?.chain().focus().exitCode().run();
-          } else {
-            editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
-          }
-          event.preventDefault();
-          return true;
-        }
-
-        if (isHotkeyMatch(event, hotkeys.undo || 'Ctrl+Z')) {
-          editor?.chain().focus().undo().run();
-          event.preventDefault();
-          return true;
-        }
-
-        if (isHotkeyMatch(event, hotkeys.redo || 'Ctrl+Y')) {
-          editor?.chain().focus().redo().run();
           event.preventDefault();
           return true;
         }

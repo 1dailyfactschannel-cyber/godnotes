@@ -80,17 +80,9 @@ export type SecurityConfig = {
 
 // Настройки AI по умолчанию (вшитые)
 // Заполните apiKey, чтобы у пользователей сразу работал AI без настройки
-// Массив резервных API-ключей для автоматического обновления при исчерпании лимитов
-export const AI_API_KEYS = [
-  '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',
-  // Добавьте дополнительные резервные ключи сюда
-  // 'sk-or-v1-second-key',
-  // 'sk-or-v1-third-key',
-];
-
 export const BUILT_IN_AI_CONFIG: AIConfig = {
   provider: 'openrouter',
-  apiKey: AI_API_KEYS[0],
+  apiKey: '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',
   baseUrl: 'https://openrouter.ai/api/v1',
   model: 'google/gemini-2.0-flash-exp:free',
   mode: 'builtin',
@@ -278,32 +270,14 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   unlockedNotes: [],
   hotkeys: (() => {
     const defaults = {
-      // Глобальные горячие клавиши
       commandPalette: 'Ctrl+K',
-      newNote: 'Ctrl+Alt+N',
-      newFolder: 'Ctrl+Alt+F',
-      settings: 'Ctrl+,',
-      toggleSidebar: 'Ctrl+\\',
-      toggleAiSidebar: 'Ctrl+Shift+A',
-      toggleZenMode: 'Ctrl+Shift+Z',
-      search: 'Ctrl+F',
-      
-      // Редактор
       bold: 'Ctrl+B',
       italic: 'Ctrl+I',
-      underline: 'Ctrl+U',
-      strikethrough: 'Ctrl+Shift+S',
-      link: 'Ctrl+L',
-      code: 'Ctrl+E',
+      link: 'Ctrl+L', // Changed from Ctrl+K to avoid conflict
       taskList: 'Ctrl+Shift+9',
-      orderedList: 'Ctrl+Shift+7',
-      bulletList: 'Ctrl+Shift+8',
-      heading1: 'Ctrl+1',
-      heading2: 'Ctrl+2',
-      heading3: 'Ctrl+3',
-      toggleTable: 'Ctrl+Shift+T',
-      undo: 'Ctrl+Z',
-      redo: 'Ctrl+Y'
+      newNote: 'Ctrl+Alt+N',
+      settings: 'Ctrl+,',
+      toggleSidebar: 'Ctrl+\\'
     };
 
     try {

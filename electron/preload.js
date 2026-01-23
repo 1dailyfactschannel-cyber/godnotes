@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('electron', {
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   startDownload: () => ipcRenderer.invoke('start-download'),
   exportToPdf: (html, filename) => ipcRenderer.invoke('export-pdf', html, filename),
+  importPdf: () => ipcRenderer.invoke('import-pdf'),
   quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
   onUpdateStatus: (callback) => ipcRenderer.on('update-status', (event, ...args) => callback(...args)),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

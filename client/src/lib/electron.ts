@@ -22,6 +22,7 @@ declare global {
       checkForUpdates: () => Promise<void>;
       startDownload: () => Promise<void>;
       exportToPdf: (html: string, filename: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+      importPdf: () => Promise<{ success: boolean; text?: string; filename?: string; error?: string }>;
       quitAndInstall: () => Promise<void>;
       onUpdateStatus: (callback: (status: any) => void) => void;
       getAppVersion: () => Promise<string>;

@@ -8,6 +8,7 @@ import { useFileSystem } from "@/lib/mock-fs";
 import { useEffect, lazy, Suspense } from "react";
 import { getStoreValue } from "@/lib/electron";
 import { UpdateManager } from "@/components/UpdateManager";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 const Home = lazy(() => import("@/pages/Home"));
 const Login = lazy(() => import("@/pages/Login"));
@@ -118,7 +119,9 @@ function App() {
         <UpdateManager />
         <Toaster />
         <WouterRouter hook={useHashLocation}>
-          <AppRoutes />
+          <ErrorBoundary>
+            <AppRoutes />
+          </ErrorBoundary>
         </WouterRouter>
       </TooltipProvider>
     </QueryClientProvider>
