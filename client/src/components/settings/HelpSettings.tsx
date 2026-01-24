@@ -7,9 +7,9 @@ import {
   Sidebar, Plus, Search, Calendar, ListTodo, Trash2, Settings,
   Flame, Zap, Coffee, Tag, RotateCw, ExternalLink,
   ChevronLeft, ChevronRight, MousePointerClick,
-  FileText, FolderOpen, Save
+  FileText, FolderOpen, Save,
+  Bot, Sparkles, Shield, Lock, Fingerprint
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 type HelpItem = {
   icon: React.ElementType;
@@ -34,6 +34,23 @@ const helpData: HelpCategory[] = [
       { icon: Trash2, title: 'Корзина', description: 'Просмотр удаленных файлов. Файлы можно восстановить или удалить навсегда.' },
       { icon: Settings, title: 'Настройки', description: 'Открыть настройки приложения (темы, горячие клавиши, Telegram).' },
       { icon: FolderOpen, title: 'Пространства', description: 'Переключение между разными папками-хранилищами заметок.' },
+    ]
+  },
+  {
+    title: 'AI Помощник',
+    items: [
+      { icon: Bot, title: 'Чат с AI', description: 'Задавайте вопросы AI ассистенту, он поможет с текстом и идеями.' },
+      { icon: Sparkles, title: 'Умный контекст', description: 'AI может учитывать содержимое текущей заметки или всей базы знаний.' },
+      { icon: Tag, title: 'Авто-теги', description: 'Генерация подходящих тегов для ваших заметок одним кликом.' },
+      { icon: FileText, title: 'Саммари', description: 'Создание краткого резюме для длинных текстов.' },
+    ]
+  },
+  {
+    title: 'Безопасность',
+    items: [
+      { icon: Shield, title: 'Защита заметки', description: 'Вы можете защитить любую заметку паролем (в меню заметки).' },
+      { icon: Lock, title: 'Мастер-пароль', description: 'Единый пароль для доступа ко всем защищенным данным. Хранится локально.' },
+      { icon: Fingerprint, title: 'Пароль аккаунта', description: 'Пароль для входа в облако Appwrite. Можно изменить в настройках безопасности.' },
     ]
   },
   {

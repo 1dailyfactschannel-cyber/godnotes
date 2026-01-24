@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Send, X, Bot, User, Sparkles, Loader2, RefreshCw, Copy, Check, Globe, FileText, CornerDownLeft, GitCompare, ChevronsUpDown, Plus, Tags, FileSearch } from 'lucide-react';
 import * as Diff from 'diff';
 import { Button } from '@/components/ui/button';
@@ -10,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from '@/lib/utils';
 import { useEditorStore } from '@/lib/editor-store';
-import { useFileSystem, BUILT_IN_AI_CONFIG } from '@/lib/mock-fs';
+import { useFileSystem } from '@/lib/mock-fs';
 import { generateText } from '@/lib/ai-service';
 import { toast } from '@/hooks/use-toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -28,19 +27,13 @@ export function AIChatSidebar() {
   const [useGlobalContext, setUseGlobalContext] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [newModelInput, setNewModelInput] = useState('');
-  const [modeJustChanged, setModeJustChanged] = useState(false);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const CUSTOM_CONFIG_KEY = 'aiCustomConfig';
-  const isBuiltIn = aiConfig.mode === 'builtin';
 
   const activeFile = items.find(i => i.id === activeFileId);
 
   const saveCustomConfig = (cfg: any) => {
-    // Никогда не сохраняем встроенную конфигурацию как пользовательскую
-    if (cfg.apiKey === BUILT_IN_AI_CONFIG.apiKey) {
-      return;
-    }
     try { 
       const data = JSON.stringify(cfg);
       localStorage.setItem(CUSTOM_CONFIG_KEY, data); 
@@ -90,6 +83,17 @@ export function AIChatSidebar() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  const handleClearHistory = () => {
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content: 'Привет! Я ваш AI-ассистент. Я могу помочь вам с написанием текста, исправлением ошибок или генерацией идей. Просто спросите меня о чем-нибудь или выделите текст в редакторе.',
+        timestamp: Date.now(),
+      }
+    ]);
+  };
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -333,199 +337,107 @@ export function AIChatSidebar() {
         </div>
         
         <div className="flex items-center gap-1.5 flex-1 justify-end relative z-[101]" style={{ pointerEvents: 'auto' } as React.CSSProperties}>
+          
           <div
-            className="flex items-center bg-muted/80 rounded-lg p-1 border border-border/50 shrink-0 shadow-inner select-none relative z-[102] overflow-hidden"
-            onPointerDown={(e) => {
-              console.log('[AI Switch] Container PointerDown (z-102)');
-              e.stopPropagation();
-            }}
-            onClick={(e) => {
-              console.log('[AI Switch] Container Click (z-102)');
-              e.stopPropagation();
-            }}
-            style={{ pointerEvents: 'auto' } as React.CSSProperties}
+            className="ml-2 px-2 py-1 text-[10px] rounded-md border border-border/50 bg-background/60 max-w-[220px] truncate shrink-0 select-none"
+            title={`${aiConfig.model} (${aiConfig.provider})`}
           >
-            {/* Animated Background Slider */}
-            <motion.div
-              className="absolute bg-secondary rounded-md shadow-sm z-0"
-              initial={false}
-              animate={{
-                x: isBuiltIn ? 0 : 70, // Adjust width based on button size
-                width: isBuiltIn ? 70 : 55   // Width of "Готовая" vs "Своя"
-              }}
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              style={{ height: '28px' }}
-            />
-
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "h-7 text-[10px] px-3 select-none relative z-[103] transition-colors duration-200",
-                isBuiltIn ? "text-secondary-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-              onPointerDown={(e) => {
-                console.log('[AI Switch] BuiltIn Button PointerDown (z-103)', { target: e.target });
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                console.log('[AI Switch] BuiltIn Button Click (z-103)', {
-                  isBuiltInCurrent: isBuiltIn,
-                  aiConfigCurrent: aiConfig.apiKey ? aiConfig.apiKey.slice(0, 8) + '...' : 'none'
-                });
-                e.preventDefault();
-                e.stopPropagation();
-                if (!isBuiltIn) {
-                  saveCustomConfig({
-                    provider: aiConfig.provider,
-                    apiKey: aiConfig.apiKey,
-                    model: aiConfig.model,
-                    baseUrl: aiConfig.baseUrl,
-                    mode: 'custom'
-                  });
-                  updateAIConfig({ ...BUILT_IN_AI_CONFIG, mode: 'builtin' });
-                  toast({ title: "Режим переключен", description: "Включена готовая модель", variant: "default" });
-                  console.log('[AI Switch] Switched to BuiltIn', { newConfig: BUILT_IN_AI_CONFIG.model });
-                  setModeJustChanged(true);
-                  setTimeout(() => setModeJustChanged(false), 1200);
-                }
-              }}
-            >
-              Готовая
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "h-7 text-[10px] px-3 select-none relative z-[103] transition-colors duration-200",
-                !isBuiltIn ? "text-secondary-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-              onPointerDown={(e) => {
-                console.log('[AI Switch] Custom Button PointerDown (z-103)', { target: e.target });
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                console.log('[AI Switch] Custom Button Click (z-103)', { isBuiltInCurrent: isBuiltIn });
-                e.preventDefault();
-                e.stopPropagation();
-                if (isBuiltIn) {
-                  const saved = loadCustomConfig();
-                  if (saved) {
-                    updateAIConfig({
-                      provider: saved.provider || 'openai',
-                      apiKey: saved.apiKey || '',
-                      model: saved.model || 'gpt-4o',
-                      baseUrl: saved.baseUrl || undefined,
-                      mode: 'custom'
-                    });
-                    console.log('[AI Switch] Switched to Custom (loaded)', { model: saved.model });
-                  } else {
-                    const newCfg = { provider: 'openai' as const, apiKey: '', model: 'gpt-4o', baseUrl: undefined, mode: 'custom' as const };
-                    updateAIConfig(newCfg);
-                    saveCustomConfig(newCfg);
-                    console.log('[AI Switch] Switched to Custom (new)', { model: newCfg.model });
-                  }
-                  toast({ title: "Режим переключен", description: "Включена своя модель", variant: "default" });
-                  setModeJustChanged(true);
-                  setTimeout(() => setModeJustChanged(false), 1200);
-                }
-              }}
-            >
-              Своя
-            </Button>
+            <span className="font-medium">Модель</span>
+            <span className="mx-1 opacity-50">•</span>
+            <span className="truncate">{aiConfig.model}</span>
           </div>
           
-          <motion.div
-            className={cn(
-              "ml-2 px-2 py-1 text-[10px] rounded-md border border-border/50 bg-background/60 max-w-[220px] truncate shrink-0 select-none",
-              modeJustChanged ? "ring-2 ring-primary border-primary/50" : ""
-            )}
-            animate={modeJustChanged ? {
-              scale: [1, 1.05, 1],
-              backgroundColor: ["rgba(var(--background), 0.6)", "rgba(var(--primary), 0.1)", "rgba(var(--background), 0.6)"]
-            } : {}}
-            transition={{ duration: 0.5 }}
-            title={`${isBuiltIn ? 'Готовая' : 'Своя'} • ${isBuiltIn ? BUILT_IN_AI_CONFIG.model : aiConfig.model} (${isBuiltIn ? BUILT_IN_AI_CONFIG.provider : aiConfig.provider})`}
-          >
-            <span className="font-medium">{isBuiltIn ? 'Готовая' : 'Своя'}</span>
-            <span className="mx-1 opacity-50">•</span>
-            <span className="truncate">{isBuiltIn ? BUILT_IN_AI_CONFIG.model : aiConfig.model}</span>
-          </motion.div>
-          
-          {!isBuiltIn && (
-             <Popover open={modelOpen} onOpenChange={setModelOpen}>
-                <PopoverTrigger asChild>
-                   <Button 
-                     variant="outline" 
-                     size="sm" 
-                     className="h-7 text-[10px] px-2 gap-1 max-w-[90px] justify-between bg-background/50 hover:bg-background border-border/50 shrink-0"
-                   >
-                      <span className="truncate">{aiConfig.model}</span>
-                      <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50" />
-                   </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-64 p-2" align="end">
-                   <div className="space-y-2">
-                      <h4 className="font-medium text-xs text-muted-foreground mb-1 px-1">Выбор модели</h4>
-                      <div className="max-h-[200px] overflow-y-auto space-y-1">
-                         {Array.from(new Set([aiConfig.model, ...(aiConfig.availableModels || [])])).filter(Boolean).map(m => (
-                            <Button 
-                              key={m} 
-                              variant={aiConfig.model === m ? "secondary" : "ghost"} 
-                              size="sm" 
-                              className="w-full justify-start h-7 text-xs" 
-                              onClick={() => {
-                                const np = normalizeProviderForModel(m);
-                                updateAIConfig({ model: m, provider: np.provider, baseUrl: np.baseUrl, mode: 'custom' });
-                                saveCustomConfig({ provider: np.provider, apiKey: aiConfig.apiKey, model: m, baseUrl: np.baseUrl, mode: 'custom' });
-                                setModelOpen(false);
-                              }}
-                            >
-                               {aiConfig.model === m && <Check className="mr-2 h-3 w-3" />}
-                               <span className="truncate">{m}</span>
-                            </Button>
-                         ))}
-                      </div>
-                      <div className="flex gap-1 pt-2 border-t">
-                         <Input 
-                            className="h-7 text-xs" 
-                            placeholder="Новая модель..." 
-                            value={newModelInput} 
-                            onChange={e => setNewModelInput(e.target.value)} 
-                            onKeyDown={e => {
-                                if (e.key === 'Enter') {
-                                    if (!newModelInput.trim()) return;
-                                    const currentModels = aiConfig.availableModels || [];
-                                    const newModels = Array.from(new Set([...currentModels, aiConfig.model, newModelInput.trim()]));
-                                    const np = normalizeProviderForModel(newModelInput.trim());
-                                    updateAIConfig({ availableModels: newModels, model: newModelInput.trim(), provider: np.provider, baseUrl: np.baseUrl, mode: 'custom' });
-                                    saveCustomConfig({ provider: np.provider, apiKey: aiConfig.apiKey, model: newModelInput.trim(), baseUrl: np.baseUrl, mode: 'custom' });
-                                    setNewModelInput('');
-                                    setModelOpen(false);
-                                }
-                            }}
-                         />
-                         <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => {
+          <Popover open={modelOpen} onOpenChange={setModelOpen}>
+            <PopoverTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-7 text-[10px] px-2 gap-1 max-w-[90px] justify-between bg-background/50 hover:bg-background border-border/50 shrink-0"
+                >
+                  <span className="truncate">{aiConfig.model}</span>
+                  <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-2" align="end">
+                <div className="space-y-2">
+                  <h4 className="font-medium text-xs text-muted-foreground mb-1 px-1">Выбор модели</h4>
+                  <div className="max-h-[200px] overflow-y-auto space-y-1">
+                      {Array.from(new Set([aiConfig.model, ...(aiConfig.availableModels || [])])).filter(Boolean).map(m => (
+                        <Button 
+                          key={m} 
+                          variant={aiConfig.model === m ? "secondary" : "ghost"} 
+                          size="sm" 
+                          className="w-full justify-start h-7 text-xs" 
+                          onClick={() => {
+                            const np = normalizeProviderForModel(m);
+                            updateAIConfig({ provider: np.provider, apiKey: aiConfig.apiKey, model: m, baseUrl: np.baseUrl });
+                            saveCustomConfig({ provider: np.provider, apiKey: aiConfig.apiKey, model: m, baseUrl: np.baseUrl });
+                            setModelOpen(false);
+                          }}
+                        >
+                            {aiConfig.model === m && <Check className="mr-2 h-3 w-3" />}
+                            <span className="truncate">{m}</span>
+                        </Button>
+                      ))}
+                  </div>
+                  <div className="flex gap-1 pt-2 border-t">
+                      <Input 
+                        className="h-7 text-xs" 
+                        placeholder="Новая модель..." 
+                        value={newModelInput} 
+                        onChange={e => setNewModelInput(e.target.value)} 
+                        onKeyDown={e => {
+                            if (e.key === 'Enter') {
                                 if (!newModelInput.trim()) return;
                                 const currentModels = aiConfig.availableModels || [];
                                 const newModels = Array.from(new Set([...currentModels, aiConfig.model, newModelInput.trim()]));
                                 const np = normalizeProviderForModel(newModelInput.trim());
-                                updateAIConfig({ availableModels: newModels, model: newModelInput.trim(), provider: np.provider, baseUrl: np.baseUrl, mode: 'custom' });
-                                saveCustomConfig({ provider: np.provider, apiKey: aiConfig.apiKey, model: newModelInput.trim(), baseUrl: np.baseUrl, mode: 'custom' });
+                                updateAIConfig({ availableModels: newModels, model: newModelInput.trim(), provider: np.provider, baseUrl: np.baseUrl });
+                                saveCustomConfig({ provider: np.provider, apiKey: aiConfig.apiKey, model: newModelInput.trim(), baseUrl: np.baseUrl });
                                 setNewModelInput('');
                                 setModelOpen(false);
-                         }}>
-                            <Plus className="h-4 w-4" />
-                         </Button>
-                      </div>
-                   </div>
-                </PopoverContent>
-             </Popover>
-          )}
+                            }
+                        }}
+                      />
+                      <Button 
+                        size="icon" 
+                        variant="ghost" 
+                        className="h-7 w-7"
+                        onClick={() => {
+                            if (!newModelInput.trim()) return;
+                            const currentModels = aiConfig.availableModels || [];
+                            const newModels = Array.from(new Set([...currentModels, aiConfig.model, newModelInput.trim()]));
+                            const np = normalizeProviderForModel(newModelInput.trim());
+                            updateAIConfig({ availableModels: newModels, model: newModelInput.trim(), provider: np.provider, baseUrl: np.baseUrl });
+                            saveCustomConfig({ provider: np.provider, apiKey: aiConfig.apiKey, model: newModelInput.trim(), baseUrl: np.baseUrl });
+                            setNewModelInput('');
+                            setModelOpen(false);
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                  </div>
+                </div>
+            </PopoverContent>
+          </Popover>
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setAiSidebarOpen(false)}>
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={handleClearHistory}>
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Очистить историю чата</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setAiSidebarOpen(false)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Messages */}

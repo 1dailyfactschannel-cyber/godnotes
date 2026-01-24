@@ -22,10 +22,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug, RefreshCw, HelpCircle, Bot, Sparkles, Shield, Key, Globe, Cpu } from 'lucide-react';
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug, RefreshCw, HelpCircle, Bot, Sparkles, Shield, Key, Globe, Cpu, Lock, Unlock, ShieldCheck, ShieldAlert, Fingerprint } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useFileSystem, ThemeType, BUILT_IN_AI_CONFIG } from '@/lib/mock-fs';
+import { useFileSystem, ThemeType } from '@/lib/mock-fs';
 import { useTasks } from '@/lib/tasks-store';
 import { telegramRequest, selectDirectory, getStoreValue, setStoreValue, isElectron, electron } from '@/lib/electron';
 import { useToast } from '@/hooks/use-toast';
@@ -42,17 +41,19 @@ type SettingsTab = 'general' | 'theme' | 'hotkeys' | 'telegram' | 'about' | 'hel
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
-  const { theme, setTheme, hotkeys, setHotkey, isOfflineMode, toggleOfflineMode, items, downloadAllFiles, updateUserPrefs, aiConfig, updateAIConfig, setMasterPassword, securityConfig, isAuthenticated, user } = useFileSystem();
+  const { theme, setTheme, hotkeys, setHotkey, isOfflineMode, toggleOfflineMode, items, downloadAllFiles, updateUserPrefs, updateAccountPassword, aiConfig, updateAIConfig, setMasterPassword, checkMasterPassword, securityConfig, isAuthenticated, user } = useFileSystem();
+  const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [accountOldPassword, setAccountOldPassword] = useState('');
+  const [accountNewPassword, setAccountNewPassword] = useState('');
+  const [accountConfirmPassword, setAccountConfirmPassword] = useState('');
   const [showAiHelp, setShowAiHelp] = useState(false);
+  const [showSecurityHelp, setShowSecurityHelp] = useState(false);
+  const [hasPassword, setHasPassword] = useState(!!securityConfig.hashedPassword);
 
   const CUSTOM_CONFIG_KEY = 'aiCustomConfig';
   const saveCustomConfig = (cfg: any) => {
-    // Никогда не сохраняем встроенную конфигурацию как пользовательскую
-    if (cfg.apiKey === BUILT_IN_AI_CONFIG.apiKey) {
-      return;
-    }
     try {
       const data = JSON.stringify(cfg);
       localStorage.setItem(CUSTOM_CONFIG_KEY, data);
@@ -74,9 +75,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   };
 
-  const isBuiltIn = aiConfig.mode === 'builtin';
-  const [aiMode, setAiMode] = useState<'builtin' | 'custom'>(isBuiltIn ? 'builtin' : 'custom');
-
   // Local state for inputs to prevent global store updates on every keystroke
   const [localApiKey, setLocalApiKey] = useState(aiConfig.apiKey);
   const [localModel, setLocalModel] = useState(aiConfig.model);
@@ -89,6 +87,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     setLocalBaseUrl(aiConfig.baseUrl || '');
   }, [aiConfig]);
 
+  // Отслеживание изменений securityConfig
+  useEffect(() => {
+    setHasPassword(!!securityConfig.hashedPassword);
+    console.log('Security config updated:', securityConfig);
+  }, [securityConfig]);
+
   useEffect(() => {
     const handleOpenSettings = (e: any) => {
       if (e.detail?.tab) {
@@ -96,15 +100,20 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       }
       onOpenChange(true);
     };
+    const handleSecurityUpdate = () => {
+       // Принудительное обновление компонента при изменении securityConfig
+       setHasPassword(!!securityConfig.hashedPassword);
+       setOldPassword('');
+       setNewPassword('');
+       setConfirmPassword('');
+     };
     window.addEventListener('godnotes:open-settings', handleOpenSettings);
-    return () => window.removeEventListener('godnotes:open-settings', handleOpenSettings);
+    window.addEventListener('security-config-updated', handleSecurityUpdate);
+    return () => {
+      window.removeEventListener('godnotes:open-settings', handleOpenSettings);
+      window.removeEventListener('security-config-updated', handleSecurityUpdate);
+    };
   }, [onOpenChange]);
-
-  useEffect(() => {
-    if (open) {
-      setAiMode(isBuiltIn ? 'builtin' : 'custom');
-    }
-  }, [open]);
 
   const handleSetPassword = async () => {
       if (!newPassword) {
@@ -115,11 +124,60 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           toast({ title: "Ошибка", description: "Пароли не совпадают", variant: "destructive" });
           return;
       }
+
+      // Если пароль уже установлен, требуем старый пароль
+      if (hasPassword) {
+        if (!oldPassword) {
+            toast({ title: "Ошибка", description: "Введите старый пароль", variant: "destructive" });
+            return;
+        }
+        const isValid = await checkMasterPassword(oldPassword);
+        if (!isValid) {
+            toast({ title: "Ошибка", description: "Неверный старый пароль", variant: "destructive" });
+            return;
+        }
+      }
+
       await setMasterPassword(newPassword);
       toast({ title: "Успех", description: "Мастер-пароль обновлен" });
+      setOldPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      // Принудительное обновление для отображения нового статуса
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('security-config-updated'));
+      }, 100);
   };
+
+  const handleUpdateAccountPassword = async () => {
+    if (!accountNewPassword) {
+      toast({ title: "Ошибка", description: "Пароль не может быть пустым", variant: "destructive" });
+      return;
+    }
+    if (accountNewPassword !== accountConfirmPassword) {
+      toast({ title: "Ошибка", description: "Пароли не совпадают", variant: "destructive" });
+      return;
+    }
+    if (!accountOldPassword) {
+      toast({ title: "Ошибка", description: "Введите старый пароль аккаунта", variant: "destructive" });
+      return;
+    }
+
+    try {
+      await updateAccountPassword(accountNewPassword, accountOldPassword);
+      toast({ title: "Успех", description: "Пароль аккаунта успешно изменен" });
+      setAccountOldPassword('');
+      setAccountNewPassword('');
+      setAccountConfirmPassword('');
+    } catch (err: any) {
+      toast({ 
+        title: "Ошибка", 
+        description: err.message || "Не удалось изменить пароль аккаунта", 
+        variant: "destructive" 
+      });
+    }
+  };
+
   const { telegramConfig, setTelegramConfig } = useTasks();
   const { toast } = useToast();
   const [isConnecting, setIsConnecting] = useState(false);
@@ -616,46 +674,141 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             )}
 
             {activeTab === 'security' && (
-              <div className="space-y-6 max-w-md">
-                <h3 className="text-lg font-medium mb-4">Безопасность</h3>
-                <div className="p-4 rounded-lg border bg-muted/50">
-                  <div className="flex items-center gap-3 mb-3">
-                    <Shield className="h-5 w-5" />
-                    <div>
-                      <div className="font-medium">Мастер-пароль</div>
-                      <div className="text-xs text-muted-foreground">
-                        {securityConfig.hashedPassword ? 'Пароль установлен' : 'Пароль не установлен'}
+              <div className="space-y-4 max-w-md">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-medium">Безопасность</h3>
+                  <Button variant="ghost" size="sm" onClick={() => setShowSecurityHelp(true)} className="h-8 text-muted-foreground hover:text-primary">
+                    <HelpCircle className="h-4 w-4 mr-2" />
+                    Инструкция
+                  </Button>
+                </div>
+
+                <div className="p-3 rounded-lg border bg-muted/30 space-y-3 transition-all hover:bg-muted/50 group">
+                  <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                    <div className="flex items-center gap-2">
+                      <div className={cn(
+                        "p-1.5 rounded-md transition-colors",
+                        hasPassword ? "bg-green-500/10 text-green-500" : "bg-orange-500/10 text-orange-500 animate-pulse"
+                      )}>
+                        {hasPassword ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
                       </div>
+                      <span className="text-sm font-medium">
+                        {hasPassword ? 'Мастер-пароль активен' : 'Пароль не установлен'}
+                      </span>
                     </div>
+                    {hasPassword && (
+                      <div className="flex items-center gap-1">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-green-500/70">Secure</span>
+                      </div>
+                    )}
                   </div>
-                  <div className="grid gap-3">
-                    <div className="grid gap-2">
-                      <Label>Новый пароль</Label>
+
+                  <div className="grid gap-2.5">
+                    {hasPassword && (
+                      <div className="grid gap-1.5 group/input">
+                        <Label className="text-xs text-muted-foreground group-hover/input:text-foreground transition-colors">Старый пароль</Label>
+                        <Input 
+                          type="password" 
+                          placeholder="Текущий пароль" 
+                          value={oldPassword}
+                          onChange={(e) => setOldPassword(e.target.value)}
+                          className="h-8 text-sm bg-background/50 focus:bg-background transition-all"
+                        />
+                      </div>
+                    )}
+                    <div className="grid gap-1.5 group/input">
+                      <Label className="text-xs text-muted-foreground group-hover/input:text-foreground transition-colors">Новый пароль</Label>
                       <Input 
                         type="password" 
-                        placeholder="Введите новый пароль" 
+                        placeholder="Новый пароль" 
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
+                        className="h-8 text-sm bg-background/50 focus:bg-background transition-all"
                       />
                     </div>
-                    <div className="grid gap-2">
-                      <Label>Повторите пароль</Label>
+                    <div className="grid gap-1.5 group/input">
+                      <Label className="text-xs text-muted-foreground group-hover/input:text-foreground transition-colors">Повторите пароль</Label>
                       <Input 
                         type="password" 
-                        placeholder="Повторите пароль" 
+                        placeholder="Подтверждение" 
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="h-8 text-sm bg-background/50 focus:bg-background transition-all"
                       />
                     </div>
-                    <Button className="mt-2" onClick={handleSetPassword}>
-                      <Key className="h-4 w-4 mr-2" />
-                      Сохранить пароль
+                    <Button 
+                      size="sm" 
+                      className={cn(
+                        "w-full mt-1 h-8 transition-all active:scale-[0.98]",
+                        hasPassword ? "bg-primary hover:bg-primary/90" : "bg-orange-600 hover:bg-orange-700 text-white"
+                      )}
+                      onClick={handleSetPassword}
+                    >
+                      {hasPassword ? (
+                        <RefreshCw className="h-3.5 w-3.5 mr-2 group-hover:rotate-180 transition-transform duration-500" />
+                      ) : (
+                        <Key className="h-3.5 w-3.5 mr-2 animate-bounce" />
+                      )}
+                      {hasPassword ? 'Обновить мастер-пароль' : 'Установить мастер-пароль'}
                     </Button>
                   </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  Мастер-пароль защищает доступ к приватным заметкам. Не забывайте его.
-                </div>
+
+                <p className="text-[11px] text-muted-foreground px-1 leading-relaxed italic">
+                  * Мастер-пароль хранится только локально. Если вы его забудете, доступ к защищенным заметкам будет потерян навсегда.
+                </p>
+
+                {isAuthenticated && (
+                  <div className="p-3 rounded-lg border bg-muted/30 space-y-3 mt-4 transition-all hover:bg-muted/50 group">
+                    <div className="flex items-center gap-2 pb-2 border-b border-border/50">
+                      <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-500 group-hover:bg-blue-500/20 transition-colors">
+                        <Fingerprint className="h-4 w-4" />
+                      </div>
+                      <span className="text-sm font-medium">Пароль аккаунта (Appwrite)</span>
+                    </div>
+
+                    <div className="grid gap-2.5">
+                      <div className="grid gap-1.5 group/input">
+                        <Label className="text-xs text-muted-foreground group-hover/input:text-foreground transition-colors">Старый пароль аккаунта</Label>
+                        <Input 
+                          type="password" 
+                          placeholder="Текущий пароль аккаунта" 
+                          value={accountOldPassword}
+                          onChange={(e) => setAccountOldPassword(e.target.value)}
+                          className="h-8 text-sm bg-background/50 focus:bg-background transition-all"
+                        />
+                      </div>
+                      <div className="grid gap-1.5 group/input">
+                        <Label className="text-xs text-muted-foreground group-hover/input:text-foreground transition-colors">Новый пароль аккаунта</Label>
+                        <Input 
+                          type="password" 
+                          placeholder="Новый пароль" 
+                          value={accountNewPassword}
+                          onChange={(e) => setAccountNewPassword(e.target.value)}
+                          className="h-8 text-sm bg-background/50 focus:bg-background transition-all"
+                        />
+                      </div>
+                      <div className="grid gap-1.5 group/input">
+                        <Label className="text-xs text-muted-foreground group-hover/input:text-foreground transition-colors">Повторите новый пароль</Label>
+                        <Input 
+                          type="password" 
+                          placeholder="Подтверждение" 
+                          value={accountConfirmPassword}
+                          onChange={(e) => setAccountConfirmPassword(e.target.value)}
+                          className="h-8 text-sm bg-background/50 focus:bg-background transition-all"
+                        />
+                      </div>
+                      <Button size="sm" className="w-full mt-1 h-8 transition-all active:scale-[0.98]" onClick={handleUpdateAccountPassword}>
+                        <ShieldCheck className="h-3.5 w-3.5 mr-2 group-hover:scale-110 transition-transform" />
+                        Изменить пароль аккаунта
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -669,92 +822,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </Button>
                 </div>
                 <div className="space-y-6 max-w-md">
-                  <RadioGroup
-                    value={aiMode}
-                    onValueChange={(val) => {
-                      const newMode = val as 'builtin' | 'custom';
-                      if (newMode === 'builtin') {
-                        // Сохраняем текущие кастомные настройки перед переключением на встроенные
-                        saveCustomConfig({ 
-                          provider: aiConfig.provider, 
-                          apiKey: localApiKey, 
-                          model: localModel, 
-                          baseUrl: localBaseUrl,
-                          mode: 'custom'
-                        });
-                        setAiMode('builtin');
-                        updateAIConfig({ ...BUILT_IN_AI_CONFIG, mode: 'builtin' });
-                      } else {
-                        setAiMode('custom');
-                        const saved = loadCustomConfig();
-                        if (saved) {
-                          setLocalApiKey(saved.apiKey || '');
-                          setLocalModel(saved.model || '');
-                          setLocalBaseUrl(saved.baseUrl || '');
-                          updateAIConfig({ 
-                            provider: saved.provider || 'openai', 
-                            apiKey: saved.apiKey || '', 
-                            model: saved.model || 'gpt-4o', 
-                            baseUrl: saved.baseUrl,
-                            mode: 'custom'
-                          });
-                        } else {
-                          // Инициализируем пустую пользовательскую конфигурацию
-                          const startConfig = { 
-                            provider: 'openai' as const, 
-                            apiKey: '', 
-                            model: 'gpt-4o', 
-                            baseUrl: '',
-                            mode: 'custom' as const
-                          };
-                          setLocalApiKey('');
-                          setLocalModel('gpt-4o');
-                          setLocalBaseUrl('');
-                          updateAIConfig(startConfig);
-                          saveCustomConfig(startConfig);
-                        }
-                      }
-                    }}
-                    className="grid grid-cols-2 gap-4"
-                  >
-                    <div>
-                      <RadioGroupItem value="builtin" id="builtin" className="peer sr-only" />
-                      <Label
-                        htmlFor="builtin"
-                        className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer h-full"
-                      >
-                        <Sparkles className="mb-3 h-6 w-6 text-primary" />
-                        <div className="text-center space-y-1">
-                          <div className="font-semibold">Готовая модель</div>
-                          <div className="text-xs text-muted-foreground">Бесплатно, без настройки</div>
-                        </div>
-                      </Label>
-                    </div>
-                    <div>
-                      <RadioGroupItem value="custom" id="custom" className="peer sr-only" />
-                      <Label
-                        htmlFor="custom"
-                        className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer h-full"
-                      >
-                        <Settings className="mb-3 h-6 w-6" />
-                        <div className="text-center space-y-1">
-                          <div className="font-semibold">Своя модель</div>
-                          <div className="text-xs text-muted-foreground">OpenAI, Anthropic и др.</div>
-                        </div>
-                      </Label>
-                    </div>
-                  </RadioGroup>
-
-                  {aiMode === 'builtin' ? (
-                     <div className="p-4 bg-muted/50 rounded-lg text-sm text-muted-foreground border">
-                        <p className="flex items-center gap-2 mb-2 text-foreground font-medium">
-                            <CheckCircle2 className="h-4 w-4 text-green-500" />
-                            AI готов к работе
-                        </p>
-                        <p className="mb-2">Используется встроенная модель <strong>Gemini 2.0</strong>.</p>
-                        <p>Вы можете сразу пользоваться чатом и AI-функциями в редакторе.</p>
-                     </div>
-                  ) : (
                     <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
                       <div className="grid gap-2">
                         <Label>Провайдер</Label>
@@ -775,9 +842,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                             
                             setLocalModel(nextModel);
                             updateAIConfig({ provider: val, model: nextModel });
-                            if (aiMode === 'custom') {
-                              saveCustomConfig({ provider: val, apiKey: localApiKey, model: nextModel, baseUrl: localBaseUrl });
-                            }
+                            saveCustomConfig({ provider: val, apiKey: localApiKey, model: nextModel, baseUrl: localBaseUrl });
                           }}
                         >
                           <SelectTrigger>
@@ -801,9 +866,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                           onBlur={() => {
                             const newConfig = { ...aiConfig, apiKey: localApiKey };
                             updateAIConfig({ apiKey: localApiKey });
-                            if (aiMode === 'custom') {
-                              saveCustomConfig({ ...newConfig, model: localModel, baseUrl: localBaseUrl });
-                            }
+                            saveCustomConfig({ ...newConfig, model: localModel, baseUrl: localBaseUrl });
                           }}
                           placeholder="sk-..."
                           autoComplete="new-password"
@@ -822,9 +885,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                           onBlur={() => {
                             const newConfig = { ...aiConfig, model: localModel };
                             updateAIConfig({ model: localModel });
-                            if (aiMode === 'custom') {
-                              saveCustomConfig({ ...newConfig, apiKey: localApiKey, baseUrl: localBaseUrl });
-                            }
+                            saveCustomConfig({ ...newConfig, apiKey: localApiKey, baseUrl: localBaseUrl });
                           }}
                           placeholder={aiConfig.provider === 'openrouter' ? 'tngtech/deepseek-r1t2-chimera:free' : 'gpt-3.5-turbo'}
                         />
@@ -844,16 +905,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                             onBlur={() => {
                               const newConfig = { ...aiConfig, baseUrl: localBaseUrl };
                               updateAIConfig({ baseUrl: localBaseUrl });
-                              if (aiMode === 'custom') {
-                                saveCustomConfig({ ...newConfig, provider: aiConfig.provider, apiKey: localApiKey, model: localModel });
-                              }
+                              saveCustomConfig({ ...newConfig, provider: aiConfig.provider, apiKey: localApiKey, model: localModel });
                             }}
                             placeholder="https://api.openai.com/v1"
                           />
                         </div>
                       )}
                     </div>
-                  )}
 
                   <div className="pt-4 p-4 bg-muted/50 rounded-lg text-sm text-muted-foreground">
                     <p className="flex items-center gap-2 mb-2">
@@ -993,6 +1051,33 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogAction onClick={() => setShowAiHelp(false)}>Понятно</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showSecurityHelp} onOpenChange={setShowSecurityHelp}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Что такое мастер-пароль?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">Зачем он нужен?</p>
+                <p>Мастер-пароль позволяет заблокировать доступ к отдельным заметкам. Даже если кто-то получит доступ к вашему компьютеру или аккаунту, он не сможет прочитать защищенные заметки без этого пароля.</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">Где он хранится?</p>
+                <p>Пароль хранится <strong>только локально</strong> на вашем устройстве в зашифрованном виде. Он никогда не передается на сервер GodNotes.</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-medium text-foreground text-destructive">Важное предупреждение:</p>
+                <p>Мы не храним ваш мастер-пароль. Если вы его забудете, мы <strong>не сможем</strong> восстановить доступ к вашим защищенным заметкам. Пожалуйста, запомните его или сохраните в надежном месте.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setShowSecurityHelp(false)}>Я понял</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

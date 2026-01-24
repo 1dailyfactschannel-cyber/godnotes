@@ -70,7 +70,6 @@ export type AIConfig = {
   apiKey: string;
   baseUrl?: string;
   model: string;
-  mode?: 'builtin' | 'custom';
   availableModels?: string[];
 };
 
@@ -78,27 +77,12 @@ export type SecurityConfig = {
   hashedPassword: string | null;
 };
 
-// Настройки AI по умолчанию (вшитые)
-// Пул ключей для автоматической ротации
-export const AI_KEY_POOL = [
-  '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', // Primary
-  // Добавьте сюда дополнительные ключи
-];
-
-export const BUILT_IN_AI_CONFIG: AIConfig = {
-  provider: 'openrouter',
-  apiKey: AI_KEY_POOL[0], 
-  baseUrl: 'https://openrouter.ai/api/v1',
-  model: 'google/gemini-2.0-flash-exp:free',
-  mode: 'builtin',
-  availableModels: [
-    'google/gemini-2.0-flash-exp:free',
-    'google/gemini-2.0-flash-thinking-exp:free',
-    'google/gemini-2.0-pro-exp-02-05:free',
-    'google/gemini-exp-1206:free',
-    'mistralai/mistral-7b-instruct:free',
-    'openchat/openchat-7b:free',
-  ]
+export const DEFAULT_AI_CONFIG: AIConfig = {
+  provider: 'openai',
+  apiKey: '', 
+  baseUrl: 'https://api.openai.com/v1',
+  model: 'gpt-4o',
+  availableModels: []
 };
 
 interface FileSystemState {
@@ -134,6 +118,7 @@ interface FileSystemState {
   toggleOfflineMode: () => void;
   toggleZenMode: () => void;
   updateUserPrefs: (prefs: Record<string, any>) => Promise<void>;
+  updateAccountPassword: (password: string, oldPassword: string) => Promise<void>;
   initLocalFs: () => Promise<void>;
   fetchFolders: () => Promise<void>;
   fetchNotes: () => Promise<void>;
@@ -246,38 +231,21 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       const saved = localStorage.getItem('aiConfig');
       if (saved) {
         const parsed = JSON.parse(saved);
-        
-        // Check for old invalid key and reset if found
-        const OLD_INVALID_KEY = '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';
-        if (parsed.apiKey === OLD_INVALID_KEY) {
-             return BUILT_IN_AI_CONFIG;
-        }
-
-        // Если сохраненная конфигурация - это встроенная (по API ключу)
-        // то принудительно ставим режим builtin
-        if (parsed.apiKey === BUILT_IN_AI_CONFIG.apiKey) {
-          parsed.mode = 'builtin';
-          parsed.availableModels = BUILT_IN_AI_CONFIG.availableModels;
-          
-          if (!BUILT_IN_AI_CONFIG.availableModels?.includes(parsed.model) || 
-              parsed.model === 'google/gemini-2.0-flash-lite-001') {
-            parsed.model = BUILT_IN_AI_CONFIG.model;
-          }
-          return parsed;
-        }
-        // Если режима нет, но это не встроенная, значит custom
-        if (!parsed.mode) parsed.mode = 'custom';
         return parsed;
       }
-      return BUILT_IN_AI_CONFIG;
+      return DEFAULT_AI_CONFIG;
     } catch {
-      return BUILT_IN_AI_CONFIG;
+      return DEFAULT_AI_CONFIG;
     }
   })(),
   securityConfig: (() => {
     try {
       const saved = localStorage.getItem('securityConfig');
-      return saved ? JSON.parse(saved) : { hashedPassword: null };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { hashedPassword: parsed.hashedPassword || null };
+      }
+      return { hashedPassword: null };
     } catch {
       return { hashedPassword: null };
     }
@@ -344,6 +312,15 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       set({ user: updatedUser });
     } catch (error) {
       console.error('Failed to update user prefs:', error);
+      throw error;
+    }
+  },
+
+  updateAccountPassword: async (password, oldPassword) => {
+    try {
+      await account.updatePassword(password, oldPassword);
+    } catch (error) {
+      console.error('Failed to update account password:', error);
       throw error;
     }
   },
@@ -778,14 +755,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
           COLLECTIONS.NOTES,
           noteId,
           {
-            name: dateStr,
+            title: dateStr,
             content: welcomeText,
-            parentId: folderId,
+            folderId: folderId,
             userId: state.user.$id,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
             tags: ['daily'],
-            isPinned: false,
             isFavorite: false
           }
         );
@@ -1535,6 +1509,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     const config = { hashedPassword };
     localStorage.setItem('securityConfig', JSON.stringify(config));
     set({ securityConfig: config });
+    console.log('Master password set, config:', config);
   },
 
   checkMasterPassword: async (password) => {
