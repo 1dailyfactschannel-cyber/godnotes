@@ -111,6 +111,7 @@ interface FileSystemState {
   lastSavedAt: number | null;
   lastSavedFileId: string | null;
   saveToLocalStorage: () => void;
+  setStoragePath: (path: string) => void;
   sessionRefreshInterval: NodeJS.Timeout | null;
   startSessionRefresh: () => void;
   stopSessionRefresh: () => void;
@@ -226,6 +227,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   isOfflineMode: localStorage.getItem('isOfflineMode') === 'true',
   lastSavedAt: null,
   lastSavedFileId: null,
+  sessionRefreshInterval: null,
   aiConfig: (() => {
     try {
       const saved = localStorage.getItem('aiConfig');
@@ -290,6 +292,10 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       setStoreValue('sortOrder', state.sortOrder);
       setStoreValue('theme', state.theme);
     }
+  },
+
+  setStoragePath: (path: string) => {
+    set({ localDocumentsPath: path });
   },
 
   toggleOfflineMode: () => {

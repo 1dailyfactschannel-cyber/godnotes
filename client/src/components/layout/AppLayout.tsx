@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { TrashDialog } from '@/components/trash/TrashDialog';
 import { Logo } from '@/components/Logo';
 import { TabBar } from '@/components/layout/TabBar';
+import { OnboardingDialog } from '@/components/onboarding/OnboardingDialog';
 
 import { CommandPalette } from '@/components/CommandPalette';
 import { FileTree } from '@/components/sidebar/FileTree';
@@ -461,6 +462,7 @@ export default function AppLayout() {
       
       <UserProfileDialog open={userProfileOpen} onOpenChange={setUserProfileOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <OnboardingDialog />
 
       <Dialog open={spaceNameDialogOpen} onOpenChange={setSpaceNameDialogOpen}>
         <DialogContent>
