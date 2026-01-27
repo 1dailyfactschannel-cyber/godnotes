@@ -2,24 +2,24 @@
 
 const { Client, Databases } = require('node-appwrite');
 const { Pool } = require('pg');
-require('dotenv').config();
+require('dotenv').config({ path: '.env.migration' });
 
 // Appwrite configuration
 const appwriteClient = new Client();
 appwriteClient
-  .setEndpoint(process.env.APPWRITE_ENDPOINT || 'YOUR_APPWRITE_ENDPOINT')
-  .setProject(process.env.APPWRITE_PROJECT_ID || 'YOUR_PROJECT_ID')
-  .setKey(process.env.APPWRITE_API_KEY || 'YOUR_API_KEY');
+  .setEndpoint(process.env.APPWRITE_ENDPOINT)
+  .setProject(process.env.APPWRITE_PROJECT_ID)
+  .setKey(process.env.APPWRITE_API_KEY);
 
 const databases = new Databases(appwriteClient);
 
 // PostgreSQL configuration
 const pgPool = new Pool({
-  host: '89.208.14.253',
-  port: 5433,
-  user: 'postgres',
-  password: process.env.POSTGRES_PASSWORD || 'YourSecurePassword123!',
-  database: 'godnotes'
+  host: process.env.POSTGRES_HOST || '89.208.14.253',
+  port: parseInt(process.env.POSTGRES_PORT) || 5433,
+  user: process.env.POSTGRES_USER || 'postgres',
+  password: process.env.POSTGRES_PASSWORD,
+  database: process.env.POSTGRES_DB || 'godnotes'
 });
 
 async function migrateCollection(collectionId, tableName) {
@@ -78,27 +78,76 @@ async function migrateCollection(collectionId, tableName) {
   }
 }
 
+async function testConnections() {
+  console.log('🔍 Testing connections...');
+  
+  try {
+    // Test PostgreSQL connection
+    const pgClient = await pgPool.connect();
+    await pgClient.query('SELECT NOW()');
+    pgClient.release();
+    console.log('✅ PostgreSQL connection OK');
+  } catch (error) {
+    console.error('❌ PostgreSQL connection failed:', error.message);
+    throw error;
+  }
+  
+  try {
+    // Test Appwrite connection by listing databases
+    await databases.list()
+    console.log('✅ Appwrite connection OK');
+  } catch (error) {
+    console.error('❌ Appwrite connection failed:', error.message);
+    throw error;
+  }
+}
+
 async function main() {
   try {
-    console.log('🚀 Starting Appwrite to PostgreSQL migration...');
+    console.log('🚀 Starting Appwrite to PostgreSQL migration...\n');
     
-    // Define your collections mapping
-    const collectionsMap = [
-      { appwriteId: 'notes', postgresTable: 'notes' },
-      { appwriteId: 'users', postgresTable: 'users' },
-      { appwriteId: 'tags', postgresTable: 'tags' },
-      // Add more collections as needed
-    ];
+    // Test connections first
+    await testConnections();
+    
+    // Parse collections mapping from env or use default
+    let collectionsMap;
+    try {
+      collectionsMap = JSON.parse(process.env.COLLECTIONS_MAPPING || '[]');
+    } catch (e) {
+      collectionsMap = [
+        { appwriteId: 'notes', postgresTable: 'notes' },
+        { appwriteId: 'users', postgresTable: 'users' },
+        { appwriteId: 'tags', postgresTable: 'tags' }
+      ];
+    }
+    
+    if (collectionsMap.length === 0) {
+      console.log('⚠️  No collections specified in COLLECTIONS_MAPPING');
+      console.log('Using default collections: notes, users, tags');
+      collectionsMap = [
+        { appwriteId: 'notes', postgresTable: 'notes' },
+        { appwriteId: 'users', postgresTable: 'users' },
+        { appwriteId: 'tags', postgresTable: 'tags' }
+      ];
+    }
+    
+    console.log(`📋 Migrating ${collectionsMap.length} collections:\n`);
+    collectionsMap.forEach(c => {
+      console.log(`  • ${c.appwriteId} → ${c.postgresTable}`);
+    });
+    console.log('');
     
     // Migrate each collection
     for (const collection of collectionsMap) {
       await migrateCollection(collection.appwriteId, collection.postgresTable);
     }
     
-    console.log('🎉 Migration completed!');
+    console.log('\n🎉 Migration completed successfully!');
     
   } catch (error) {
-    console.error('Migration failed:', error);
+    console.error('\n💥 Migration failed:', error.message);
+    console.error('Please check your configuration in .env.migration file');
+    process.exit(1);
   } finally {
     await pgPool.end();
   }
