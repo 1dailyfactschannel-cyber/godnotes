@@ -5,6 +5,7 @@ server/public
 vite.config.ts.*
 *.tar.gz
 .env
+.env.production
 dist-electron
 uploads
 .sessions.json
