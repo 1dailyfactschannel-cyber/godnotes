@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: godnotes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: godnotes
+      POSTGRES_USER: postgres
+      # Замените на надежный пароль:
+      POSTGRES_PASSWORD: V_ingram224
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - godnotes-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  godnotes-network:
+    driver: bridge

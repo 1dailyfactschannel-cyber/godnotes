@@ -112,23 +112,30 @@ async function main() {
     // Parse collections mapping from env or use default
     let collectionsMap;
     try {
-      collectionsMap = JSON.parse(process.env.COLLECTIONS_MAPPING || '[]');
+      const mappingStr = process.env.COLLECTIONS_MAPPING;
+      if (mappingStr && mappingStr !== '[]') {
+        collectionsMap = JSON.parse(mappingStr);
+      } else {
+        // Use actual collections from Appwrite if not specified
+        console.log('📋 Getting actual collections from Appwrite...');
+        const response = await databases.listCollections(
+          process.env.APPWRITE_DATABASE_ID
+        );
+        collectionsMap = response.collections.map(collection => ({
+          appwriteId: collection.$id,
+          postgresTable: collection.name.toLowerCase()
+        }));
+      }
     } catch (e) {
-      collectionsMap = [
-        { appwriteId: 'notes', postgresTable: 'notes' },
-        { appwriteId: 'users', postgresTable: 'users' },
-        { appwriteId: 'tags', postgresTable: 'tags' }
-      ];
-    }
-    
-    if (collectionsMap.length === 0) {
-      console.log('⚠️  No collections specified in COLLECTIONS_MAPPING');
-      console.log('Using default collections: notes, users, tags');
-      collectionsMap = [
-        { appwriteId: 'notes', postgresTable: 'notes' },
-        { appwriteId: 'users', postgresTable: 'users' },
-        { appwriteId: 'tags', postgresTable: 'tags' }
-      ];
+      console.log('⚠️  Error parsing COLLECTIONS_MAPPING, using auto-discovery');
+      // Auto-discover collections
+      const response = await databases.listCollections(
+        process.env.APPWRITE_DATABASE_ID
+      );
+      collectionsMap = response.collections.map(collection => ({
+        appwriteId: collection.$id,
+        postgresTable: collection.name.toLowerCase()
+      }));
     }
     
     console.log(`📋 Migrating ${collectionsMap.length} collections:\n`);

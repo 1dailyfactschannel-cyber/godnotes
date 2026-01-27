@@ -7,11 +7,17 @@
     "migrate": "node migrate-appwrite-to-postgres.js",
     "list-collections": "node list-appwrite-collections.js",
     "check-data": "node check-migrated-data.js",
+    "analyze-db": "node analyze-database.js",
+    "test-connection": "node test-appwrite-connection.js",
+    "manual-transfer": "node manual-transfer.js",
+    "normalize": "node normalize-database.js",
+    "setup-users": "node setup-users.js",
     "start-app": "cd .. && npm run dev"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.0.0",
     "node-appwrite": "^11.0.0",
-    "pg": "^8.11.0",
-    "dotenv": "^16.0.0"
+    "pg": "^8.11.0"
   }
 }
