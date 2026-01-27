@@ -20,12 +20,41 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
+## 🔄 Data Migration from Appwrite
+
+### Prerequisites
+1. Ensure PostgreSQL is running on 89.208.14.253:5433
+2. Update Appwrite credentials in `.env.production`
+
+### Migration Steps
+
+1. **Install migration dependencies:**
+```bash
+cd scripts
+npm install
+```
+
+2. **Run migration:**
+```bash
+npm run migrate
+```
+
+3. **Customize collections mapping** in `migrate-appwrite-to-postgres.js`:
+```javascript
+const collectionsMap = [
+  { appwriteId: 'your_collection_id', postgresTable: 'your_table_name' },
+  // Add your collections here
+];
+```
+
 ## 📁 Files Created
 
 - `docker-compose.prod.yml` - Production Docker Compose configuration
 - `.env.production` - Production environment variables
 - `deploy.sh` - Automated deployment script
 - `README.deployment.md` - This guide
+- `scripts/migrate-appwrite-to-postgres.js` - Migration script
+- `scripts/package.json` - Migration dependencies
 
 ## 🔧 Services Deployed
 

@@ -1,0 +1,14 @@
+{
+  "name": "appwrite-postgres-migration",
+  "version": "1.0.0",
+  "description": "Migration tool from Appwrite to PostgreSQL",
+  "main": "migrate-appwrite-to-postgres.js",
+  "scripts": {
+    "migrate": "node migrate-appwrite-to-postgres.js"
+  },
+  "dependencies": {
+    "node-appwrite": "^11.0.0",
+    "pg": "^8.11.0",
+    "dotenv": "^16.0.0"
+  }
+}
