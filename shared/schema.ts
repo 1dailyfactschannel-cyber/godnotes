@@ -5,15 +5,20 @@ import { z } from "zod";
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
+  email: text("email").notNull().unique(),
+  username: text("username").unique(),
   password: text("password").notNull(),
   name: text("name"),
+  avatar_url: text("avatar_url"),
+  is_verified: boolean("is_verified").default(false),
+  is_active: boolean("is_active").default(true),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
+export const insertUserSchema = createInsertSchema(users).partial().required({
+  email: true,
   password: true,
-  name: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

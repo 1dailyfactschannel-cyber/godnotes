@@ -149,6 +149,7 @@ interface FileSystemState {
   resetPassword: (email: string) => Promise<void>;
   updateRecovery: (userId: string, secret: string, password: string, passwordAgain: string) => Promise<void>;
   logout: () => Promise<void>;
+  clearUserData: () => void;
   togglePin: (id: string) => void;
   toggleFavorite: (id: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => Promise<void>;
@@ -1565,6 +1566,9 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   login: async (email, password) => {
+    // Clear any existing user data before login
+    get().clearUserData();
+    
     await account.createEmailPasswordSession(email, password);
     await get().checkAuth();
     if (!get().isAuthenticated) {
@@ -1574,6 +1578,10 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   register: async (email, password, name) => {
      await account.create(ID.unique(), email, password, name);
+     
+     // Clear any existing user data before login
+     get().clearUserData();
+     
      await get().login(email, password);
   },
   
@@ -1612,7 +1620,27 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     } catch (e) {
       console.error('Logout failed', e);
     }
-    set({ isAuthenticated: false, user: null, items: initialItems, activeFileId: '5', openFiles: ['5'] });
+    
+    // Clear all user-specific data
+    get().clearUserData();
+    
+    set({ 
+      isAuthenticated: false, 
+      user: null, 
+      items: initialItems, 
+      activeFileId: '5', 
+      openFiles: ['5'],
+      trashItems: [],
+      expandedFolders: new Set(),
+      lastCreatedFileId: null,
+      lastCreatedFolderId: null,
+      searchQuery: '',
+      aiConfig: DEFAULT_AI_CONFIG,
+      securityConfig: { hashedPassword: null },
+      unlockedNotes: [],
+      lastSavedAt: null,
+      lastSavedFileId: null
+    });
   },
   
   togglePin: (id) => {
@@ -1916,6 +1944,33 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       clearInterval(state.sessionRefreshInterval);
       set({ sessionRefreshInterval: null });
     }
+  },
+
+  clearUserData: () => {
+    // Clear all user-specific data from localStorage
+    localStorage.removeItem('localItems');
+    localStorage.removeItem('trashItems');
+    localStorage.removeItem('activeFileId');
+    localStorage.removeItem('openFiles');
+    localStorage.removeItem('expandedFolders');
+    localStorage.removeItem('aiConfig');
+    localStorage.removeItem('securityConfig');
+    localStorage.removeItem('aiCustomConfig');
+    localStorage.removeItem('user');
+    localStorage.removeItem('auth_token');
+    
+    // Clear Electron store if available
+    if (isElectron()) {
+      setStoreValue('localItems', []);
+      setStoreValue('trashItems', []);
+      setStoreValue('activeFileId', '');
+      setStoreValue('openFiles', []);
+      setStoreValue('expandedFolders', []);
+      setStoreValue('aiConfig', null);
+      setStoreValue('securityConfig', null);
+    }
+    
+    console.log('User data cleared');
   }
 
 }));

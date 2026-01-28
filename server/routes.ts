@@ -10,9 +10,40 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import multer, { type FileFilterCallback } from "multer";
 import path from "path";
 import fs from "fs";
+
+const JWT_SECRET = "your_very_secure_session_secret_change_this_immediately";
+const JWT_EXPIRES_IN = "24h";
+
+console.log('JWT_SECRET:', JWT_SECRET);
+
+// Middleware для проверки JWT
+const authenticateToken = (req: Request, res: any, next: any) => {
+  console.log('authenticateToken called');
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log('No valid authorization header');
+    return res.status(401).json({ message: "Unauthorized: No token provided" });
+  }
+
+  const token = authHeader.substring(7);
+  
+  try {
+    console.log('Verifying token with secret:', JWT_SECRET);
+    console.log('Token to verify:', token);
+    const decoded: any = jwt.verify(token, JWT_SECRET);
+    console.log('Decoded token:', decoded);
+    (req as any).userId = decoded.userId;
+    next();
+  } catch (error: any) {
+    console.log('Token verification failed:', error.message);
+    console.log('Error name:', error.name);
+    return res.status(401).json({ message: "Unauthorized: Invalid token" });
+  }
+};
 
 export async function registerRoutes(
   httpServer: Server,
@@ -145,53 +176,47 @@ export async function registerRoutes(
   });
 
   app.get("/api/auth/me", async (req, res) => {
-    let userId = req.session.userId;
-    if (!userId) {
-      // Try auto-adopt logic if no session (optional, but mainly for when session exists but user is wrong)
-      // Actually, if no session, we just return 401 usually.
-      // But let's check if there is exactly one user in the DB and we are in "local" mode.
-      // For now, adhere to standard flow: no session -> 401.
-      // console.log("[Auth] No userId in session");
-      res.status(401).json({ message: "Unauthorized: No session" });
+    console.log('GET /api/auth/me called');
+    const authHeader = req.headers.authorization;
+    console.log('Authorization header:', authHeader);
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log('No valid authorization header');
+      res.status(401).json({ message: "Unauthorized: No token provided" });
       return;
     }
 
-    let user = await storage.getUser(userId);
+    const token = authHeader.substring(7);
+    console.log('Token extracted:', token);
     
-    // Auto-adopt logic: If session user is invalid, but there is exactly one user in storage, use that one.
-    if (!user) {
-        console.log(`[Auth] User ${userId} not found. Attempting auto-adopt...`);
-        const allUsers = await storage.listUsers();
-        if (allUsers.length === 1) {
-            user = allUsers[0];
-            console.log(`[Auth] Auto-adopted single user: ${user.username} (${user.id})`);
-            req.session.userId = user.id; // Update session
-            userId = user.id;
-        }
-    }
+    try {
+      console.log('Verifying token with secret:', JWT_SECRET);
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      console.log('Decoded token:', decoded);
+      const userId = decoded.userId;
+      
+      let user = await storage.getUser(userId);
+      console.log('User found:', user);
+      
+      if (!user) {
+        res.status(401).json({ message: "Unauthorized: User not found" });
+        return;
+      }
 
-    if (!user) {
-      console.log(`[Auth] User ${userId} not found in current storage. Storage type: ${storage.getBackendName()}`);
-      // Debug: Check if any users exist
-      const allUsers = await storage.listUsers();
-      const availableUsers = allUsers.map(u => u.id);
-      
-      console.log(`[Auth] Available users in storage: ${availableUsers.join(', ')}`);
-      
-      res.status(401).json({ 
-          message: "Unauthorized: User not found", 
-          details: {
-              userId,
-              storageType: storage.getBackendName(),
-              availableUsersCount: availableUsers.length,
-              // Only include IDs for debug, avoiding personal info leakage if possible, but here IDs are UUIDs
-              availableUsers
-          }
+      res.json({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        username: user.username,
+        avatar_url: user.avatar_url,
+        is_verified: user.is_verified,
+        is_active: user.is_active,
+        created_at: user.created_at
       });
-      return;
+    } catch (error: any) {
+      console.log('Token verification failed:', error.message);
+      console.log('Error name:', error.name);
+      res.status(401).json({ message: "Unauthorized: Invalid token" });
     }
-
-    res.json({ id: user.id, username: user.username, name: user.name });
   });
 
   app.post("/api/auth/register", async (req, res, next) => {
@@ -199,20 +224,48 @@ export async function registerRoutes(
       console.log("Register body:", req.body);
       const parsed = insertUserSchema.parse(req.body);
       console.log("Parsed:", parsed);
-      const existing = await storage.getUserByUsername(parsed.username);
-      if (existing) {
-        res.status(409).json({ message: "User already exists" });
+      
+      // Check if user with this email already exists
+      const existingByEmail = await storage.getUserByEmail(parsed.email);
+      if (existingByEmail) {
+        res.status(409).json({ message: "User with this email already exists" });
         return;
       }
+      
+      // Check if user with this username already exists (if provided)
+      if (parsed.username) {
+        const existingByUsername = await storage.getUserByUsername(parsed.username);
+        if (existingByUsername) {
+          res.status(409).json({ message: "Username already taken" });
+          return;
+        }
+      }
+      
       const hashedPassword = await bcrypt.hash(parsed.password, 10);
       const user = await storage.createUser({
-        username: parsed.username,
+        email: parsed.email,
+        username: parsed.username || null,
         password: hashedPassword,
         name: parsed.name,
       });
       console.log("Created user:", user);
-      req.session.userId = user.id;
-      res.status(201).json({ id: user.id, username: user.username, name: user.name });
+      
+      // Generate JWT token
+      const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+      
+      res.status(201).json({
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          username: user.username,
+          avatar_url: user.avatar_url,
+          is_verified: user.is_verified,
+          is_active: user.is_active,
+          created_at: user.created_at
+        },
+        token
+      });
     } catch (err) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ message: "Invalid payload", issues: err.issues });
@@ -225,18 +278,40 @@ export async function registerRoutes(
   app.post("/api/auth/login", async (req, res, next) => {
     try {
       const parsed = insertUserSchema.parse(req.body);
-      const user = await storage.getUserByUsername(parsed.username);
+      
+      // Try to find user by email first, then by username
+      let user = await storage.getUserByEmail(parsed.email);
+      if (!user) {
+        user = await storage.getUserByUsername(parsed.email); // For backward compatibility
+      }
+      
       if (!user) {
         res.status(401).json({ message: "Invalid credentials" });
         return;
       }
+      
       const isPasswordValid = await bcrypt.compare(parsed.password, user.password);
       if (!isPasswordValid) {
         res.status(401).json({ message: "Invalid credentials" });
         return;
       }
-      req.session.userId = user.id;
-      res.json({ id: user.id, username: user.username, name: user.name });
+      
+      // Generate JWT token
+      const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+      
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          username: user.username,
+          avatar_url: user.avatar_url,
+          is_verified: user.is_verified,
+          is_active: user.is_active,
+          created_at: user.created_at
+        },
+        token
+      });
     } catch (err) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ message: "Invalid payload", issues: err.issues });
@@ -246,33 +321,21 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/logout", (req, res, next) => {
-    req.session.destroy((err) => {
-      if (err) {
-        next(err);
-        return;
-      }
-      res.status(204).end();
-    });
+  app.post("/api/auth/logout", (req, res) => {
+    // For JWT, logout is handled client-side by removing the token
+    // Server-side we just return success
+    res.status(204).end();
   });
 
-  app.get("/api/folders", async (req, res) => {
-    const userId = req.session.userId;
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.get("/api/folders", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
     const folders = await storage.listFoldersByUser(userId);
     res.json(folders);
   });
 
-  app.post("/api/folders", async (req, res, next) => {
+  app.post("/api/folders", authenticateToken, async (req, res, next) => {
     try {
-      const userId = req.session.userId;
-      if (!userId) {
-        res.status(401).json({ message: "Unauthorized" });
-        return;
-      }
+      const userId = (req as any).userId;
       const parsed = insertFolderSchema.parse(req.body);
       const folder = await storage.createFolder({
         userId,
@@ -289,12 +352,8 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/folders/:id", async (req, res) => {
-    const userId = req.session.userId;
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.get("/api/folders/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
     const folder = await storage.getFolder(req.params.id);
     if (!folder || folder.userId !== userId) {
       res.status(404).json({ message: "Not found" });
@@ -303,13 +362,9 @@ export async function registerRoutes(
     res.json(folder);
   });
 
-  app.patch("/api/folders/:id", async (req, res, next) => {
+  app.patch("/api/folders/:id", authenticateToken, async (req, res, next) => {
     try {
-      const userId = req.session.userId;
-      if (!userId) {
-        res.status(401).json({ message: "Unauthorized" });
-        return;
-      }
+      const userId = (req as any).userId;
       const existing = await storage.getFolder(req.params.id);
       if (!existing || existing.userId !== userId) {
         res.status(404).json({ message: "Not found" });
@@ -327,13 +382,9 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/folders/:id", async (req, res, next) => {
+  app.delete("/api/folders/:id", authenticateToken, async (req, res, next) => {
     try {
-      const userId = req.session.userId;
-      if (!userId) {
-        res.status(401).json({ message: "Unauthorized" });
-        return;
-      }
+      const userId = (req as any).userId;
       const existing = await storage.getFolder(req.params.id);
       if (!existing || existing.userId !== userId) {
         res.status(404).json({ message: "Not found" });
@@ -346,23 +397,15 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/notes", async (req, res) => {
-    const userId = req.session.userId;
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.get("/api/notes", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
     const notes = await storage.listNotesByUser(userId);
     res.json(notes);
   });
 
-  app.post("/api/notes", async (req, res, next) => {
+  app.post("/api/notes", authenticateToken, async (req, res, next) => {
     try {
-      const userId = req.session.userId;
-      if (!userId) {
-        res.status(401).json({ message: "Unauthorized" });
-        return;
-      }
+      const userId = (req as any).userId;
       const parsed = insertNoteSchema.parse(req.body);
       const note = await storage.createNote({
         userId,
@@ -381,12 +424,8 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/notes/:id", async (req, res) => {
-    const userId = req.session.userId;
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.get("/api/notes/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
     const note = await storage.getNote(req.params.id);
     if (!note || note.userId !== userId) {
       res.status(404).json({ message: "Not found" });
@@ -395,13 +434,9 @@ export async function registerRoutes(
     res.json(note);
   });
 
-  app.patch("/api/notes/:id", async (req, res, next) => {
+  app.patch("/api/notes/:id", authenticateToken, async (req, res, next) => {
     try {
-      const userId = req.session.userId;
-      if (!userId) {
-        res.status(401).json({ message: "Unauthorized" });
-        return;
-      }
+      const userId = (req as any).userId;
       const existing = await storage.getNote(req.params.id);
       if (!existing || existing.userId !== userId) {
         res.status(404).json({ message: "Not found" });
@@ -419,13 +454,9 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/notes/:id", async (req, res, next) => {
+  app.delete("/api/notes/:id", authenticateToken, async (req, res, next) => {
     try {
-      const userId = req.session.userId;
-      if (!userId) {
-        res.status(401).json({ message: "Unauthorized" });
-        return;
-      }
+      const userId = (req as any).userId;
       const existing = await storage.getNote(req.params.id);
       if (!existing || existing.userId !== userId) {
         res.status(404).json({ message: "Not found" });
@@ -470,34 +501,22 @@ export async function registerRoutes(
     res.json(user);
   });
 
-  app.get("/api/trash", async (req, res) => {
-    const userId = req.session.userId;
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.get("/api/trash", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
     console.log(`[API] GET /api/trash for user ${userId}`);
     const trash = await storage.getTrash(userId);
     console.log(`[API] Found trash: ${trash.folders.length} folders, ${trash.notes.length} notes`);
     res.json(trash);
   });
 
-  app.get("/api/favorites", async (req, res) => {
-    const userId = req.session.userId;
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.get("/api/favorites", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
     const favorites = await storage.getFavorites(userId);
     res.json(favorites);
   });
 
-  app.post("/api/trash/restore/folder/:id", async (req, res) => {
-    const userId = req.session.userId;
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.post("/api/trash/restore/folder/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
     const folder = await storage.getFolder(req.params.id);
     if (!folder || folder.userId !== userId) {
         res.status(404).json({ message: "Not found" });
@@ -507,12 +526,8 @@ export async function registerRoutes(
     res.status(200).json({ message: "Restored" });
   });
 
-  app.post("/api/trash/restore/note/:id", async (req, res) => {
-    const userId = req.session.userId;
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.post("/api/trash/restore/note/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
     const note = await storage.getNote(req.params.id);
     if (!note || note.userId !== userId) {
         res.status(404).json({ message: "Not found" });
@@ -522,12 +537,8 @@ export async function registerRoutes(
     res.status(200).json({ message: "Restored" });
   });
 
-  app.delete("/api/trash/folder/:id", async (req, res) => {
-    const userId = req.session.userId;
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.delete("/api/trash/folder/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
     const folder = await storage.getFolder(req.params.id);
     if (!folder || folder.userId !== userId) {
         res.status(404).json({ message: "Not found" });
@@ -537,12 +548,8 @@ export async function registerRoutes(
     res.status(204).end();
   });
 
-  app.delete("/api/trash/note/:id", async (req, res) => {
-    const userId = req.session.userId;
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.delete("/api/trash/note/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
     const note = await storage.getNote(req.params.id);
     if (!note || note.userId !== userId) {
         res.status(404).json({ message: "Not found" });

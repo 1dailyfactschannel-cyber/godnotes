@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useAuthContext } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,7 +10,8 @@ import { Logo } from '@/components/Logo';
 import { useToast } from '@/hooks/use-toast';
 
 export default function LoginPage() {
-  const { theme, checkAuth, login, register, resetPassword } = useFileSystem();
+  const { login, register, resetPassword } = useAuthContext();
+  const [theme] = useState('obsidian-dark'); // Temporary theme setting
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

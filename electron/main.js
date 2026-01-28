@@ -353,9 +353,10 @@ if (!gotTheLock) {
        const indexPath = path.join(__dirname, '../dist/public/index.html');
        mainWindow.loadFile(indexPath).catch(e => log.error('Failed to load index.html:', e));
     } else {
-       // In dev, load localhost
-       const PORT = process.env.PORT || 5001;
-       loadURLWithRetry(`http://localhost:${PORT}`);
+       // In dev, load localhost with cache busting
+       const PORT = process.env.VITE_PORT || process.env.PORT || 5001;
+       const timestamp = Date.now();
+       loadURLWithRetry(`http://localhost:${PORT}?v=${timestamp}`);
     }
 
     // Open external links in default browser, not Electron
@@ -402,7 +403,7 @@ if (!gotTheLock) {
                  mainWindow.loadURL(fileUrl);
               } else {
                  // Dev mode
-                 const PORT = process.env.PORT || 5001;
+                 const PORT = process.env.VITE_PORT || process.env.PORT || 5001;
                  mainWindow.loadURL(`http://localhost:${PORT}/${internalRoute}`);
               }
           }
@@ -461,7 +462,7 @@ if (!gotTheLock) {
             "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
             "font-src 'self' data: https://fonts.gstatic.com; " +
             "img-src 'self' data: blob: https:; " +
-            "connect-src 'self' https://cloud.appwrite.io https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com https://github.com https://objects.githubusercontent.com https://1.1.1.1 wss:;"
+            "connect-src 'self' http://localhost:5001 https://cloud.appwrite.io https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com https://github.com https://objects.githubusercontent.com https://1.1.1.1 wss:;"
           ]
         }
       });
@@ -575,7 +576,7 @@ if (!gotTheLock) {
         const fileUrl = `file://${indexPath}${internalRoute}`;
         taskWindow.loadURL(fileUrl);
     } else {
-        const PORT = process.env.PORT || 5001;
+        const PORT = process.env.VITE_PORT || process.env.PORT || 5001;
         taskWindow.loadURL(`http://localhost:${PORT}/${internalRoute}`);
     }
     

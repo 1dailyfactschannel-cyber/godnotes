@@ -1,0 +1,30 @@
+{
+  "users": [
+    {
+      "id": "9967c0d7-cd2d-4e17-9898-408f0d05aab8",
+      "email": "test@test.com",
+      "username": null,
+      "password": "$2a$10$.tMre/LRy.BYt3S3JtZKYuxYm5fTbjouYB8zZ1Q.mvEB4BbX4Y6Cq",
+      "name": "Test User",
+      "avatar_url": null,
+      "is_verified": false,
+      "is_active": true,
+      "created_at": "2026-01-27T14:00:13.331Z",
+      "updated_at": "2026-01-27T14:00:13.331Z"
+    },
+    {
+      "id": "22a38dd1-76aa-412a-a6c9-b4f3d8834a17",
+      "email": "11@mail.ru",
+      "username": null,
+      "password": "$2a$10$hOcNkaX/d/meiU9Nf3F7uuN3KsUp/GqCaa/K1hvltoz18.R47z4cO",
+      "name": "выыа",
+      "avatar_url": null,
+      "is_verified": false,
+      "is_active": true,
+      "created_at": "2026-01-27T14:13:52.487Z",
+      "updated_at": "2026-01-27T14:13:52.487Z"
+    }
+  ],
+  "folders": [],
+  "notes": []
+}

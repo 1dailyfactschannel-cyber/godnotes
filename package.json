@@ -13,9 +13,12 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
-    "electron:dev": "concurrently -k \"npm run dev:client\" \"wait-on http://localhost:5001 && cross-env PORT=5001 electron .\"",
+    "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5001 && electron .\"",
     "dist": "npm run build && electron-builder",
-    "build:linux": "npm run build && electron-builder --linux"
+    "build:linux": "npm run build && electron-builder --linux",
+    "build:desktop": "node scripts/build-desktop.js",
+    "dev:full": "concurrently -k \"npm run dev\" \"npm run dev:client\"",
+    "start:full": "node scripts/start-full.js"
   },
   "build": {
     "appId": "com.godnotes.app",
@@ -101,6 +104,7 @@
     "@radix-ui/react-toggle": "^1.1.10",
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@tailwindcss/postcss": "^4.1.18",
     "@tanstack/react-query": "^5.60.5",
     "@tiptap/extension-code-block-lowlight": "^3.15.3",
     "@tiptap/extension-color": "^3.16.0",
@@ -120,6 +124,7 @@
     "@tiptap/react": "^3.15.3",
     "@tiptap/starter-kit": "^3.15.3",
     "@tiptap/suggestion": "^3.15.3",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/turndown": "^5.0.6",
     "@types/uuid": "^10.0.0",
     "appwrite": "^21.5.0",
@@ -142,6 +147,7 @@
     "express": "^4.21.2",
     "express-session": "^1.18.1",
     "input-otp": "^1.4.2",
+    "jsonwebtoken": "^9.0.3",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.545.0",
     "memorystore": "^1.6.7",

@@ -12,6 +12,7 @@
     "manual-transfer": "node manual-transfer.js",
     "normalize": "node normalize-database.js",
     "setup-users": "node setup-users.js",
+    "setup-core": "node setup-core-tables.js",
     "start-app": "cd .. && npm run dev"
   },
   "dependencies": {

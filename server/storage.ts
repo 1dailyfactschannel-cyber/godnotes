@@ -23,6 +23,7 @@ import path from 'path';
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   getFolder(id: string): Promise<Folder | undefined>;
@@ -66,13 +67,25 @@ export class MemStorage implements IStorage {
     );
   }
 
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(
+      (user) => user.email === email,
+    );
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
     const user: User = {
       id,
-      username: insertUser.username,
+      email: insertUser.email,
+      username: insertUser.username ?? null,
       password: insertUser.password,
       name: insertUser.name ?? null,
+      avatar_url: null,
+      is_verified: false,
+      is_active: true,
+      created_at: new Date(),
+      updated_at: new Date(),
     };
     this.users.set(id, user);
     return user;
@@ -601,6 +614,12 @@ class PostgresStorage implements IStorage {
     return rows[0];
   }
 
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    await this.ready;
+    const rows = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
+    return rows[0];
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     await this.ready;
     const id = randomUUID();
@@ -818,6 +837,7 @@ export class ProxyStorage implements IStorage {
   }
 
   async getUser(id: string): Promise<User | undefined> { return this.current.getUser(id); }
+  async getUserByEmail(email: string): Promise<User | undefined> { return this.current.getUserByEmail(email); }
   async getUserByUsername(username: string): Promise<User | undefined> { return this.current.getUserByUsername(username); }
   async createUser(user: InsertUser): Promise<User> { return this.current.createUser(user); }
   async importUser(user: User): Promise<User> { return this.current.importUser(user); }
@@ -864,6 +884,10 @@ function saveStorageConfig(storagePath: string) {
 
 export const storage = new ProxyStorage(
   (() => {
+    console.log('=== STORAGE INITIALIZATION ===');
+    console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+    console.log('Saved storage config:', loadStorageConfig());
+    
     const savedPath = loadStorageConfig();
     if (savedPath) {
       console.log(`Restoring storage path: ${savedPath}`);
@@ -871,6 +895,7 @@ export const storage = new ProxyStorage(
     }
     
     if (process.env.DATABASE_URL) {
+      console.log('Using PostgreSQL storage');
       return new PostgresStorage(process.env.DATABASE_URL);
     }
 

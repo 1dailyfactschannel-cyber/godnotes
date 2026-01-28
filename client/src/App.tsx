@@ -4,8 +4,8 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useFileSystem } from "@/lib/mock-fs";
-import { useEffect, lazy, Suspense } from "react";
+import { useEffect, lazy, Suspense, useState } from "react";
+import { AuthProvider, useAuthContext } from '@/contexts/AuthContext';
 import { getStoreValue } from "@/lib/electron";
 import { UpdateManager } from "@/components/UpdateManager";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -21,7 +21,7 @@ const ResetPasswordPage = lazy(() => import("@/pages/ResetPassword"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function AppRoutes() {
-  const { isAuthenticated } = useFileSystem();
+  const { isAuthenticated } = useAuthContext();
   const [location, setLocation] = useLocation();
 
   useEffect(() => {
@@ -71,7 +71,8 @@ function AppRoutes() {
 }
 
 function App() {
-  const { checkAuth, isAuthChecking, theme } = useFileSystem();
+  const { checkAuth, isAuthChecking } = useAuthContext();
+  const [theme] = useState('obsidian-dark'); // Temporary theme setting
 
   useEffect(() => {
     const root = window.document.body;
@@ -93,20 +94,6 @@ function App() {
 
   useEffect(() => {
     checkAuth();
-
-    // Restore storage path - kept for local preferences if needed, but no backend sync
-    const initStorage = async () => {
-        try {
-            const path = await getStoreValue('storagePath');
-            if (path) {
-                console.log('Restoring storage path:', path);
-                // Backend sync removed as we are using Appwrite
-            }
-        } catch (e) {
-            console.error('Failed to restore storage path', e);
-        }
-    };
-    initStorage();
   }, []);
 
   if (isAuthChecking) {
@@ -114,17 +101,17 @@ function App() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <UpdateManager />
-        <Toaster />
-        <WouterRouter hook={useHashLocation}>
-          <ErrorBoundary>
-            <AppRoutes />
-          </ErrorBoundary>
-        </WouterRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <UpdateManager />
+          <Toaster />
+          <WouterRouter hook={useHashLocation}>
+            <ErrorBoundary>
+              <AppRoutes />
+            </ErrorBoundary>
+          </WouterRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
   );
 }
 

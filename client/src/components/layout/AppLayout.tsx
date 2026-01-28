@@ -22,6 +22,7 @@ import { AIChatSidebar } from '@/components/editor/AIChatSidebar';
 import { useEditorStore } from '@/lib/editor-store';
 import { Search, Hash, ChevronRight, Minimize2, Maximize2, Square, X, Settings, Check, Clock, Star, Trash2, Sidebar, BookOpen, PenLine, FolderOpen, Plus, CheckCircle2, User, ChevronsUpDown, PanelLeft, Calendar as CalendarIcon, ListTodo, Send, Loader2, Unplug, Sparkles, Share2 } from 'lucide-react';
 import { useFileSystem, ThemeType } from '@/lib/mock-fs';
+import { useAuthContext } from '@/contexts/AuthContext';
 import { useTasks } from '@/lib/tasks-store';
 import { cn, isHotkeyMatch } from '@/lib/utils';
 import { GraphView } from '@/components/graph/GraphView';
@@ -51,6 +52,7 @@ import { format } from 'date-fns';
 
 export default function AppLayout() {
   const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs, addFile, isZenMode, toggleZenMode } = useFileSystem();
+  const { isAuthenticated, user } = useAuthContext();
   const { telegramConfig, setTelegramConfig } = useTasks();
   const { isAiSidebarOpen, toggleAiSidebar } = useEditorStore();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -646,13 +648,17 @@ export default function AppLayout() {
                          </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start" className="w-48">
+                         {isAuthenticated && (
                          <DropdownMenuItem onSelect={(e) => {
                            e.preventDefault();
+                           console.log('Профиль clicked, opening dialog');
                            setUserProfileOpen(true);
-                         }}>
+                         }}
+                         className="hover:bg-accent cursor-pointer">
                             <User className="mr-2 h-3.5 w-3.5" />
                             <span>Профиль</span>
                          </DropdownMenuItem>
+                         )}
                          <DropdownMenuSeparator />
                          <DropdownMenuItem onSelect={(e) => {
                            e.preventDefault();
