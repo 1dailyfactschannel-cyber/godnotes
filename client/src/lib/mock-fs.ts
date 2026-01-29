@@ -27,7 +27,7 @@ async function apiRequest(method: string, endpoint: string, body?: any) {
     if (response.status === 401) {
        // Let the caller handle or authService handle it
     }
-    throw new Error(`API Error: ${response.statusText}`);
+    throw new Error(`API Error: ${response.status} ${response.statusText}`);
   }
 
   if (response.status === 204) return null;
@@ -415,13 +415,55 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   fetchFolders: async () => {
-    // Using PostgreSQL storage, folders are loaded via API calls
-    console.log('fetchFolders: Using PostgreSQL storage');
+    // Load folders from API and merge into items
+    if (!get().isAuthenticated || get().isOfflineMode) return;
+    try {
+      const folders = await apiRequest('GET', '/folders');
+      if (!folders) return;
+
+      const mapped: FileSystemItem[] = folders.map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        type: 'folder',
+        parentId: f.parentId || null,
+        createdAt: new Date(f.createdAt).getTime(),
+        updatedAt: f.updatedAt ? new Date(f.updatedAt).getTime() : undefined,
+        isFavorite: !!f.isFavorite,
+        tags: Array.isArray(f.tags) ? f.tags : []
+      }));
+
+      const other = get().items.filter(i => i.type !== 'folder');
+      set({ items: [...mapped, ...other] });
+    } catch (e) {
+      console.error('Failed to fetch folders:', e);
+    }
   },
 
   fetchNotes: async () => {
-    // Using PostgreSQL storage, notes are loaded via API calls
-    console.log('fetchNotes: Using PostgreSQL storage');
+    // Load notes from API and merge into items
+    if (!get().isAuthenticated || get().isOfflineMode) return;
+    try {
+      const notes = await apiRequest('GET', '/notes');
+      if (!notes) return;
+
+      const mapped: FileSystemItem[] = notes.map((n: any) => ({
+        id: n.id,
+        name: n.title,
+        type: 'file',
+        parentId: n.folderId || null,
+        content: n.content,
+        createdAt: new Date(n.createdAt).getTime(),
+        updatedAt: n.updatedAt ? new Date(n.updatedAt).getTime() : undefined,
+        isFavorite: !!n.isFavorite,
+        tags: Array.isArray(n.tags) ? n.tags : [],
+        isPublic: !!n.isPublic
+      }));
+
+      const other = get().items.filter(i => i.type !== 'file');
+      set({ items: [...other, ...mapped] });
+    } catch (e) {
+      console.error('Failed to fetch notes:', e);
+    }
   },
 
   fetchTrash: async () => {
@@ -501,12 +543,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         
         // Only fetch data if we don't have items loaded yet
         const currentState = get();
-        if (currentState.items.length === 0) {
-          console.log('checkAuth: No items loaded, fetching user data');
-          await Promise.all([get().fetchFolders(), get().fetchNotes()]);
-        } else {
-          console.log('checkAuth: Items already loaded, skipping fetch');
-        }
+        console.log('checkAuth: Fetching user data (folders and notes)');
+        await Promise.all([get().fetchFolders(), get().fetchNotes()]);
       } else {
         console.log('checkAuth: No user found, setting unauthenticated');
         set({ isAuthenticated: false, user: null });
@@ -1261,10 +1299,15 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         for (let i = 0; i < filesToSync.length; i += BATCH_SIZE) {
             const batch = filesToSync.slice(i, i + BATCH_SIZE);
             try {
-                // Fetch full content for the batch
-                const notes = await Promise.all(batch.map(f => apiRequest('GET', `/notes/${f.id}`)));
+                // Fetch full content for the batch (tolerant to 404)
+                const results = await Promise.allSettled(batch.map(f => apiRequest('GET', `/notes/${f.id}`)));
 
-                for (const note of notes) {
+                for (const res of results) {
+                    if (res.status !== 'fulfilled') {
+                        console.warn('syncBackground: failed to fetch note in batch', res.reason);
+                        continue;
+                    }
+                    const note = res.value;
                     const file = batch.find(f => f.id === note.id);
                     if (!file) continue;
 
