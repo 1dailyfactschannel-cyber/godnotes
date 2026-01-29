@@ -16,6 +16,8 @@ import jwt from "jsonwebtoken";
 import multer, { type FileFilterCallback } from "multer";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
+import sharp from "sharp";
 
 const JWT_SECRET = "your_very_secure_session_secret_change_this_immediately";
 const JWT_EXPIRES_IN = "24h";
@@ -82,10 +84,10 @@ export async function registerRoutes(
     },
   });
 
-  app.use("/uploads", (await import("express")).default.static(uploadDir));
+  app.use("/uploads", (await import("express")).default.static(uploadDir, { maxAge: "30d", immutable: true }));
 
-  app.post("/api/uploads", (req, res) => {
-    upload.single("file")(req as Request, res, (err) => {
+  app.post("/api/uploads", authenticateToken, async (req, res) => {
+    upload.single("file")(req as Request, res, async (err) => {
       if (err instanceof multer.MulterError) {
         if (err.code === "LIMIT_FILE_SIZE") {
           res
@@ -112,8 +114,53 @@ export async function registerRoutes(
         return;
       }
 
-      const url = `/uploads/${file.filename}`;
-      res.status(201).json({ url });
+      try {
+        const originalPath = file.path;
+        const mime = file.mimetype || "application/octet-stream";
+        const isImage = mime.startsWith("image/");
+        const isGif = mime === "image/gif";
+        const isSvg = mime === "image/svg+xml";
+
+        let finalBuffer: Buffer;
+        let finalExt: string;
+
+        if (isImage && !isGif && !isSvg) {
+          // Optimize to WebP, limit size, strip metadata
+          finalBuffer = await sharp(originalPath)
+            .rotate()
+            .resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true })
+            .webp({ quality: 80 })
+            .toBuffer();
+          finalExt = "webp";
+        } else {
+          // Keep original for GIF/SVG/other types
+          finalBuffer = await fs.promises.readFile(originalPath);
+          const ext = path.extname(file.originalname).toLowerCase();
+          finalExt = ext ? ext.slice(1) : "bin";
+        }
+
+        // Content-addressable name by SHA-256
+        const hash = crypto.createHash("sha256").update(finalBuffer).digest("hex");
+        const finalFilename = `${hash}.${finalExt}`;
+        const finalPath = path.join(uploadDir, finalFilename);
+
+        // Deduplicate: if exists, reuse
+        if (fs.existsSync(finalPath)) {
+          // Remove temp upload
+          try { await fs.promises.unlink(originalPath); } catch {}
+        } else {
+          // Write optimized/deduped file
+          await fs.promises.writeFile(finalPath, finalBuffer);
+          // Remove temp upload
+          try { await fs.promises.unlink(originalPath); } catch {}
+        }
+
+        const url = `/uploads/${finalFilename}`;
+        res.status(201).json({ url });
+      } catch (e) {
+        console.error("Upload processing failed", e);
+        res.status(500).json({ message: "Ошибка обработки файла" });
+      }
     });
   });
 
@@ -515,6 +562,276 @@ export async function registerRoutes(
     const userId = (req as any).userId;
     const favorites = await storage.getFavorites(userId);
     res.json(favorites);
+  });
+
+  app.post("/api/trash/restore/folder/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
+    const folder = await storage.getFolder(req.params.id);
+    if (!folder || folder.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+    }
+    await storage.restoreFolder(req.params.id);
+    res.status(200).json({ message: "Restored" });
+  });
+
+  app.post("/api/trash/restore/note/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
+    const note = await storage.getNote(req.params.id);
+    if (!note || note.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+    }
+    await storage.restoreNote(req.params.id);
+    res.status(200).json({ message: "Restored" });
+  });
+
+  app.delete("/api/trash/folder/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
+    const folder = await storage.getFolder(req.params.id);
+    if (!folder || folder.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+    }
+    await storage.permanentDeleteFolder(req.params.id);
+    res.status(204).end();
+  });
+
+  // Tasks CRUD
+  const serializeTask = (t: any) => ({
+    ...t,
+    createdAt: t.createdAt ? new Date(t.createdAt).getTime() : undefined,
+    updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : undefined,
+    dueDate: t.dueDate ? new Date(t.dueDate).getTime() : undefined,
+  });
+
+  app.get("/api/tasks", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
+    const tasks = await storage.listTasksByUser(userId);
+    res.json(tasks.map(serializeTask));
+  });
+
+  app.post("/api/tasks", authenticateToken, async (req, res, next) => {
+    try {
+      const userId = (req as any).userId;
+      const parsed = insertTaskSchema.parse(req.body);
+      const created = await storage.createTask({
+        userId,
+        content: parsed.content,
+        description: parsed.description,
+        callLink: parsed.callLink,
+        status: parsed.status,
+        parentId: parsed.parentId ?? null,
+        dueDate: typeof parsed.dueDate === 'number' ? new Date(parsed.dueDate) : undefined,
+        notify: parsed.notify,
+        isNotified: parsed.isNotified,
+        priority: parsed.priority,
+        tags: parsed.tags,
+        recurring: parsed.recurring,
+      });
+      res.status(201).json(serializeTask(created));
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid payload", issues: err.issues });
+        return;
+      }
+      next(err);
+    }
+  });
+
+  app.get("/api/tasks/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
+    const task = await storage.getTask(req.params.id);
+    if (!task || task.userId !== userId) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.json(serializeTask(task));
+  });
+
+  app.patch("/api/tasks/:id", authenticateToken, async (req, res, next) => {
+    try {
+      const userId = (req as any).userId;
+      const existing = await storage.getTask(req.params.id);
+      if (!existing || existing.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+      }
+      const parsed = updateTaskSchema.parse(req.body);
+      const updated = await storage.updateTask(req.params.id, {
+        ...parsed,
+        dueDate: typeof parsed.dueDate === 'number' ? new Date(parsed.dueDate) : parsed.dueDate,
+      });
+      res.json(updated ? serializeTask(updated) : undefined);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid payload", issues: err.issues });
+        return;
+      }
+      next(err);
+    }
+  });
+
+  app.delete("/api/tasks/:id", authenticateToken, async (req, res, next) => {
+    try {
+      const userId = (req as any).userId;
+      const existing = await storage.getTask(req.params.id);
+      if (!existing || existing.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+      }
+      await storage.deleteTask(req.params.id);
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.patch("/api/notes/:id/public", authenticateToken, async (req, res, next) => {
+    try {
+      console.log('=== PATCH /api/notes/:id/public DEBUG START ===');
+      console.log('Request params:', req.params);
+      console.log('Request body:', req.body);
+      console.log('User ID from token:', (req as any).userId);
+      
+      const userId = (req as any).userId;
+      const existing = await storage.getNote(req.params.id);
+      console.log('Existing note:', existing ? 'found' : 'not found');
+      
+      if (!existing || existing.userId !== userId) {
+        console.log('Note not found or access denied');
+        res.status(404).json({ message: "Not found" });
+        console.log('=== PATCH /api/notes/:id/public DEBUG END (not found) ===');
+        return;
+      }
+      
+      const { isPublic } = req.body;
+      console.log('isPublic value:', isPublic);
+      
+      if (typeof isPublic !== 'boolean') {
+        console.log('Invalid isPublic type');
+        res.status(400).json({ message: "isPublic must be a boolean" });
+        console.log('=== PATCH /api/notes/:id/public DEBUG END (invalid type) ===');
+        return;
+      }
+      
+      // Update the note with isPublic field
+      console.log('Calling storage.updateNote...');
+      const updated = await storage.updateNote(req.params.id, { isPublic });
+      console.log('Update result:', updated ? 'success' : 'failed');
+      
+      const response = { 
+        message: "Public access updated",
+        isPublic: updated?.isPublic ?? isPublic
+      };
+      
+      console.log('Sending response:', response);
+      res.json(response);
+      console.log('=== PATCH /api/notes/:id/public DEBUG END (success) ===');
+    } catch (err) {
+      console.error('API endpoint error:', err);
+      console.log('=== PATCH /api/notes/:id/public DEBUG END (error) ===');
+      next(err);
+    }
+  });
+
+  return httpServer;
+}
+
+// ... existing code ...
+
+  // Helper: extract upload filenames from text
+  const extractUploadFilenames = (text: string | null | undefined): Set<string> => {
+    const result = new Set<string>();
+    if (!text) return result;
+    const regex = /\/(?:uploads)\/([A-Za-z0-9_-]+\.[A-Za-z0-9]+)/g; // matches /uploads/<hash>.<ext>
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(text)) !== null) {
+      result.add(m[1]);
+    }
+    return result;
+  };
+
+  // Helper: collect referenced filenames across all users
+  const collectAllReferenced = async (): Promise<Set<string>> => {
+    const referenced = new Set<string>();
+    try {
+      const users = await storage.listUsers();
+      for (const user of users) {
+        const notes = await storage.listNotesByUser(user.id);
+        for (const n of notes) {
+          for (const f of extractUploadFilenames(n.content)) referenced.add(f);
+        }
+        const tasks = await storage.listTasksByUser(user.id);
+        for (const t of tasks) {
+          for (const f of extractUploadFilenames(t.content)) referenced.add(f);
+        }
+      }
+    } catch (e) {
+      console.warn('[Uploads] Failed to collect references from storage:', e);
+    }
+    return referenced;
+  };
+
+  app.get('/api/uploads/stats', authenticateToken, async (_req, res) => {
+    try {
+      const allFiles = await fs.promises.readdir(uploadDir);
+      const referenced = await collectAllReferenced();
+
+      let totalSize = 0;
+      let orphanSize = 0;
+      const orphaned: string[] = [];
+
+      for (const filename of allFiles) {
+        const p = path.join(uploadDir, filename);
+        const stat = await fs.promises.stat(p);
+        totalSize += stat.size;
+        if (!referenced.has(filename)) {
+          orphanSize += stat.size;
+          orphaned.push(filename);
+        }
+      }
+
+      res.json({
+        files: allFiles.length,
+        totalSize,
+        referenced: referenced.size,
+        orphaned: orphaned.length,
+        orphanSize,
+        orphanedList: orphaned.slice(0, 200)
+      });
+    } catch (e) {
+      console.error('[Uploads] stats error', e);
+      res.status(500).json({ message: 'Ошибка получения статистики загрузок' });
+    }
+  });
+
+  app.post('/api/uploads/cleanup', authenticateToken, async (req, res) => {
+    const { dryRun = true } = req.body || {};
+    try {
+      const allFiles = await fs.promises.readdir(uploadDir);
+      const referenced = await collectAllReferenced();
+      const orphaned = allFiles.filter((f) => !referenced.has(f));
+
+      if (dryRun) {
+        return res.json({ deleted: 0, candidates: orphaned });
+      }
+
+      let deleted = 0;
+      for (const filename of orphaned) {
+        const p = path.join(uploadDir, filename);
+        try {
+          await fs.promises.unlink(p);
+          deleted++;
+        } catch (e) {
+          console.warn('[Uploads] Failed to delete', filename, e);
+        }
+      }
+      res.json({ deleted });
+    } catch (e) {
+      console.error('[Uploads] cleanup error', e);
+      res.status(500).json({ message: 'Ошибка очистки загрузок' });
+    }
   });
 
   app.post("/api/trash/restore/folder/:id", authenticateToken, async (req, res) => {

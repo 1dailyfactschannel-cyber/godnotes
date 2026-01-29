@@ -582,9 +582,32 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
         const response = await fetch('/api/uploads', {
           method: 'POST',
           body: formData,
+          headers: (() => {
+            const token = localStorage.getItem('auth_token');
+            return token ? { 'Authorization': `Bearer ${token}` } : {};
+          })()
         });
 
         if (!response.ok) {
+          if (response.status === 413) {
+            toast({
+              variant: "destructive",
+              title: "Файл слишком большой",
+              description: "Максимальный размер файла 50 МБ",
+            });
+          } else if (response.status === 401) {
+            toast({
+              variant: "destructive",
+              title: "Не авторизовано",
+              description: "Пожалуйста, войдите в систему снова",
+            });
+          } else {
+            toast({
+              variant: "destructive",
+              title: `Ошибка загрузки (${response.status})`,
+              description: "Попробуйте позже",
+            });
+          }
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
