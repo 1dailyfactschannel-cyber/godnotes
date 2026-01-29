@@ -115,7 +115,8 @@ export function UserProfileDialog({ open, onOpenChange }: UserProfileDialogProps
 
   if (!user) return null;
 
-  const registeredAt = new Date(user.$createdAt).toLocaleDateString('ru-RU');
+  const registeredAtRaw = (user as any).created_at ?? (user as any).$createdAt;
+  const registeredAt = registeredAtRaw ? new Date(registeredAtRaw).toLocaleDateString('ru-RU') : '';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

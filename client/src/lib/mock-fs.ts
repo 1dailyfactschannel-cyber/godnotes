@@ -86,12 +86,14 @@ export type FileSystemItem = {
   isPublic?: boolean;
 };
 
-export type User = Models.User<Models.Preferences & { 
-  telegram?: string; 
-  telegramChatId?: string;
-  aiConfig?: string;
-  aiCustomConfig?: string;
-}>;
+export type User = AuthUser & {
+  prefs?: {
+    telegram?: string;
+    telegramChatId?: string;
+    aiConfig?: string;
+    aiCustomConfig?: string;
+  };
+};
 
 export type AIConfig = {
   provider: 'openai' | 'anthropic' | 'custom' | 'openrouter';
@@ -177,18 +179,7 @@ interface FileSystemState {
   resetPassword: (email: string) => Promise<void>;
   updateRecovery: (userId: string, secret: string, password: string, passwordAgain: string) => Promise<void>;
   logout: (onSuccess?: () => void) => Promise<void>;
-  clearUserData: () => {
-    set({
-      items: [],
-      trashItems: [],
-      activeFileId: null,
-      openFiles: [],
-      expandedFolders: new Set(),
-      lastCreatedFileId: null,
-      lastCreatedFolderId: null,
-      searchQuery: '',
-    });
-  },
+  clearUserData: () => void;
   togglePin: (id: string) => void;
   toggleFavorite: (id: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => Promise<void>;
@@ -327,7 +318,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       const newPrefs = { ...currentPrefs, ...prefs };
       
       // Store user preferences locally
-      const userSettingsKey = `user_settings_${user.$id}`;
+      const userSettingsKey = `user_settings_${(user as any).id ?? (user as any).$id}`;
       localStorage.setItem(userSettingsKey, JSON.stringify(newPrefs));
       
       // Update local user object
@@ -494,9 +485,14 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       
       if (currentUser) {
         const user = {
-          $id: currentUser.id,
+          id: currentUser.id,
           email: currentUser.email,
           name: currentUser.name,
+          username: currentUser.username,
+          avatar_url: currentUser.avatar_url,
+          is_verified: currentUser.is_verified,
+          is_active: currentUser.is_active,
+          created_at: currentUser.created_at,
           prefs: {},
         };
         
@@ -1464,13 +1460,15 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     
     const res = await authService.login(email, password);
     set({ isAuthenticated: true, user: {
-      $id: res.user.id,
+      id: res.user.id,
       email: res.user.email,
       name: res.user.name,
       username: res.user.username,
-      prefs: {},
-      $createdAt: res.user.created_at,
-      $updatedAt: new Date().toISOString()
+      avatar_url: res.user.avatar_url,
+      is_verified: res.user.is_verified,
+      is_active: res.user.is_active,
+      created_at: res.user.created_at,
+      prefs: {}
     } as unknown as User });
     await get().fetchFolders();
     await get().fetchNotes();
@@ -1483,13 +1481,15 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
      get().clearUserData();
      
      set({ isAuthenticated: true, user: {
-      $id: res.user.id,
+      id: res.user.id,
       email: res.user.email,
       name: res.user.name,
       username: res.user.username,
-      prefs: {},
-      $createdAt: res.user.created_at,
-      $updatedAt: new Date().toISOString()
+      avatar_url: res.user.avatar_url,
+      is_verified: res.user.is_verified,
+      is_active: res.user.is_active,
+      created_at: res.user.created_at,
+      prefs: {}
      } as unknown as User });
      await get().fetchFolders();
      await get().fetchNotes();
@@ -1894,8 +1894,9 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     
     // Clear user settings
     const user = get().user;
-    if (user && user.$id) {
-      const userSettingsKey = `user_settings_${user.$id}`;
+    const uid = (user as any)?.id ?? (user as any)?.$id;
+    if (uid) {
+      const userSettingsKey = `user_settings_${uid}`;
       localStorage.removeItem(userSettingsKey);
       console.log('Removed user settings from localStorage:', userSettingsKey);
     }

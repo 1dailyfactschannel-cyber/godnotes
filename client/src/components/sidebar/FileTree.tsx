@@ -149,12 +149,8 @@ export function FileTree({ items: propItems, searchQuery }: { items?: FileSystem
   };
 
   const handleCreateFolder = () => {
-    const activeItem = storeItems.find(i => i.id === activeFileId);
-    let parentId = null;
-    if (activeItem) {
-      parentId = activeItem.type === 'folder' ? activeItem.id : activeItem.parentId;
-    }
-    addFolder(parentId);
+    // Создаём папку всегда в корне проекта
+    addFolder(null);
   };
 
 
