@@ -21,7 +21,7 @@ const TiptapEditor = lazy(() => import('@/components/editor/TiptapEditor'));
 import { AIChatSidebar } from '@/components/editor/AIChatSidebar';
 import { useEditorStore } from '@/lib/editor-store';
 import { Search, Hash, ChevronRight, Minimize2, Maximize2, Square, X, Settings, Check, Clock, Star, Trash2, Sidebar, BookOpen, PenLine, FolderOpen, Plus, CheckCircle2, User, ChevronsUpDown, PanelLeft, Calendar as CalendarIcon, ListTodo, Send, Loader2, Unplug, Sparkles, Share2 } from 'lucide-react';
-import { useFileSystem, ThemeType } from '@/lib/mock-fs';
+import { useFileSystem, ThemeType } from '@/lib/data-store';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { useTasks } from '@/lib/tasks-store';
 import { cn, isHotkeyMatch } from '@/lib/utils';

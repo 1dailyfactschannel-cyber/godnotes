@@ -28,7 +28,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { useFileSystem, ThemeType, compareItems, FileSystemItem } from "@/lib/mock-fs"
+import { useFileSystem, ThemeType, compareItems, FileSystemItem } from "@/lib/data-store"
 import { DialogProps } from "@radix-ui/react-dialog"
 import { isHotkeyMatch } from "@/lib/utils"
 

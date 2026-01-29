@@ -7,6 +7,8 @@ import {
   updateFolderSchema,
   insertNoteSchema,
   updateNoteSchema,
+  insertTaskSchema,
+  updateTaskSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -546,6 +548,96 @@ export async function registerRoutes(
     }
     await storage.permanentDeleteFolder(req.params.id);
     res.status(204).end();
+  });
+
+  // Tasks CRUD
+  const serializeTask = (t: any) => ({
+    ...t,
+    createdAt: t.createdAt ? new Date(t.createdAt).getTime() : undefined,
+    updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : undefined,
+    dueDate: t.dueDate ? new Date(t.dueDate).getTime() : undefined,
+  });
+
+  app.get("/api/tasks", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
+    const tasks = await storage.listTasksByUser(userId);
+    res.json(tasks.map(serializeTask));
+  });
+
+  app.post("/api/tasks", authenticateToken, async (req, res, next) => {
+    try {
+      const userId = (req as any).userId;
+      const parsed = insertTaskSchema.parse(req.body);
+      const created = await storage.createTask({
+        userId,
+        content: parsed.content,
+        description: parsed.description,
+        callLink: parsed.callLink,
+        status: parsed.status,
+        parentId: parsed.parentId ?? null,
+        dueDate: typeof parsed.dueDate === 'number' ? new Date(parsed.dueDate) : undefined,
+        notify: parsed.notify,
+        isNotified: parsed.isNotified,
+        priority: parsed.priority,
+        tags: parsed.tags,
+        recurring: parsed.recurring,
+      });
+      res.status(201).json(serializeTask(created));
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid payload", issues: err.issues });
+        return;
+      }
+      next(err);
+    }
+  });
+
+  app.get("/api/tasks/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
+    const task = await storage.getTask(req.params.id);
+    if (!task || task.userId !== userId) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.json(serializeTask(task));
+  });
+
+  app.patch("/api/tasks/:id", authenticateToken, async (req, res, next) => {
+    try {
+      const userId = (req as any).userId;
+      const existing = await storage.getTask(req.params.id);
+      if (!existing || existing.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+      }
+      const parsed = updateTaskSchema.parse(req.body);
+      const updated = await storage.updateTask(req.params.id, {
+        ...parsed,
+        dueDate: typeof parsed.dueDate === 'number' ? new Date(parsed.dueDate) : parsed.dueDate,
+      });
+      res.json(updated ? serializeTask(updated) : undefined);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid payload", issues: err.issues });
+        return;
+      }
+      next(err);
+    }
+  });
+
+  app.delete("/api/tasks/:id", authenticateToken, async (req, res, next) => {
+    try {
+      const userId = (req as any).userId;
+      const existing = await storage.getTask(req.params.id);
+      if (!existing || existing.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+      }
+      await storage.deleteTask(req.params.id);
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
   });
 
   app.patch("/api/notes/:id/public", authenticateToken, async (req, res, next) => {

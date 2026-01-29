@@ -93,3 +93,57 @@ export type InsertNote = {
   tags?: string[];
 };
 export type UpdateNote = z.infer<typeof updateNoteSchema>;
+
+export const tasks = pgTable("tasks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  content: text("content").notNull(),
+  description: text("description"),
+  callLink: text("call_link"),
+  isCompleted: boolean("is_completed").default(false).notNull(),
+  status: text("status"),
+  parentId: varchar("parent_id"),
+  dueDate: timestamp("due_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  notify: boolean("notify").default(false).notNull(),
+  isNotified: boolean("is_notified").default(false).notNull(),
+  priority: text("priority").default("medium").notNull(),
+  tags: text("tags").array().default(sql`ARRAY[]::text[]`).notNull(),
+  recurring: text("recurring"),
+});
+
+export const insertTaskSchema = z.object({
+  content: z.string().min(1),
+  description: z.string().optional(),
+  callLink: z.string().optional(),
+  status: z.string().optional(),
+  parentId: z.string().nullable().optional(),
+  dueDate: z.number().optional(),
+  notify: z.boolean().optional(),
+  isNotified: z.boolean().optional(),
+  priority: z.enum(["high", "medium", "low"]).optional(),
+  tags: z.array(z.string()).optional(),
+  recurring: z.enum(["daily", "weekly", "monthly", "yearly"]).optional(),
+});
+
+export const updateTaskSchema = insertTaskSchema.partial().extend({
+  isCompleted: z.boolean().optional(),
+});
+
+export type Task = typeof tasks.$inferSelect;
+export type InsertTask = {
+  userId: string;
+  content: string;
+  description?: string;
+  callLink?: string;
+  status?: string;
+  parentId?: string | null;
+  dueDate?: Date | null;
+  notify?: boolean;
+  isNotified?: boolean;
+  priority?: "high" | "medium" | "low";
+  tags?: string[];
+  recurring?: "daily" | "weekly" | "monthly" | "yearly";
+};
+export type UpdateTask = z.infer<typeof updateTaskSchema>;

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useTasks, Task, Priority, RecurringInterval } from '@/lib/tasks-store';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -366,8 +366,14 @@ export const TaskItem = ({ task, level = 0, hideExternalButton = false }: { task
   );
 };
 
-export default function Todo() {
-  const { tasks, addTask, viewMode, setViewMode } = useTasks();
+export default function TodoPage() {
+  const { toggleTask, deleteTask, addTask, setTaskDate, tasks, updateTask, viewMode, setViewMode, loadTasks } = useTasks();
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
+
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [newTaskContent, setNewTaskContent] = useState('');
   const [newTaskDescription, setNewTaskDescription] = useState('');

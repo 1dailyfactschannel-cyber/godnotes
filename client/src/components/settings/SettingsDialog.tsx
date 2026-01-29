@@ -24,7 +24,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Check, CheckCircle2, FolderOpen, Loader2, Plus, Send, Settings, Trash2, Unplug, RefreshCw, HelpCircle, Bot, Sparkles, Shield, Key, Globe, Cpu, Lock, Unlock, ShieldCheck, ShieldAlert, Fingerprint } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useFileSystem, ThemeType } from '@/lib/mock-fs';
+import { useFileSystem, ThemeType } from '@/lib/data-store';
 import { useTasks } from '@/lib/tasks-store';
 import { telegramRequest, selectDirectory, getStoreValue, setStoreValue, isElectron, electron } from '@/lib/electron';
 import { useToast } from '@/hooks/use-toast';

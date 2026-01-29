@@ -3,6 +3,21 @@ import { v4 as uuidv4 } from 'uuid';
 import { persist } from 'zustand/middleware';
 import { addDays, addWeeks, addMonths, addYears } from 'date-fns';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+async function apiRequest(method: string, endpoint: string, body?: any) {
+  const token = localStorage.getItem('auth_token');
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`API Error: ${res.status} ${res.statusText}`);
+  if (res.status === 204) return null;
+  return res.json();
+}
+
 export type Priority = 'high' | 'medium' | 'low';
 export type RecurringInterval = 'daily' | 'weekly' | 'monthly' | 'yearly';
 export type TaskStatus = string; // Changed from union to string for dynamic columns
@@ -54,6 +69,7 @@ interface TasksState {
   addColumn: (title: string) => void;
   updateColumn: (id: string, title: string) => void;
   deleteColumn: (id: string) => void;
+  loadTasks: () => void;
 }
 
 export const useTasks = create<TasksState>()(
@@ -71,136 +87,204 @@ export const useTasks = create<TasksState>()(
         botToken: '',
         chatId: '',
       },
-      addTask: (content, parentId, dueDate, notify = false, description, callLink, priority = 'medium', tags = [], recurring) => set((state) => ({
-        tasks: [
-          ...state.tasks,
-          {
-            id: uuidv4(),
-            content,
-            description,
-            callLink,
-            isCompleted: false,
-            status: 'todo', // Default status
-            parentId,
-            dueDate,
-            createdAt: Date.now(),
-            notify,
-            isNotified: false,
-            priority,
-            tags,
-            recurring
-          },
-        ],
-      })),
-      toggleTask: (id) => set((state) => {
-        const task = state.tasks.find(t => t.id === id);
-        if (!task) return state;
-
+      addTask: (content, parentId, dueDate, notify = false, description, callLink, priority = 'medium', tags = [], recurring) => {
+        const payload: any = {
+          content,
+          description,
+          callLink,
+          status: 'todo',
+          parentId,
+          dueDate,
+          notify,
+          isNotified: false,
+          priority,
+          tags,
+          recurring,
+        };
+        apiRequest('POST', '/tasks', payload)
+          .then((created) => {
+            set((state) => ({
+              tasks: [...state.tasks, created as Task],
+            }));
+          })
+          .catch((err) => console.error('Failed to create task:', err));
+      },
+      toggleTask: (id) => {
+        const state = useTasks.getState();
+        const task = state.tasks.find((t) => t.id === id);
+        if (!task) return;
         const isCompleting = !task.isCompleted;
-        const newStatus = isCompleting ? 'done' : 'todo'; // Sync status
-        let newTasks = [...state.tasks];
+        const newStatus = isCompleting ? 'done' : 'todo';
 
-        // Handle recurring tasks
+        apiRequest('PATCH', `/tasks/${id}`, { isCompleted: isCompleting, status: newStatus })
+          .then((updated) => {
+            set((s) => ({
+              tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+            }));
+          })
+          .catch((err) => console.error('Failed to toggle task:', err));
+
         if (isCompleting && task.recurring && task.dueDate) {
           let nextDate: Date;
           const currentDate = new Date(task.dueDate);
-          
           switch (task.recurring) {
-            case 'daily': nextDate = addDays(currentDate, 1); break;
-            case 'weekly': nextDate = addWeeks(currentDate, 1); break;
-            case 'monthly': nextDate = addMonths(currentDate, 1); break;
-            case 'yearly': nextDate = addYears(currentDate, 1); break;
-            default: nextDate = addDays(currentDate, 1);
+            case 'daily':
+              nextDate = addDays(currentDate, 1);
+              break;
+            case 'weekly':
+              nextDate = addWeeks(currentDate, 1);
+              break;
+            case 'monthly':
+              nextDate = addMonths(currentDate, 1);
+              break;
+            case 'yearly':
+              nextDate = addYears(currentDate, 1);
+              break;
+            default:
+              nextDate = addDays(currentDate, 1);
           }
-
-          const nextTask: Task = {
-            ...task,
-            id: uuidv4(),
-            dueDate: nextDate.getTime(),
-            isCompleted: false,
+          const nextPayload: any = {
+            content: task.content,
+            description: task.description,
+            callLink: task.callLink,
             status: 'todo',
-            createdAt: Date.now(),
+            parentId: task.parentId,
+            dueDate: nextDate.getTime(),
+            notify: task.notify,
             isNotified: false,
-            // Keep recurring on the new task
-            recurring: task.recurring
+            priority: task.priority,
+            tags: task.tags,
+            recurring: task.recurring,
           };
-          
-          newTasks.push(nextTask);
+          apiRequest('POST', '/tasks', nextPayload)
+            .then((created) => {
+              set((s) => ({ tasks: [...s.tasks, created as Task] }));
+            })
+            .catch((err) => console.error('Failed to create next recurring task:', err));
         }
-
-        return {
-          tasks: newTasks.map((t) =>
-            t.id === id ? { ...t, isCompleted: isCompleting, status: newStatus } : t
-          ),
-        };
-      }),
-      deleteTask: (id) => set((state) => ({
-        tasks: state.tasks.filter((t) => t.id !== id && t.parentId !== id),
-      })),
-      updateTask: (id, updates) => set((state) => ({
-        tasks: state.tasks.map((t) =>
-          t.id === id ? { ...t, ...updates } : t
-        ),
-      })),
-      moveTask: (id, status) => set((state) => ({
-        tasks: state.tasks.map((t) =>
-          t.id === id ? { ...t, status, isCompleted: status === 'done' } : t
-        ),
-      })),
-      setTaskDate: (id, date) => set((state) => ({
-        tasks: state.tasks.map((t) =>
-          t.id === id ? { ...t, dueDate: date } : t
-        ),
-      })),
-      toggleNotify: (id) => set((state) => ({
-        tasks: state.tasks.map((t) =>
-          t.id === id ? { ...t, notify: !t.notify } : t
-        ),
-      })),
-      markNotified: (id) => set((state) => ({
-        tasks: state.tasks.map((t) =>
-          t.id === id ? { ...t, isNotified: true } : t
-        ),
-      })),
-      setTelegramConfig: (config) => set(() => ({
-        telegramConfig: config,
-      })),
-      setColumnOrder: (order) => set(() => ({
-        columnOrder: order,
-      })),
-      setViewMode: (mode) => set(() => ({
-        viewMode: mode,
-      })),
-      addColumn: (title) => set((state) => {
+      },
+      deleteTask: (id) => {
+        const current = useTasks.getState();
+        const children = current.tasks.filter((t) => t.parentId === id).map((t) => t.id);
+        apiRequest('DELETE', `/tasks/${id}`)
+          .then(() => {
+            set((state) => ({
+              tasks: state.tasks.filter((t) => t.id !== id && t.parentId !== id),
+            }));
+            children.forEach((childId) => {
+              apiRequest('DELETE', `/tasks/${childId}`).catch(() => {});
+            });
+          })
+          .catch((err) => console.error('Failed to delete task:', err));
+      },
+      updateTask: (id, updates) => {
+        apiRequest('PATCH', `/tasks/${id}`, updates)
+          .then((updated) => {
+            set((state) => ({
+              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+            }));
+          })
+          .catch((err) => console.error('Failed to update task:', err));
+      },
+      moveTask: (id, status) => {
+        const isCompleted = status === 'done';
+        apiRequest('PATCH', `/tasks/${id}`, { status, isCompleted })
+          .then((updated) => {
+            set((state) => ({
+              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+            }));
+          })
+          .catch((err) => console.error('Failed to move task:', err));
+      },
+      setTaskDate: (id, date) => {
+        apiRequest('PATCH', `/tasks/${id}`, { dueDate: date })
+          .then((updated) => {
+            set((state) => ({
+              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+            }));
+          })
+          .catch((err) => console.error('Failed to set task date:', err));
+      },
+      toggleNotify: (id) => {
+        const current = useTasks.getState();
+        const task = current.tasks.find((t) => t.id === id);
+        if (!task) return;
+        apiRequest('PATCH', `/tasks/${id}`, { notify: !task.notify })
+          .then((updated) => {
+            set((state) => ({
+              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+            }));
+          })
+          .catch((err) => console.error('Failed to toggle notify:', err));
+      },
+      markNotified: (id) => {
+        apiRequest('PATCH', `/tasks/${id}`, { isNotified: true })
+          .then((updated) => {
+            set((state) => ({
+              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+            }));
+          })
+          .catch((err) => console.error('Failed to mark notified:', err));
+      },
+      setTelegramConfig: (config) => {
+        set(() => ({
+          telegramConfig: config,
+        }));
+      },
+      setColumnOrder: (order) => {
+        set(() => ({
+          columnOrder: order,
+        }));
+      },
+      setViewMode: (mode) => {
+        set(() => ({
+          viewMode: mode,
+        }));
+      },
+      addColumn: (title) => {
         const newId = uuidv4();
+        const state = useTasks.getState();
         const currentColumns = state.columns || [
           { id: 'todo', title: 'Нужно сделать' },
           { id: 'in_progress', title: 'В процессе' },
-          { id: 'done', title: 'Готово' }
+          { id: 'done', title: 'Готово' },
         ];
-        const currentOrder = state.columnOrder || currentColumns.map(c => c.id);
-        
-        return {
+        const currentOrder = state.columnOrder || currentColumns.map((c) => c.id);
+
+        set(() => ({
           columns: [...currentColumns, { id: newId, title }],
-          columnOrder: [...currentOrder, newId]
-        };
-      }),
-      updateColumn: (id, title) => set((state) => ({
-        columns: (state.columns || []).map(c => c.id === id ? { ...c, title } : c)
-      })),
-      deleteColumn: (id) => set((state) => {
-        const fallbackColumn = state.columns.find(c => c.id !== id)?.id || 'todo';
-        return {
-          columns: state.columns.filter(c => c.id !== id),
-          columnOrder: (state.columnOrder || []).filter(cId => cId !== id),
-          tasks: state.tasks.map(t => t.status === id ? { ...t, status: fallbackColumn } : t)
-        };
-      }),
+          columnOrder: [...currentOrder, newId],
+        }));
+      },
+      updateColumn: (id, title) => {
+        set((state) => ({
+          columns: (state.columns || []).map((c) => (c.id === id ? { ...c, title } : c)),
+        }));
+      },
+      deleteColumn: (id) => {
+        set((state) => {
+          const fallbackColumn = state.columns.find((c) => c.id !== id)?.id || 'todo';
+          return {
+            columns: state.columns.filter((c) => c.id !== id),
+            columnOrder: (state.columnOrder || []).filter((cId) => cId !== id),
+            tasks: state.tasks.map((t) => (t.status === id ? { ...t, status: fallbackColumn } : t)),
+          };
+        });
+      },
+      loadTasks: () => {
+        apiRequest('GET', '/tasks')
+          .then((tasks) => {
+            set(() => ({ tasks }));
+          })
+          .catch((err) => console.error('Failed to load tasks:', err));
+      },
     }),
     {
       name: 'godnotes-tasks', // unique name
       partialize: (state) => ({
-        ...state,
+        columns: state.columns,
+        columnOrder: state.columnOrder,
+        viewMode: state.viewMode,
         telegramConfig: {
           ...state.telegramConfig,
           botToken: '', // Don't persist botToken
@@ -215,6 +299,9 @@ export const useTasks = create<TasksState>()(
            ];
            state.columnOrder = ['todo', 'in_progress', 'done'];
         }
+        try {
+          useTasks.getState().loadTasks();
+        } catch {}
       }
     }
   )

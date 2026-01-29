@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { FileIcon, FolderIcon, RefreshCw, Trash2, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { useFileSystem, FileSystemItem } from '@/lib/mock-fs';
+import { useFileSystem, FileSystemItem } from '@/lib/data-store';
 import { useEffect, useState } from 'react';
 
 interface TrashDialogProps {

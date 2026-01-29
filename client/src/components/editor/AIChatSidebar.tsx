@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from '@/lib/utils';
 import { useEditorStore } from '@/lib/editor-store';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useFileSystem } from '@/lib/data-store';
 import { generateText } from '@/lib/ai-service';
 import { toast } from '@/hooks/use-toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useFileSystem } from '@/lib/data-store';
 import { useAuthContext } from "@/contexts/AuthContext";
 import { cn } from '@/lib/utils';
 import { useLocation } from 'wouter';

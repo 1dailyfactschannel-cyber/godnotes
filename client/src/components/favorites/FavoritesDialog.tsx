@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { File, Folder, StarOff } from 'lucide-react';
-import { useFileSystem, FileSystemItem } from '@/lib/mock-fs';
+import { useFileSystem, FileSystemItem } from '@/lib/data-store';
 import { cn } from '@/lib/utils';
 
 interface FavoritesDialogProps {

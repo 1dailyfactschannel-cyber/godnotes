@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useFileSystem, FileSystemItem } from "@/lib/mock-fs";
+import { useFileSystem, FileSystemItem } from "@/lib/data-store";
 import { Loader2, History, RotateCcw, Plus } from "lucide-react";
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';

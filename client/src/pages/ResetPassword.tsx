@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useFileSystem } from '@/lib/data-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { LogOut, User as UserIcon, Save, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useFileSystem } from "@/lib/mock-fs";
+import { useFileSystem } from "@/lib/data-store";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import { useState, useEffect } from "react";

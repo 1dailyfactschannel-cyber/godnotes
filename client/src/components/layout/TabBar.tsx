@@ -1,5 +1,5 @@
 import { X, FileText, RefreshCw, Check } from 'lucide-react';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useFileSystem } from '@/lib/data-store';
 import { cn } from '@/lib/utils';
 import { MouseEvent, useRef, useEffect, useState } from 'react';
 import {

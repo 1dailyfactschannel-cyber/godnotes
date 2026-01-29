@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useFileSystem } from '@/lib/data-store';
 import { toast } from '@/hooks/use-toast';
 
 interface LockScreenProps {
@@ -17,7 +17,7 @@ export function LockScreen({ noteId, onUnlock }: LockScreenProps) {
 
   const handleUnlock = async () => {
     // If no password configured globally, we assume it's allowed or prompt to set one?
-    // Current logic in mock-fs returns true if no password set.
+    // Current logic in data-store returns true if no password set.
     const success = await unlockNote(noteId, password);
     if (success) {
       if (onUnlock) onUnlock();

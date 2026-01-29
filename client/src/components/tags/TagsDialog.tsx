@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useFileSystem } from "@/lib/mock-fs";
+import { useFileSystem } from "@/lib/data-store";
 import { X, Plus, Tag } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";

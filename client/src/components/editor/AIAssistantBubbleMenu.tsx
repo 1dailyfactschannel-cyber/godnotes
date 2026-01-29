@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Loader2, Sparkles, Check, X, RefreshCw, Wand2, Plus } from 'lucide-react';
 import { generateText } from '@/lib/ai-service';
 import { toast } from '@/hooks/use-toast';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useFileSystem } from '@/lib/data-store';
 import { cn } from '@/lib/utils';
 
 interface AIAssistantBubbleMenuProps {

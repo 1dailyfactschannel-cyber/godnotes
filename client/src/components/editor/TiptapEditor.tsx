@@ -62,7 +62,7 @@ import { DiffControl } from '@/components/editor/DiffControl';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { useEffect, useCallback, useRef, useState } from 'react';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useFileSystem } from '@/lib/data-store';
 import { cn, isHotkeyMatch } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { 

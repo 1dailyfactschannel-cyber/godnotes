@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { FolderOpen, Sparkles, Shield, BookOpen, Rocket, ArrowRight, CheckCircle2, Cloud } from 'lucide-react';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useFileSystem } from '@/lib/data-store';
 import { selectDirectory, setStoreValue, getStoreValue, isElectron } from '@/lib/electron';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';

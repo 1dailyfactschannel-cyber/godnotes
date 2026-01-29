@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
-import { useFileSystem } from '@/lib/mock-fs';
+import { useFileSystem } from '@/lib/data-store';
 import { Button } from '@/components/ui/button';
 import { X, ZoomIn, ZoomOut, Maximize2, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';

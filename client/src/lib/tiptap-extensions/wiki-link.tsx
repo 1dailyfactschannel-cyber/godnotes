@@ -5,7 +5,7 @@ import tippy, { Instance as TippyInstance } from 'tippy.js';
 import { ReactRenderer } from '@tiptap/react';
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { File, Folder } from 'lucide-react';
-import { FileSystemItem } from '@/lib/mock-fs';
+import { FileSystemItem } from '@/lib/data-store';
 
 export const WikiLinkExtension = Extension.create({
   name: 'wikiLink',

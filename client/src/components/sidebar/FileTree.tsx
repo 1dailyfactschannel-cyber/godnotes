@@ -22,7 +22,7 @@ import {
   LockOpen,
   Calendar
 } from 'lucide-react';
-import { useFileSystem, FileSystemItem, SortOrder, compareItems } from '@/lib/mock-fs';
+import { useFileSystem, FileSystemItem, SortOrder, compareItems } from '@/lib/data-store';
 import { cn } from '@/lib/utils';
 import { TagsDialog } from '@/components/tags/TagsDialog';
 import { useToast } from '@/hooks/use-toast';

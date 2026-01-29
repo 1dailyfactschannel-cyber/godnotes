@@ -1,4 +1,4 @@
-import { useFileSystem } from './mock-fs';
+import { useFileSystem } from './data-store';
 
 export interface AIConfig {
   provider: 'openai' | 'anthropic' | 'custom' | 'openrouter';

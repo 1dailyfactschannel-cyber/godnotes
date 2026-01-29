@@ -10,6 +10,10 @@ import {
   users,
   folders,
   notes,
+  type Task,
+  type InsertTask,
+  type UpdateTask,
+  tasks,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -44,17 +48,25 @@ export interface IStorage {
   permanentDeleteFolder(id: string): Promise<void>;
   permanentDeleteNote(id: string): Promise<void>;
   getFavorites(userId: string): Promise<{ folders: Folder[], notes: Note[] }>;
+  // Tasks CRUD
+  getTask(id: string): Promise<Task | undefined>;
+  listTasksByUser(userId: string): Promise<Task[]>;
+  createTask(task: InsertTask): Promise<Task>;
+  updateTask(id: string, task: UpdateTask): Promise<Task | undefined>;
+  deleteTask(id: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
   protected users: Map<string, User>;
   protected folders: Map<string, Folder>;
   protected notes: Map<string, Note>;
+  protected tasksMap: Map<string, Task>;
 
   constructor() {
     this.users = new Map();
     this.folders = new Map();
     this.notes = new Map();
+    this.tasksMap = new Map();
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -284,587 +296,120 @@ export class MemStorage implements IStorage {
   async permanentDeleteNote(id: string): Promise<void> {
     this.notes.delete(id);
   }
-}
 
-export class FileSystemStorage extends MemStorage {
-  private rootPath: string;
-  private metadataPath: string;
-
-  constructor(rootPath: string) {
-    super();
-    this.rootPath = rootPath;
-    this.metadataPath = path.join(rootPath, '.godnotes-metadata.json');
-    this.loadData();
-  }
-
-  private loadData() {
-    try {
-      if (fs.existsSync(this.metadataPath)) {
-        console.log(`[FileSystemStorage] Loading metadata from ${this.metadataPath}`);
-        const data = JSON.parse(fs.readFileSync(this.metadataPath, 'utf-8'));
-        
-        // Restore users
-        if (data.users) {
-          data.users.forEach((u: User) => this.users.set(u.id, u));
-          console.log(`[FileSystemStorage] Loaded ${this.users.size} users`);
-        }
-
-        // Restore folders
-        if (data.folders) {
-          data.folders.forEach((f: Folder) => {
-            f.createdAt = new Date(f.createdAt);
-            f.updatedAt = new Date(f.updatedAt);
-            this.folders.set(f.id, f);
-          });
-        }
-
-        // Restore notes metadata, content is read from files on demand
-        if (data.notes) {
-          data.notes.forEach((n: Note) => {
-            n.createdAt = new Date(n.createdAt);
-            n.updatedAt = new Date(n.updatedAt);
-            // We don't load content here to save memory and startup time
-            // Content will be loaded lazily in getNote
-            this.notes.set(n.id, n);
-          });
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load metadata', err);
-    }
-  }
-
-  private saveData() {
-    try {
-      if (!fs.existsSync(this.rootPath)) {
-        fs.mkdirSync(this.rootPath, { recursive: true });
-      }
-      
-      // Save lightweight metadata (exclude content)
-      const notesMetadata = Array.from(this.notes.values()).map(note => {
-        const { content, ...metadata } = note;
-        return { ...metadata, content: "" }; // Clear content in metadata file
-      });
-
-      const data = {
-        users: Array.from(this.users.values()),
-        folders: Array.from(this.folders.values()),
-        notes: notesMetadata
-      };
-      
-      // Debug: check if deleted items are being saved
-      const deletedNotes = data.notes.filter(n => n.isDeleted).length;
-      const deletedFolders = data.folders.filter(f => f.isDeleted).length;
-      console.log(`[FileSystemStorage] Saving metadata. Deleted: ${deletedFolders} folders, ${deletedNotes} notes`);
-
-      fs.writeFileSync(this.metadataPath, JSON.stringify(data, null, 2));
-    } catch (err) {
-      console.error('[FileSystemStorage] Failed to save metadata', err);
-    }
-  }
-
-  private getFolderPath(folderId: string | null): string {
-    if (!folderId) return this.rootPath;
-    const folder = this.folders.get(folderId);
-    if (!folder) return this.rootPath;
-    return path.join(this.getFolderPath(folder.parentId), folder.name);
-  }
-
-  private getNotePath(note: Note): string {
-    const folderPath = this.getFolderPath(note.folderId);
-    // Sanitize filename
-    const safeTitle = note.title.replace(/[^a-z0-9а-яё \-_]/gi, '_');
-    return path.join(folderPath, `${safeTitle}.md`);
-  }
-
-  async getNote(id: string): Promise<Note | undefined> {
-    const note = await super.getNote(id);
-    if (note) {
-      // Lazy load content if missing
-      if (!note.content) {
-        try {
-          const filePath = this.getNotePath(note);
-          if (fs.existsSync(filePath)) {
-            console.log(`[FileSystemStorage] Lazy loading content for note ${id}`);
-            note.content = fs.readFileSync(filePath, 'utf-8');
-            // Cache it back in memory for this session
-            this.notes.set(id, note);
-          } else {
-            console.warn(`[FileSystemStorage] File for note ${id} not found at ${filePath}`);
-            // If file is missing but metadata exists, we might want to return a placeholder
-            // or keep it undefined to signal "not loaded"
-            // For now, let's keep it as is, but log it.
-          }
-        } catch (e) {
-          console.error(`[FileSystemStorage] Failed to lazy load note ${id}`, e);
-        }
-      }
-    }
-    return note;
-  }
-
-  async getUser(id: string): Promise<User | undefined> {
-    let user = await super.getUser(id);
-    if (user) return user;
-
-    // Fallback: try to reload from disk just in case
-    console.log(`[FileSystemStorage] User ${id} not found in memory, reloading data...`);
-    this.loadData();
-    user = await super.getUser(id);
-    if (user) {
-        console.log(`[FileSystemStorage] User ${id} found after reload.`);
-    } else {
-        console.log(`[FileSystemStorage] User ${id} still not found after reload.`);
-        // Debug: list all users
-        console.log(`[FileSystemStorage] Available users: ${Array.from(this.users.keys()).join(', ')}`);
-    }
-    return user;
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const user = await super.createUser(insertUser);
-    this.saveData();
-    return user;
-  }
-
-  async importUser(user: User): Promise<User> {
-    console.log(`[FileSystemStorage] Importing user ${user.id} (${user.username})`);
-    const imported = await super.importUser(user);
-    this.saveData();
-    // Verify
-    if (this.users.has(user.id)) {
-        console.log(`[FileSystemStorage] User imported and verified in memory.`);
-    } else {
-        console.error(`[FileSystemStorage] CRITICAL: User NOT found in memory after import!`);
-    }
-    return imported;
-  }
-
-  async createFolder(insertFolder: InsertFolder): Promise<Folder> {
-    const folder = await super.createFolder(insertFolder);
-    const folderPath = this.getFolderPath(folder.id);
-    if (!fs.existsSync(folderPath)) {
-      fs.mkdirSync(folderPath, { recursive: true });
-    }
-    this.saveData();
-    return folder;
-  }
-
-  async createNote(insertNote: InsertNote): Promise<Note> {
-    const note = await super.createNote(insertNote);
-    note.isPublic = false;
-    const filePath = this.getNotePath(note);
-    const folderPath = path.dirname(filePath);
-    if (!fs.existsSync(folderPath)) {
-        fs.mkdirSync(folderPath, { recursive: true });
-    }
-    fs.writeFileSync(filePath, note.content);
-    this.saveData();
-    return note;
-  }
-
-  async updateNote(id: string, note: UpdateNote & { isPublic?: boolean }): Promise<Note | undefined> {
-    const oldNote = await this.getNote(id);
-    if (!oldNote) return undefined;
-    
-    // Check if we need to move/rename
-    const oldPath = this.getNotePath(oldNote);
-    
-    const updated = await super.updateNote(id, note);
-    if (!updated) return undefined;
-
-    const newPath = this.getNotePath(updated);
-
-    if (oldPath !== newPath) {
-        if (fs.existsSync(oldPath)) {
-            // Ensure new folder exists
-            const newFolder = path.dirname(newPath);
-            if (!fs.existsSync(newFolder)) fs.mkdirSync(newFolder, { recursive: true });
-            fs.renameSync(oldPath, newPath);
-        }
-    }
-
-    // Write content
-    fs.writeFileSync(newPath, updated.content);
-    this.saveData();
-    return updated;
-  }
-
-  async deleteNote(id: string): Promise<void> {
-    await super.deleteNote(id);
-    this.saveData();
-  }
-
-  async deleteFolder(id: string): Promise<void> {
-    await super.deleteFolder(id);
-    this.saveData();
-  }
-
-  async restoreNote(id: string): Promise<void> {
-    await super.restoreNote(id);
-    this.saveData();
-  }
-
-  async restoreFolder(id: string): Promise<void> {
-    await super.restoreFolder(id);
-    this.saveData();
-  }
-
-  async permanentDeleteNote(id: string): Promise<void> {
-    const note = await this.getNote(id);
-    if (note) {
-        const filePath = this.getNotePath(note);
-        if (fs.existsSync(filePath)) {
-            try {
-                fs.unlinkSync(filePath);
-            } catch (e) {
-                console.error(`[FileSystemStorage] Failed to delete file ${filePath}`, e);
-            }
-        }
-    }
-    await super.permanentDeleteNote(id);
-    this.saveData();
-  }
-
-  async permanentDeleteFolder(id: string): Promise<void> {
-    const folder = await this.getFolder(id);
-    if (folder) {
-         const folderPath = this.getFolderPath(folder.id);
-         if (fs.existsSync(folderPath)) {
-             try {
-                 fs.rmSync(folderPath, { recursive: true, force: true });
-             } catch (e) {
-                 console.error(`[FileSystemStorage] Failed to remove directory ${folderPath}`, e);
-             }
-         }
-    }
-    await super.permanentDeleteFolder(id);
-    this.saveData();
-  }
-}
-
-class PostgresStorage implements IStorage {
-  private pool: Pool;
-  private db;
-  private ready: Promise<void>;
-
-  constructor(connectionString: string) {
-    this.pool = new Pool({ connectionString });
-    this.db = drizzle(this.pool);
-    this.ready = this.init();
-  }
-
-  private async init(): Promise<void> {
-    await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id text PRIMARY KEY,
-        username text UNIQUE NOT NULL,
-        password text NOT NULL
-      );
-    `);
-    await this.pool.query(`
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS name text;
-    `);
-    await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS folders (
-        id text PRIMARY KEY,
-        user_id text NOT NULL,
-        name text NOT NULL,
-        parent_id text,
-        created_at timestamp NOT NULL DEFAULT now(),
-        updated_at timestamp NOT NULL DEFAULT now(),
-        is_deleted boolean NOT NULL DEFAULT false,
-        is_favorite boolean NOT NULL DEFAULT false
-      );
-    `);
-    await this.pool.query(`
-        ALTER TABLE folders ADD COLUMN IF NOT EXISTS is_deleted boolean NOT NULL DEFAULT false;
-    `);
-    await this.pool.query(`
-        ALTER TABLE folders ADD COLUMN IF NOT EXISTS is_favorite boolean NOT NULL DEFAULT false;
-    `);
-    await this.pool.query(`
-        ALTER TABLE folders ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAULT ARRAY[]::text[];
-    `);
-    await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS notes (
-        id text PRIMARY KEY,
-        user_id text NOT NULL,
-        folder_id text,
-        title text NOT NULL,
-        content text NOT NULL,
-        created_at timestamp NOT NULL DEFAULT now(),
-        updated_at timestamp NOT NULL DEFAULT now(),
-        is_deleted boolean NOT NULL DEFAULT false,
-        is_favorite boolean NOT NULL DEFAULT false
-      );
-    `);
-    await this.pool.query(`
-        ALTER TABLE notes ADD COLUMN IF NOT EXISTS is_deleted boolean NOT NULL DEFAULT false;
-    `);
-    await this.pool.query(`
-        ALTER TABLE notes ADD COLUMN IF NOT EXISTS is_favorite boolean NOT NULL DEFAULT false;
-    `);
-  }
-
-  async getUser(id: string): Promise<User | undefined> {
+  // Tasks CRUD (Postgres)
+  async getTask(id: string): Promise<Task | undefined> {
     await this.ready;
-    const rows = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
+    const rows = await this.db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
     return rows[0];
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
+  async listTasksByUser(userId: string): Promise<Task[]> {
     await this.ready;
-    const rows = await this.db.select().from(users).where(eq(users.username, username)).limit(1);
-    return rows[0];
-  }
-
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    await this.ready;
-    const rows = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
-    return rows[0];
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
-    await this.ready;
-    const id = randomUUID();
-    const rows = await this.db.insert(users).values({ id, ...insertUser }).returning();
-    return rows[0];
-  }
-
-  async importUser(user: User): Promise<User> {
-    await this.ready;
-    const rows = await this.db
-      .insert(users)
-      .values(user)
-      .onConflictDoUpdate({
-        target: users.id,
-        set: user,
-      })
-      .returning();
-    return rows[0];
-  }
-
-  async listUsers(): Promise<User[]> {
-    await this.ready;
-    const rows = await this.db.select().from(users);
+    const rows = await this.db.select().from(tasks).where(eq(tasks.userId, userId));
     return rows;
   }
 
-  async getFolder(id: string): Promise<Folder | undefined> {
-    await this.ready;
-    const rows = await this.db
-      .select()
-      .from(folders)
-      .where(eq(folders.id, id))
-      .limit(1);
-    return rows[0];
-  }
-
-  async listFoldersByUser(userId: string): Promise<Folder[]> {
-    await this.ready;
-    const rows = await this.db
-      .select()
-      .from(folders)
-      .where(and(eq(folders.userId, userId), eq(folders.isDeleted, false)));
-    return rows;
-  }
-
-  async createFolder(insertFolder: InsertFolder): Promise<Folder> {
+  async createTask(insertTask: InsertTask): Promise<Task> {
     await this.ready;
     const id = randomUUID();
     const rows = await this.db
-      .insert(folders)
+      .insert(tasks)
       .values({
         id,
-        userId: insertFolder.userId,
-        name: insertFolder.name,
-        parentId: insertFolder.parentId ?? null,
-        isFavorite: insertFolder.isFavorite ?? false,
+        userId: insertTask.userId,
+        content: insertTask.content,
+        description: insertTask.description ?? null,
+        callLink: insertTask.callLink ?? null,
+        isCompleted: false,
+        status: insertTask.status ?? null,
+        parentId: insertTask.parentId ?? null,
+        dueDate: insertTask.dueDate ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        notify: insertTask.notify ?? false,
+        isNotified: insertTask.isNotified ?? false,
+        priority: insertTask.priority ?? 'medium',
+        tags: insertTask.tags ?? [],
+        recurring: insertTask.recurring ?? null,
       })
       .returning();
     return rows[0];
   }
 
-  async updateFolder(id: string, folder: UpdateFolder): Promise<Folder | undefined> {
+  async updateTask(id: string, task: UpdateTask): Promise<Task | undefined> {
     await this.ready;
     const rows = await this.db
-      .update(folders)
+      .update(tasks)
       .set({
-        ...folder,
+        content: task.content,
+        description: task.description ?? null,
+        callLink: task.callLink ?? null,
+        isCompleted: task.isCompleted,
+        status: task.status ?? null,
+        parentId: task.parentId ?? null,
+        dueDate: task.dueDate ?? null,
+        notify: task.notify,
+        isNotified: task.isNotified,
+        priority: task.priority,
+        tags: task.tags,
+        recurring: task.recurring ?? null,
         updatedAt: new Date(),
       })
-      .where(eq(folders.id, id))
+      .where(eq(tasks.id, id))
       .returning();
     return rows[0];
   }
 
-  async deleteFolder(id: string): Promise<void> {
+  async deleteTask(id: string): Promise<void> {
     await this.ready;
-    await this.db.update(folders).set({ isDeleted: true, updatedAt: new Date() }).where(eq(folders.id, id));
-    
-    // Cascade soft delete children
-    const childrenFolders = await this.db.select().from(folders).where(eq(folders.parentId, id));
-    for (const child of childrenFolders) {
-      await this.deleteFolder(child.id);
-    }
-    
-    const childrenNotes = await this.db.select().from(notes).where(eq(notes.folderId, id));
-    for (const child of childrenNotes) {
-      await this.deleteNote(child.id);
-    }
+    await this.db.delete(tasks).where(eq(tasks.id, id));
   }
+ }
 
-  async getNote(id: string): Promise<Note | undefined> {
-    await this.ready;
-    const rows = await this.db
-      .select()
-      .from(notes)
-      .where(eq(notes.id, id))
-      .limit(1);
-    return rows[0];
-  }
+ export class ProxyStorage implements IStorage {
+   private current: IStorage;
 
-  async listNotesByUser(userId: string): Promise<Note[]> {
-    await this.ready;
-    const rows = await this.db
-      .select()
-      .from(notes)
-      .where(and(eq(notes.userId, userId), eq(notes.isDeleted, false)));
-    return rows;
-  }
+   constructor(initial: IStorage) {
+     this.current = initial;
+   }
 
-  async createNote(insertNote: InsertNote): Promise<Note> {
-    await this.ready;
-    const id = randomUUID();
-    const rows = await this.db
-      .insert(notes)
-      .values({
-        id,
-        userId: insertNote.userId,
-        title: insertNote.title,
-        content: insertNote.content ?? "",
-        folderId: insertNote.folderId ?? null,
-        isPublic: false,
-      })
-      .returning();
-    return rows[0];
-  }
+   setStorage(storage: IStorage) {
+     this.current = storage;
+   }
 
-  async updateNote(id: string, note: UpdateNote & { isPublic?: boolean }): Promise<Note | undefined> {
-    await this.ready;
-    const rows = await this.db
-      .update(notes)
-      .set({
-        ...note,
-        updatedAt: new Date(),
-      })
-      .where(eq(notes.id, id))
-      .returning();
-    return rows[0];
-  }
+   getBackendName(): string {
+     return this.current.constructor.name;
+   }
 
-  async deleteNote(id: string): Promise<void> {
-    await this.ready;
-    await this.db.update(notes).set({ isDeleted: true, updatedAt: new Date() }).where(eq(notes.id, id));
-  }
-
-  async getTrash(userId: string): Promise<{ folders: Folder[], notes: Note[] }> {
-    await this.ready;
-    const f = await this.db.select().from(folders).where(and(eq(folders.userId, userId), eq(folders.isDeleted, true)));
-    const n = await this.db.select().from(notes).where(and(eq(notes.userId, userId), eq(notes.isDeleted, true)));
-    return { folders: f, notes: n };
-  }
-
-  async getFavorites(userId: string): Promise<{ folders: Folder[], notes: Note[] }> {
-    await this.ready;
-    const f = await this.db.select().from(folders).where(and(eq(folders.userId, userId), eq(folders.isDeleted, false), eq(folders.isFavorite, true)));
-    const n = await this.db.select().from(notes).where(and(eq(notes.userId, userId), eq(notes.isDeleted, false), eq(notes.isFavorite, true)));
-    return { folders: f, notes: n };
-  }
-
-  async restoreFolder(id: string): Promise<void> {
-    await this.ready;
-    await this.db.update(folders).set({ isDeleted: false, updatedAt: new Date() }).where(eq(folders.id, id));
-
-    // Cascade restore children
-    const childrenFolders = await this.db.select().from(folders).where(eq(folders.parentId, id));
-    for (const child of childrenFolders) {
-      await this.restoreFolder(child.id);
-    }
-    
-    const childrenNotes = await this.db.select().from(notes).where(eq(notes.folderId, id));
-    for (const child of childrenNotes) {
-      await this.restoreNote(child.id);
-    }
-  }
-
-  async restoreNote(id: string): Promise<void> {
-    await this.ready;
-    await this.db.update(notes).set({ isDeleted: false, updatedAt: new Date() }).where(eq(notes.id, id));
-  }
-
-  async permanentDeleteFolder(id: string): Promise<void> {
-    await this.ready;
-    
-    // Cascade delete children
-    const childrenFolders = await this.db.select().from(folders).where(eq(folders.parentId, id));
-    for (const child of childrenFolders) {
-      await this.permanentDeleteFolder(child.id);
-    }
-    
-    const childrenNotes = await this.db.select().from(notes).where(eq(notes.folderId, id));
-    for (const child of childrenNotes) {
-      await this.permanentDeleteNote(child.id);
-    }
-
-    await this.db.delete(folders).where(eq(folders.id, id));
-  }
-
-  async permanentDeleteNote(id: string): Promise<void> {
-    await this.ready;
-    await this.db.delete(notes).where(eq(notes.id, id));
-  }
-}
-
-export class ProxyStorage implements IStorage {
-  private current: IStorage;
-
-  constructor(initial: IStorage) {
-    this.current = initial;
-  }
-
-  setStorage(storage: IStorage) {
-    this.current = storage;
-  }
-
-  getBackendName(): string {
-    return this.current.constructor.name;
-  }
-
-  async getUser(id: string): Promise<User | undefined> { return this.current.getUser(id); }
-  async getUserByEmail(email: string): Promise<User | undefined> { return this.current.getUserByEmail(email); }
-  async getUserByUsername(username: string): Promise<User | undefined> { return this.current.getUserByUsername(username); }
-  async createUser(user: InsertUser): Promise<User> { return this.current.createUser(user); }
-  async importUser(user: User): Promise<User> { return this.current.importUser(user); }
-  async listUsers(): Promise<User[]> { return this.current.listUsers(); }
-  async getFolder(id: string): Promise<Folder | undefined> { return this.current.getFolder(id); }
-  async listFoldersByUser(userId: string): Promise<Folder[]> { return this.current.listFoldersByUser(userId); }
-  async createFolder(folder: InsertFolder): Promise<Folder> { return this.current.createFolder(folder); }
-  async updateFolder(id: string, folder: UpdateFolder): Promise<Folder | undefined> { return this.current.updateFolder(id, folder); }
-  async deleteFolder(id: string): Promise<void> { return this.current.deleteFolder(id); }
-  async getNote(id: string): Promise<Note | undefined> { return this.current.getNote(id); }
-  async listNotesByUser(userId: string): Promise<Note[]> { return this.current.listNotesByUser(userId); }
-  async createNote(note: InsertNote): Promise<Note> { return this.current.createNote(note); }
-  async updateNote(id: string, note: UpdateNote): Promise<Note | undefined> { return this.current.updateNote(id, note); }
-  async deleteNote(id: string): Promise<void> { return this.current.deleteNote(id); }
-  async getTrash(userId: string): Promise<{ folders: Folder[], notes: Note[] }> { return this.current.getTrash(userId); }
-  async getFavorites(userId: string): Promise<{ folders: Folder[], notes: Note[] }> { return this.current.getFavorites(userId); }
-  async restoreFolder(id: string): Promise<void> { return this.current.restoreFolder(id); }
-  async restoreNote(id: string): Promise<void> { return this.current.restoreNote(id); }
-  async permanentDeleteFolder(id: string): Promise<void> { return this.current.permanentDeleteFolder(id); }
-  async permanentDeleteNote(id: string): Promise<void> { return this.current.permanentDeleteNote(id); }
-}
+   async getUser(id: string): Promise<User | undefined> { return this.current.getUser(id); }
+   async getUserByEmail(email: string): Promise<User | undefined> { return this.current.getUserByEmail(email); }
+   async getUserByUsername(username: string): Promise<User | undefined> { return this.current.getUserByUsername(username); }
+   async createUser(user: InsertUser): Promise<User> { return this.current.createUser(user); }
+   async importUser(user: User): Promise<User> { return this.current.importUser(user); }
+   async listUsers(): Promise<User[]> { return this.current.listUsers(); }
+   async getFolder(id: string): Promise<Folder | undefined> { return this.current.getFolder(id); }
+   async listFoldersByUser(userId: string): Promise<Folder[]> { return this.current.listFoldersByUser(userId); }
+   async createFolder(folder: InsertFolder): Promise<Folder> { return this.current.createFolder(folder); }
+   async updateFolder(id: string, folder: UpdateFolder): Promise<Folder | undefined> { return this.current.updateFolder(id, folder); }
+   async deleteFolder(id: string): Promise<void> { return this.current.deleteFolder(id); }
+   async getNote(id: string): Promise<Note | undefined> { return this.current.getNote(id); }
+   async listNotesByUser(userId: string): Promise<Note[]> { return this.current.listNotesByUser(userId); }
+   async createNote(note: InsertNote): Promise<Note> { return this.current.createNote(note); }
+   async updateNote(id: string, note: UpdateNote): Promise<Note | undefined> { return this.current.updateNote(id, note); }
+   async deleteNote(id: string): Promise<void> { return this.current.deleteNote(id); }
+   async getTrash(userId: string): Promise<{ folders: Folder[], notes: Note[] }> { return this.current.getTrash(userId); }
+   async getFavorites(userId: string): Promise<{ folders: Folder[], notes: Note[] }> { return this.current.getFavorites(userId); }
+   async restoreFolder(id: string): Promise<void> { return this.current.restoreFolder(id); }
+   async restoreNote(id: string): Promise<void> { return this.current.restoreNote(id); }
+   async permanentDeleteFolder(id: string): Promise<void> { return this.current.permanentDeleteFolder(id); }
+   async permanentDeleteNote(id: string): Promise<void> { return this.current.permanentDeleteNote(id); }
+   async getTask(id: string): Promise<Task | undefined> { return this.current.getTask(id); }
+   async listTasksByUser(userId: string): Promise<Task[]> { return this.current.listTasksByUser(userId); }
+   async createTask(task: InsertTask): Promise<Task> { return this.current.createTask(task); }
+   async updateTask(id: string, task: UpdateTask): Promise<Task | undefined> { return this.current.updateTask(id, task); }
+   async deleteTask(id: string): Promise<void> { return this.current.deleteTask(id); }
+ }
 
 const STORAGE_CONFIG_FILE = path.join(process.cwd(), '.storage-config.json');
 

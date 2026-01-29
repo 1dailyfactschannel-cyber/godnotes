@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTasks, Task, Priority, RecurringInterval } from '@/lib/tasks-store';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Plus, ArrowLeft, LayoutList, CalendarDays, Clock, Phone, Flame, Zap, Coffee, Tag, X } from 'lucide-react';
@@ -46,7 +46,7 @@ const PriorityIcon = ({ priority, className }: { priority?: Priority, className?
 export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'month' | 'day'>('month');
-  const { tasks, addTask, updateTask, deleteTask } = useTasks();
+  const { tasks, addTask, updateTask, deleteTask, loadTasks } = useTasks();
   const [newTaskContent, setNewTaskContent] = useState('');
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [newTaskCallLink, setNewTaskCallLink] = useState('');
@@ -59,6 +59,10 @@ export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
 
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(monthStart);
