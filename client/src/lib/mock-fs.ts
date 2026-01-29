@@ -188,7 +188,7 @@ interface FileSystemState {
       lastCreatedFolderId: null,
       searchQuery: '',
     });
-  },void;
+  },
   togglePin: (id: string) => void;
   toggleFavorite: (id: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => Promise<void>;
