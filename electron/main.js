@@ -455,6 +455,21 @@ if (!gotTheLock) {
       return { action: 'allow' };
     });
 
+    // Restrict navigation to external origins
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+      try {
+        const devOrigin = `http://localhost:${process.env.VITE_PORT || process.env.PORT || 5001}`;
+        const allowedOrigins = app.isPackaged ? ['file://'] : [devOrigin];
+        const isAllowed = allowedOrigins.some(origin => url.startsWith(origin)) || url.startsWith('file://');
+        if (!isAllowed) {
+          event.preventDefault();
+          shell.openExternal(url);
+        }
+      } catch (e) {
+        event.preventDefault();
+      }
+    });
+
     mainWindow.on('closed', () => {
       mainWindow = null;
     });
@@ -540,19 +555,32 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     // CSP Configuration
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      const cspDev = "default-src 'self' data: blob: http://localhost:* https://api.telegram.org https://fonts.googleapis.com https://fonts.gstatic.com; " +
+                     "script-src 'self' 'unsafe-eval' blob:; " +
+                     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+                     "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+                     "font-src 'self' data: https://fonts.gstatic.com; " +
+                     "img-src 'self' data: blob: https:; " +
+                     "connect-src 'self' http://localhost:* https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com https://github.com https://objects.githubusercontent.com wss:;";
+      const cspProd = "default-src 'self' data: blob: https://api.telegram.org https://fonts.googleapis.com https://fonts.gstatic.com; " +
+                      "script-src 'self' blob:; " +
+                      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+                      "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+                      "font-src 'self' data: https://fonts.gstatic.com; " +
+                      "img-src 'self' data: blob: https:; " +
+                      "connect-src 'self' https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com https://github.com https://objects.githubusercontent.com;";
+      const csp = app.isPackaged ? cspProd : cspDev;
       callback({
         responseHeaders: {
           ...details.responseHeaders,
-          'Content-Security-Policy': [
-            "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://api.telegram.org https://fonts.googleapis.com https://fonts.gstatic.com; " +
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-            "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-            "font-src 'self' data: https://fonts.gstatic.com; " +
-            "img-src 'self' data: blob: https:; " +
-            "connect-src 'self' http://localhost:* https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com https://github.com https://objects.githubusercontent.com https://1.1.1.1 wss:;"
-          ]
+          'Content-Security-Policy': [csp]
         }
       });
+    });
+
+    // Deny all permission requests by default
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      callback(false);
     });
 
     // If we are in production build (bundled), we might need to spawn the server manually.
@@ -684,3 +712,17 @@ if (!gotTheLock) {
     }
   });
 }
+
+// Stat handler for path info (directory/file)
+ipcMain.handle('fs-stat', async (event, targetPath) => {
+  if (!isPathAllowed(targetPath)) {
+    return { success: false, error: 'Access denied: Path not allowed' };
+  }
+  try {
+    const stats = await fs.stat(targetPath);
+    return { success: true, isDirectory: stats.isDirectory() };
+  } catch (error) {
+    log.error('fs-stat error:', error);
+    return { success: false, error: error.message };
+  }
+});

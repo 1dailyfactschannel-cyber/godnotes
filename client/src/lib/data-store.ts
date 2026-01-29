@@ -1,38 +1,17 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
+import { compareItems } from './compare';
+export { compareItems };
+import { apiRequest } from './api';
 
 import { fs, getDocumentsPath, isElectron, selectDirectory, getStoreValue, setStoreValue } from './electron';
+import { persistStateToLocalStorage } from './storage';
+import { setMasterPasswordUtil, checkMasterPasswordUtil, deriveTagsForProtectedState, addUnlockedNote, removeUnlockedNote, type SecurityConfig } from './security';
 import { useTasks } from './tasks-store';
-import { hashPassword } from '@/lib/utils';
 import { authService, type User as AuthUser } from '@/lib/auth-service';
+import { enqueueOffline, processOfflineQueue as processOffline, type OfflineQueueItem } from './offline-queue';
+import { searchGlobalUtility } from './search';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-
-async function apiRequest(method: string, endpoint: string, body?: any) {
-  const token = localStorage.getItem('auth_token');
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  if (!response.ok) {
-    if (response.status === 401) {
-       // Let the caller handle or authService handle it
-    }
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
-  }
-
-  if (response.status === 204) return null;
-  return response.json();
-}
 
 const saveTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -40,36 +19,6 @@ export type ThemeType = 'obsidian-dark' | 'midnight-blue' | 'graphite' | 'light-
 
 export type SortOrder = 'name-asc' | 'name-desc' | 'date-newest' | 'date-oldest';
 
-// Custom equality function to ignore 'content' changes
-export function compareItems(prev: FileSystemItem[], next: FileSystemItem[]) {
-  if (prev === next) return true;
-  if (prev.length !== next.length) return false;
-  
-  for (let i = 0; i < prev.length; i++) {
-    const a = prev[i];
-    const b = next[i];
-    
-    if (a === b) continue;
-    
-    // Check all properties except content
-    if (a.id !== b.id || 
-        a.name !== b.name || 
-        a.type !== b.type || 
-        a.parentId !== b.parentId || 
-        a.isPinned !== b.isPinned || 
-        a.isFavorite !== b.isFavorite || 
-        a.createdAt !== b.createdAt ||
-        a.updatedAt !== b.updatedAt ||
-        a.isPending !== b.isPending) {
-      return false;
-    }
-    
-    // Deep compare tags if needed
-    if (JSON.stringify(a.tags) !== JSON.stringify(b.tags)) return false;
-  }
-  
-  return true;
-}
 
 export type FileSystemItem = {
   id: string;
@@ -105,19 +54,6 @@ export type AIConfig = {
   availableModels?: string[];
 };
 
-export type SecurityConfig = {
-  hashedPassword: string | null;
-};
-
-export type OfflineQueueItem = {
-  id: string;
-  method: 'PATCH' | 'POST' | 'DELETE';
-  endpoint: string;
-  payload?: any;
-  timestamp: number;
-  attempts: number;
-  itemId?: string;
-};
 
 export const DEFAULT_AI_CONFIG: AIConfig = {
   provider: 'openai',
@@ -301,23 +237,16 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   // Вспомогательная функция для сохранения состояния в LocalStorage
   saveToLocalStorage: () => {
     const state = get();
-    localStorage.setItem('localItems', JSON.stringify(state.items));
-    localStorage.setItem('trashItems', JSON.stringify(state.trashItems));
-    localStorage.setItem('activeFileId', state.activeFileId || '');
-    localStorage.setItem('openFiles', JSON.stringify(state.openFiles));
-    localStorage.setItem('expandedFolders', JSON.stringify(Array.from(state.expandedFolders)));
-    localStorage.setItem('sortOrder', state.sortOrder);
-    localStorage.setItem('theme', state.theme);
-    localStorage.setItem('offlineQueue', JSON.stringify(state.offlineQueue));
-    if (isElectron()) {
-      setStoreValue('localItems', state.items);
-      setStoreValue('trashItems', state.trashItems);
-      setStoreValue('activeFileId', state.activeFileId || '');
-      setStoreValue('openFiles', state.openFiles);
-      setStoreValue('expandedFolders', Array.from(state.expandedFolders));
-      setStoreValue('sortOrder', state.sortOrder);
-      setStoreValue('theme', state.theme);
-    }
+    persistStateToLocalStorage({
+      items: state.items,
+      trashItems: state.trashItems,
+      activeFileId: state.activeFileId || null,
+      openFiles: state.openFiles,
+      expandedFolders: state.expandedFolders,
+      sortOrder: state.sortOrder,
+      theme: state.theme,
+      offlineQueue: state.offlineQueue,
+    });
   },
 
   setStoragePath: (path: string) => {
@@ -338,30 +267,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   enqueueOfflineOp: (op) => {
-    const item: OfflineQueueItem = {
-      id: uuidv4(),
-      method: op.method,
-      endpoint: op.endpoint,
-      payload: op.payload,
-      itemId: op.itemId,
-      timestamp: Date.now(),
-      attempts: 0,
-    };
     set(state => {
-      let q = [...state.offlineQueue];
-      // Коалесцирование PATCH-операций для одного и того же элемента/эндпоинта (content, favorite, pinned, tags, rename, move)
-      if (item.method === 'PATCH' && item.itemId) {
-        const isContentUpdate = !!(item.payload && item.payload.content);
-        const isFavoriteUpdate = !!(item.payload && Object.prototype.hasOwnProperty.call(item.payload, 'isFavorite'));
-        const isPinnedUpdate = !!(item.payload && Object.prototype.hasOwnProperty.call(item.payload, 'isPinned'));
-        const isTagsUpdate = !!(item.payload && Object.prototype.hasOwnProperty.call(item.payload, 'tags'));
-        const isRenameUpdate = !!(item.payload && (Object.prototype.hasOwnProperty.call(item.payload, 'title') || Object.prototype.hasOwnProperty.call(item.payload, 'name')));
-        const isMoveUpdate = !!(item.payload && (Object.prototype.hasOwnProperty.call(item.payload, 'parentId') || Object.prototype.hasOwnProperty.call(item.payload, 'folderId')));
-        if (isContentUpdate || isFavoriteUpdate || isPinnedUpdate || isTagsUpdate || isRenameUpdate || isMoveUpdate) {
-          q = q.filter(i => !(i.method === 'PATCH' && i.itemId === item.itemId && i.endpoint === item.endpoint));
-        }
-      }
-      const newQueue = [...q, item];
+      const newQueue = enqueueOffline(state.offlineQueue, op);
       localStorage.setItem('offlineQueue', JSON.stringify(newQueue));
       return { offlineQueue: newQueue };
     });
@@ -369,25 +276,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   processOfflineQueue: async () => {
     const state = get();
-    if (!state.isAuthenticated || state.isOfflineMode) return;
-    const queue = [...state.offlineQueue];
-    if (queue.length === 0) return;
-
-    const newQueue: OfflineQueueItem[] = [];
-    for (const op of queue) {
-      try {
-        await apiRequest(op.method, op.endpoint, op.payload);
-      } catch (err: any) {
-        if ((err?.message || String(err)).includes('401')) {
-          set({ isAuthenticated: false, user: null });
-          break;
-        }
-        const nextAttempts = (op.attempts || 0) + 1;
-        if (nextAttempts < 5) {
-          newQueue.push({ ...op, attempts: nextAttempts });
-        }
-      }
-    }
+    const newQueue = await processOffline(state.offlineQueue, {
+      isAuthenticated: state.isAuthenticated,
+      isOfflineMode: state.isOfflineMode,
+      onUnauthorized: () => set({ isAuthenticated: false, user: null })
+    });
     set({ offlineQueue: newQueue });
     localStorage.setItem('offlineQueue', JSON.stringify(newQueue));
   },
@@ -1456,41 +1349,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   searchGlobal: async (query: string) => {
-    if (!query) return [];
-    
-    // Client-side search
-    const localResults = get().items.filter(i => 
-       i.type === 'file' && !i.tags?.some(t => t.startsWith('deleted:')) &&
-       (i.name.toLowerCase().includes(query.toLowerCase()) ||
-       (i.content && i.content.toLowerCase().includes(query.toLowerCase())))
-    );
-
-    if (get().isOfflineMode) {
-       return localResults;
-    }
-
-    try {
-       const notes = await apiRequest('GET', '/notes');
-       const matched = notes.filter((n: any) => (n.content && n.content.toLowerCase().includes(query.toLowerCase()))).slice(0, 10);
-
-       const serverItems: FileSystemItem[] = matched.map((n: any) => ({
-          id: n.id,
-          name: n.title,
-          type: 'file',
-          parentId: n.folderId || null,
-          content: n.content,
-          createdAt: n.createdAt ? new Date(n.createdAt).getTime() : Date.now(),
-          isFavorite: !!n.isFavorite,
-          tags: n.tags || [],
-       }));
-
-       const serverIds = new Set(serverItems.map(i => i.id));
-       const filteredLocal = localResults.filter(i => !serverIds.has(i.id));
-       
-       return [...serverItems, ...filteredLocal];
-    } catch (e) {
-       return localResults;
-    }
+    return await searchGlobalUtility(query, get);
   },
 
   updateAIConfig: (config) => {
@@ -1516,17 +1375,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
     const newProtectedState = !item.isProtected;
     const oldTags = item.tags || [];
-    let newTags: string[];
-
-    if (newProtectedState) {
-        if (!oldTags.includes('protected')) {
-            newTags = [...oldTags, 'protected'];
-        } else {
-            newTags = oldTags;
-        }
-    } else {
-        newTags = oldTags.filter(t => t !== 'protected');
-    }
+    const newTags = deriveTagsForProtectedState(oldTags, newProtectedState);
 
     // Optimistic update
     set(state => ({
@@ -1548,25 +1397,21 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   setMasterPassword: async (password) => {
-    const hashedPassword = await hashPassword(password);
-    const config = { hashedPassword };
-    localStorage.setItem('securityConfig', JSON.stringify(config));
+    const config = await setMasterPasswordUtil(password);
     set({ securityConfig: config });
     console.log('Master password set, config:', config);
   },
 
   checkMasterPassword: async (password) => {
     const currentHash = get().securityConfig.hashedPassword;
-    if (!currentHash) return true; // No password set
-    const hash = await hashPassword(password);
-    return hash === currentHash;
+    return checkMasterPasswordUtil(password, currentHash);
   },
 
   unlockNote: async (id, password) => {
     const isValid = await get().checkMasterPassword(password);
     if (isValid) {
         set(state => ({
-            unlockedNotes: [...state.unlockedNotes, id]
+            unlockedNotes: addUnlockedNote(state.unlockedNotes, id)
         }));
         return true;
     }
@@ -1575,7 +1420,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   lockNote: (id) => {
     set(state => ({
-        unlockedNotes: state.unlockedNotes.filter(noteId => noteId !== id)
+        unlockedNotes: removeUnlockedNote(state.unlockedNotes, id)
     }));
   },
 

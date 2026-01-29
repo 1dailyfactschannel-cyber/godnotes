@@ -2,21 +2,7 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { persist } from 'zustand/middleware';
 import { addDays, addWeeks, addMonths, addYears } from 'date-fns';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-async function apiRequest(method: string, endpoint: string, body?: any) {
-  const token = localStorage.getItem('auth_token');
-  const headers: HeadersInit = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE_URL}${endpoint}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) throw new Error(`API Error: ${res.status} ${res.statusText}`);
-  if (res.status === 204) return null;
-  return res.json();
-}
+import { apiRequest } from './api';
 
 export type Priority = 'high' | 'medium' | 'low';
 export type RecurringInterval = 'daily' | 'weekly' | 'monthly' | 'yearly';
