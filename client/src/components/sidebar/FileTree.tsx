@@ -379,17 +379,15 @@ const FileTreeRow = memo(({ item, level, onOpenTags, searchQuery, onImportPdf }:
       setIsEditing(true);
       setEditName(item.name);
       
-      // Clear the "last created" flag immediately to prevent re-triggering
       if (isNewFolder) useFileSystem.setState({ lastCreatedFolderId: null });
       if (isNewFile) useFileSystem.setState({ lastCreatedFileId: null });
       
-      // We use a small timeout to ensure focus happens
       setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus();
           inputRef.current.select();
         }
-      }, 50);
+      }, 10);
     }
   }, [item.id, item.type, item.name, lastCreatedFolderId, lastCreatedFileId]);
 
@@ -619,6 +617,9 @@ const FileTreeRow = memo(({ item, level, onOpenTags, searchQuery, onImportPdf }:
           </div>
 
           <div className="flex items-center">
+            {item.isPending && (
+              <span className="mr-1 animate-pulse text-xs text-muted-foreground">создание...</span>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                 <button className={cn(

@@ -59,7 +59,8 @@ export function compareItems(prev: FileSystemItem[], next: FileSystemItem[]) {
         a.isPinned !== b.isPinned || 
         a.isFavorite !== b.isFavorite || 
         a.createdAt !== b.createdAt ||
-        a.updatedAt !== b.updatedAt) {
+        a.updatedAt !== b.updatedAt ||
+        a.isPending !== b.isPending) {
       return false;
     }
     
@@ -84,6 +85,7 @@ export type FileSystemItem = {
   backlinks?: string[];
   isProtected?: boolean;
   isPublic?: boolean;
+  isPending?: boolean;
 };
 
 export type User = AuthUser & {
@@ -105,6 +107,16 @@ export type AIConfig = {
 
 export type SecurityConfig = {
   hashedPassword: string | null;
+};
+
+export type OfflineQueueItem = {
+  id: string;
+  method: 'PATCH' | 'POST' | 'DELETE';
+  endpoint: string;
+  payload?: any;
+  timestamp: number;
+  attempts: number;
+  itemId?: string;
 };
 
 export const DEFAULT_AI_CONFIG: AIConfig = {
@@ -140,6 +152,7 @@ interface FileSystemState {
   isZenMode: boolean;
   lastSavedAt: number | null;
   lastSavedFileId: string | null;
+  offlineQueue: OfflineQueueItem[];
   saveToLocalStorage: () => void;
   setStoragePath: (path: string) => void;
   sessionRefreshInterval: NodeJS.Timeout | null;
@@ -203,6 +216,8 @@ interface FileSystemState {
   createVersion: (id: string) => Promise<void>;
   getVersions: (id: string) => Promise<FileSystemItem[]>;
   restoreVersion: (id: string, content: string) => Promise<void>;
+  enqueueOfflineOp: (op: { method: 'PATCH'|'POST'|'DELETE'; endpoint: string; payload?: any; itemId?: string }) => void;
+  processOfflineQueue: () => Promise<void>;
 }
 
 const initialItems: FileSystemItem[] = [];
@@ -274,6 +289,14 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       return defaults;
     }
   })(),
+  offlineQueue: (() => {
+    try {
+      const saved = localStorage.getItem('offlineQueue');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  })(),
 
   // Вспомогательная функция для сохранения состояния в LocalStorage
   saveToLocalStorage: () => {
@@ -285,6 +308,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     localStorage.setItem('expandedFolders', JSON.stringify(Array.from(state.expandedFolders)));
     localStorage.setItem('sortOrder', state.sortOrder);
     localStorage.setItem('theme', state.theme);
+    localStorage.setItem('offlineQueue', JSON.stringify(state.offlineQueue));
     if (isElectron()) {
       setStoreValue('localItems', state.items);
       setStoreValue('trashItems', state.trashItems);
@@ -304,10 +328,68 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     const newVal = !get().isOfflineMode;
     localStorage.setItem('isOfflineMode', String(newVal));
     set({ isOfflineMode: newVal });
+    if (!newVal) {
+      get().processOfflineQueue();
+    }
   },
 
   toggleZenMode: () => {
     set(state => ({ isZenMode: !state.isZenMode }));
+  },
+
+  enqueueOfflineOp: (op) => {
+    const item: OfflineQueueItem = {
+      id: uuidv4(),
+      method: op.method,
+      endpoint: op.endpoint,
+      payload: op.payload,
+      itemId: op.itemId,
+      timestamp: Date.now(),
+      attempts: 0,
+    };
+    set(state => {
+      let q = [...state.offlineQueue];
+      // Коалесцирование PATCH-операций для одного и того же элемента/эндпоинта (content, favorite, pinned, tags, rename, move)
+      if (item.method === 'PATCH' && item.itemId) {
+        const isContentUpdate = !!(item.payload && item.payload.content);
+        const isFavoriteUpdate = !!(item.payload && Object.prototype.hasOwnProperty.call(item.payload, 'isFavorite'));
+        const isPinnedUpdate = !!(item.payload && Object.prototype.hasOwnProperty.call(item.payload, 'isPinned'));
+        const isTagsUpdate = !!(item.payload && Object.prototype.hasOwnProperty.call(item.payload, 'tags'));
+        const isRenameUpdate = !!(item.payload && (Object.prototype.hasOwnProperty.call(item.payload, 'title') || Object.prototype.hasOwnProperty.call(item.payload, 'name')));
+        const isMoveUpdate = !!(item.payload && (Object.prototype.hasOwnProperty.call(item.payload, 'parentId') || Object.prototype.hasOwnProperty.call(item.payload, 'folderId')));
+        if (isContentUpdate || isFavoriteUpdate || isPinnedUpdate || isTagsUpdate || isRenameUpdate || isMoveUpdate) {
+          q = q.filter(i => !(i.method === 'PATCH' && i.itemId === item.itemId && i.endpoint === item.endpoint));
+        }
+      }
+      const newQueue = [...q, item];
+      localStorage.setItem('offlineQueue', JSON.stringify(newQueue));
+      return { offlineQueue: newQueue };
+    });
+  },
+
+  processOfflineQueue: async () => {
+    const state = get();
+    if (!state.isAuthenticated || state.isOfflineMode) return;
+    const queue = [...state.offlineQueue];
+    if (queue.length === 0) return;
+
+    const newQueue: OfflineQueueItem[] = [];
+    for (const op of queue) {
+      try {
+        await apiRequest(op.method, op.endpoint, op.payload);
+      } catch (err: any) {
+        if ((err?.message || String(err)).includes('401')) {
+          set({ isAuthenticated: false, user: null });
+          break;
+        }
+        const nextAttempts = (op.attempts || 0) + 1;
+        if (nextAttempts < 5) {
+          newQueue.push({ ...op, attempts: nextAttempts });
+        }
+      }
+    }
+    set({ offlineQueue: newQueue });
+    localStorage.setItem('offlineQueue', JSON.stringify(newQueue));
   },
 
   updateUserPrefs: async (prefs) => {
@@ -439,7 +521,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   fetchTrash: async () => {
-    if (!get().isAuthenticated) return;
+    if (!get().isAuthenticated || get().isOfflineMode) return;
     try {
         const trash = await apiRequest('GET', '/trash');
         if (!trash) return;
@@ -502,6 +584,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         const currentState = get();
         console.log('checkAuth: Fetching user data (folders and notes)');
         await Promise.all([get().fetchFolders(), get().fetchNotes()]);
+        await get().processOfflineQueue();
 
         // Validate activeFileId and openFiles
         const state = get();
@@ -716,40 +799,65 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       return;
     }
 
+    // Онлайн-режим: оптимистичное создание
+    const tempId = uuidv4();
+    const createdAt = Date.now();
+
+    set((s) => {
+      const expanded = new Set(s.expandedFolders);
+      expanded.add(tempId);
+      if (effectiveParentId) expanded.add(effectiveParentId);
+      const tempFolder: FileSystemItem = {
+        id: tempId,
+        name,
+        type: 'folder',
+        parentId: effectiveParentId,
+        createdAt,
+        isPending: true,
+      };
+      return {
+        items: [...s.items, tempFolder],
+        expandedFolders: expanded,
+        lastCreatedFolderId: tempId,
+      };
+    });
+    get().saveToLocalStorage();
+
     try {
-        const folder = await apiRequest('POST', '/folders', {
-            name,
-            parentId: effectiveParentId
-        });
-        
-        const newFolder: FileSystemItem = {
-            id: folder.id,
-            name: folder.name,
-            type: 'folder',
-            parentId: folder.parentId,
-            createdAt: new Date(folder.createdAt).getTime(),
-            updatedAt: new Date(folder.updatedAt).getTime(),
-            isFavorite: folder.isFavorite,
-            tags: folder.tags || []
+      const folder = await apiRequest('POST', '/folders', {
+        name,
+        parentId: effectiveParentId
+      });
+
+      set((s) => {
+        const expanded = new Set(s.expandedFolders);
+        const currentTemp = s.items.find(i => i.id === tempId);
+        const serverFolder: FileSystemItem = {
+          id: folder.id,
+          name: currentTemp?.name ?? folder.name,
+          type: 'folder',
+          parentId: folder.parentId,
+          createdAt: new Date(folder.createdAt).getTime(),
+          updatedAt: new Date(folder.updatedAt).getTime(),
+          isFavorite: folder.isFavorite,
+          tags: folder.tags || []
         };
-
-        set((s) => {
-            const expanded = new Set(s.expandedFolders);
-            expanded.add(newFolder.id);
-            if (effectiveParentId) expanded.add(effectiveParentId);
-            
-            return {
-              items: [...s.items, newFolder],
-              expandedFolders: expanded,
-              lastCreatedFolderId: newFolder.id,
-            };
-        });
-        get().saveToLocalStorage();
-
+        const items = s.items.map(i => i.id === tempId ? serverFolder : i);
+        expanded.delete(tempId);
+        expanded.add(serverFolder.id);
+        if (effectiveParentId) expanded.add(effectiveParentId);
+        return {
+          items,
+          expandedFolders: expanded,
+        };
+      });
+      get().saveToLocalStorage();
     } catch (error: any) {
+      // Откат оптимистичного элемента
+      set((s) => ({ items: s.items.filter(i => i.id !== tempId) }));
       console.error('Failed to create folder on server:', error);
       if (error.message?.includes('401')) {
-          set({ isAuthenticated: false, user: null });
+        set({ isAuthenticated: false, user: null });
       }
     }
   },
@@ -791,7 +899,15 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     });
     get().saveToLocalStorage();
 
-    if (!state.isAuthenticated) return;
+    if (!state.isAuthenticated || state.isOfflineMode) {
+      const itemsToDelete = state.items.filter(i => idsToDelete.includes(i.id));
+      for (const it of itemsToDelete) {
+        const collectionId = it.type === 'folder' ? 'folders' : 'notes';
+        const newTags = [...(it.tags || []), deletedTag];
+        get().enqueueOfflineOp({ method: 'PATCH', endpoint: `/${collectionId}/${it.id}`, payload: { tags: newTags }, itemId: it.id });
+      }
+      return;
+    }
 
     try {
       for (const deleteId of idsToDelete) {
@@ -860,7 +976,17 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     });
     get().saveToLocalStorage();
 
-    if (!state.isAuthenticated) return;
+    if (!state.isAuthenticated || state.isOfflineMode) {
+        const itemsToRestore = state.trashItems.filter(i => idsToRestore.includes(i.id));
+        for (const it of itemsToRestore) {
+          if (it.type === 'folder') {
+            get().enqueueOfflineOp({ method: 'POST', endpoint: `/trash/restore/folder/${it.id}`, payload: {}, itemId: it.id });
+          } else {
+            get().enqueueOfflineOp({ method: 'POST', endpoint: `/trash/restore/note/${it.id}`, payload: {}, itemId: it.id });
+          }
+        }
+        return;
+    }
 
     try {
         const itemsToRestore = state.trashItems.filter(i => idsToRestore.includes(i.id));
@@ -894,7 +1020,14 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }));
     get().saveToLocalStorage();
 
-    if (!state.isAuthenticated) return;
+    if (!state.isAuthenticated || state.isOfflineMode) {
+        const itemsToDelete = state.trashItems.filter(i => idsToDelete.includes(i.id));
+        for (const it of itemsToDelete) {
+            const collectionId = it.type === 'folder' ? 'folders' : 'notes';
+            get().enqueueOfflineOp({ method: 'DELETE', endpoint: `/${collectionId}/${it.id}`, payload: {}, itemId: it.id });
+        }
+        return;
+    }
 
     try {
         const itemsToDelete = state.trashItems.filter(i => idsToDelete.includes(i.id));
@@ -919,7 +1052,13 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     set({ trashItems: [] });
     get().saveToLocalStorage();
 
-    if (!state.isAuthenticated) return;
+    if (!state.isAuthenticated || state.isOfflineMode) {
+        for (const it of itemsToDelete) {
+            const collectionId = it.type === 'folder' ? 'folders' : 'notes';
+            get().enqueueOfflineOp({ method: 'DELETE', endpoint: `/${collectionId}/${it.id}`, payload: {}, itemId: it.id });
+        }
+        return;
+    }
 
     try {
         await Promise.all(itemsToDelete.map(item => {
@@ -946,7 +1085,12 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }));
     get().saveToLocalStorage();
 
-    if (!get().isAuthenticated) return;
+    if (!get().isAuthenticated || get().isOfflineMode) {
+      const collectionId = item.type === 'folder' ? 'folders' : 'notes';
+      const payload = item.type === 'folder' ? { name: newName } : { title: newName };
+      get().enqueueOfflineOp({ method: 'PATCH', endpoint: `/${collectionId}/${id}`, payload, itemId: id });
+      return;
+    }
 
     try {
       const collectionId = item.type === 'folder' ? 'folders' : 'notes';
@@ -1013,6 +1157,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
                 set({ syncManifest: manifest });
                 await get().saveSyncManifest();
             }
+        } else {
+            get().enqueueOfflineOp({ method: 'PATCH', endpoint: `/notes/${id}`, payload: { content }, itemId: id });
         }
         set({ lastSavedAt: Date.now(), lastSavedFileId: id });
       } catch (error: any) {
@@ -1226,6 +1372,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       if (state.syncInterval) return;
 
       const interval = setInterval(() => {
+          get().processOfflineQueue();
           get().syncBackground();
       }, 5 * 60 * 1000); // 5 minutes
 
@@ -1472,6 +1619,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     } as unknown as User });
     await get().fetchFolders();
     await get().fetchNotes();
+    await get().processOfflineQueue();
   },
 
   register: async (email, password, name) => {
@@ -1559,9 +1707,37 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
   
   togglePin: (id) => {
+    const item = get().items.find(i => i.id === id);
+    if (!item) return;
+
+    const newIsPinned = !item.isPinned;
+    // Оптимистическое обновление
     set((state) => ({
-      items: state.items.map(i => i.id === id ? { ...i, isPinned: !i.isPinned } : i),
+      items: state.items.map(i => i.id === id ? { ...i, isPinned: newIsPinned } : i),
     }));
+
+    const state = get();
+    if (!state.isAuthenticated || state.isOfflineMode) {
+      const collectionId = item.type === 'folder' ? 'folders' : 'notes';
+      get().enqueueOfflineOp({ method: 'PATCH', endpoint: `/${collectionId}/${id}`, payload: { isPinned: newIsPinned }, itemId: id });
+      return;
+    }
+
+    (async () => {
+      try {
+        const endpoint = item.type === 'folder' ? `/folders/${id}` : `/notes/${id}`;
+        await apiRequest('PATCH', endpoint, { isPinned: newIsPinned });
+      } catch (error: any) {
+        console.error('Failed to toggle pin:', error);
+        if (String(error).includes('401')) {
+          set({ isAuthenticated: false, user: null });
+        }
+        // Откат оптимистичного обновления
+        set((state) => ({
+          items: state.items.map(i => i.id === id ? { ...i, isPinned: !newIsPinned } : i),
+        }));
+      }
+    })();
   },
 
   toggleFavorite: async (id) => {
@@ -1573,7 +1749,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       items: state.items.map(i => i.id === id ? { ...i, isFavorite: !i.isFavorite } : i),
     }));
 
-    if (!get().isAuthenticated) return;
+    if (!get().isAuthenticated || get().isOfflineMode) {
+      const collectionId = item.type === 'folder' ? 'folders' : 'notes';
+      get().enqueueOfflineOp({ method: 'PATCH', endpoint: `/${collectionId}/${id}`, payload: { isFavorite: !item.isFavorite }, itemId: id });
+      return;
+    }
 
     try {
       const endpoint = item.type === 'folder' ? `/folders/${id}` : `/notes/${id}`;
@@ -1600,7 +1780,12 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       items: state.items.map(i => i.id === id ? { ...i, tags } : i),
     }));
 
-    if (!get().isAuthenticated) return;
+    // Offline or unauthenticated: enqueue PATCH and exit
+    if (!get().isAuthenticated || get().isOfflineMode) {
+      const collectionId = item.type === 'folder' ? 'folders' : 'notes';
+      get().enqueueOfflineOp({ method: 'PATCH', endpoint: `/${collectionId}/${id}`, payload: { tags }, itemId: id });
+      return;
+    }
 
     try {
       const collectionId = item.type === 'folder' ? 'folders' : 'notes';
@@ -1647,7 +1832,13 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       items: state.items.map(i => i.id === id ? { ...i, parentId: newParentId } : i),
     }));
 
-    if (!state.isAuthenticated) return;
+    // Offline or unauthenticated: enqueue PATCH and exit
+    if (!state.isAuthenticated || state.isOfflineMode) {
+      const collectionId = item.type === 'folder' ? 'folders' : 'notes';
+      const data = item.type === 'folder' ? { parentId: newParentId } : { folderId: newParentId };
+      get().enqueueOfflineOp({ method: 'PATCH', endpoint: `/${collectionId}/${id}`, payload: data, itemId: id });
+      return;
+    }
 
     try {
       const collectionId = item.type === 'folder' ? 'folders' : 'notes';
@@ -1683,23 +1874,21 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       return null;
     }
     
-    if (!state.isAuthenticated || state.isOfflineMode || !state.user) {
-         console.error('User not authorized:', {
-           isAuthenticated: state.isAuthenticated,
-           isOfflineMode: state.isOfflineMode,
-           user: !!state.user
-         });
-         console.log('=== togglePublic DEBUG END (not authorized) ===');
-         return null;
-    }
-
     const newIsPublic = !item.isPublic;
-    console.log('togglePublic: Setting isPublic to', newIsPublic, 'for item', id);
     
     // Optimistic update
     set((state) => ({
       items: state.items.map(i => i.id === id ? { ...i, isPublic: newIsPublic } : i),
     }));
+
+    if (!state.isAuthenticated || state.isOfflineMode || !state.user) {
+         // Enqueue server patch to be processed later
+         get().enqueueOfflineOp({ method: 'PATCH', endpoint: `/notes/${id}/public`, payload: { isPublic: newIsPublic }, itemId: id });
+         console.log('=== togglePublic DEBUG END (enqueued offline) ===');
+         return null;
+    }
+
+    console.log('togglePublic: Setting isPublic to', newIsPublic, 'for item', id);
 
     try {
         console.log('togglePublic: Updating PostgreSQL database for item', id);

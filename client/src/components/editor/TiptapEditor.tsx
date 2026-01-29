@@ -1774,6 +1774,15 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             value={activeFile.name}
             readOnly={isReadOnly}
             onChange={(e) => useFileSystem.getState().renameItem(activeFile.id, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!isReadOnly) {
+                  editor?.commands.focus('start');
+                }
+              }
+            }}
             className={cn(
               "text-4xl font-bold bg-transparent border-none outline-none w-full mb-4 text-foreground placeholder:text-muted-foreground/30 px-8 transition-all",
               isReadOnly ? "cursor-default select-none" : ""

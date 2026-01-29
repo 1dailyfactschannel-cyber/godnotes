@@ -8,7 +8,7 @@ import {
   DialogFooter
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { FolderOpen, Sparkles, Shield, BookOpen, Rocket, ArrowRight, CheckCircle2, Cloud } from 'lucide-react';
+import { FolderOpen, Sparkles, Shield, BookOpen, Rocket, ArrowRight, CheckCircle2, Cloud, Unplug } from 'lucide-react';
 import { useFileSystem } from '@/lib/data-store';
 import { selectDirectory, setStoreValue, getStoreValue, isElectron } from '@/lib/electron';
 import { toast } from '@/hooks/use-toast';
@@ -19,6 +19,7 @@ export function OnboardingDialog() {
   const [step, setStep] = useState(1);
   const { localDocumentsPath, setStoragePath } = useFileSystem();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [mode, setMode] = useState<'offline' | 'online' | null>(null);
 
   useEffect(() => {
     const checkOnboarding = async () => {
@@ -43,20 +44,44 @@ export function OnboardingDialog() {
   };
 
   const handleComplete = async () => {
-    if (isElectron() && !selectedPath && !localDocumentsPath) {
+    // Обязательный выбор режима
+    if (!mode) {
       toast({ 
-        title: "Выберите папку", 
-        description: "Для работы десктопной версии необходимо выбрать место хранения заметок",
+        title: "Выберите режим", 
+        description: "Пожалуйста, выберите офлайн или онлайн режим, чтобы продолжить",
         variant: "destructive" 
       });
       setStep(2);
       return;
     }
 
+    // Оффлайн недоступен в веб-версии
+    if (mode === 'offline' && !isElectron()) {
+      toast({ 
+        title: "Недоступно в веб-версии", 
+        description: "Оффлайн-режим доступен только в десктопной версии приложения",
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    // Требование: при выборе офлайн-режима необходимо указать локальный путь
+    if (mode === 'offline') {
+      if (isElectron() && !selectedPath && !localDocumentsPath) {
+        toast({ 
+          title: "Выберите папку", 
+          description: "Для офлайн-режима выберите место хранения заметок на вашем компьютере",
+          variant: "destructive" 
+        });
+        setStep(2);
+        return;
+      }
+    }
+
+    // Сохранение выбранного пути и пространств, если путь выбран
     if (selectedPath) {
       await setStoreValue('storagePath', selectedPath);
-      
-      // Also add this to spaces list if it's the first one
+      // Также добавим в список пространств, если оно первое
       const currentSpaces = await getStoreValue('spaces') || [];
       if (currentSpaces.length === 0) {
         const folderName = selectedPath.split(/[/\\]/).pop() || 'Мои заметки';
@@ -66,15 +91,27 @@ export function OnboardingDialog() {
           path: selectedPath 
         }]);
       }
+      // Обновим состояние приложения
+      setStoragePath(selectedPath);
+    }
+
+    // Установка режима использования
+    if (mode === 'offline') {
+      localStorage.setItem('isOfflineMode', 'true');
+      // Обновим Zustand стор напрямую для немедленного эффекта
+      (useFileSystem as any).setState?.({ isOfflineMode: true });
+    } else {
+      // По умолчанию онлайн
+      localStorage.setItem('isOfflineMode', 'false');
+      (useFileSystem as any).setState?.({ isOfflineMode: false });
     }
     
     await setStoreValue('onboardingCompleted', true);
     setIsOpen(false);
     
     if (selectedPath) {
-      // Small delay to ensure store is updated before reload if needed, 
-      // but usually we can just update the app state
-      window.location.reload();
+      // Небольшая задержка, затем перезагрузка для корректной инициализации локального хранилища
+      setTimeout(() => window.location.reload(), 200);
     }
   };
 
@@ -105,66 +142,102 @@ export function OnboardingDialog() {
       )
     },
     {
-      title: "Где хранить ваши знания?",
-      description: isElectron() 
-        ? "Выберите папку на вашем компьютере для синхронизации." 
-        : "Функция выбора локальной папки доступна только в десктопной версии.",
+      title: "Выберите режим использования",
+      description: "Оффлайн — хранение локально, Онлайн — безопасное облако.",
       icon: <FolderOpen className="h-12 w-12 text-primary" />,
-      content: isElectron() ? (
+      content: (
         <div className="space-y-4 py-4">
-          <p className="text-sm text-muted-foreground">
-            В GodNotes используется концепция <strong>Пространств</strong>. Каждое пространство — это папка на вашем диске, 
-            где заметки хранятся в формате Markdown. Это значит, что ваши данные всегда принадлежат вам.
-          </p>
-          
-          <div className={cn(
-            "p-4 rounded-xl border-2 border-dashed transition-all",
-            selectedPath ? "border-primary bg-primary/5" : "border-border bg-secondary/10"
-          )}>
-            {selectedPath ? (
+          <div className="grid grid-cols-2 gap-3">
+            {/* OFFLINE card */}
+            <button
+              type="button"
+              className={cn(
+                "p-4 rounded-xl border bg-secondary/10 text-left transition-all",
+                mode === 'offline' ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-border hover:bg-secondary/20"
+              )}
+              onClick={() => setMode('offline')}
+            >
               <div className="flex items-center gap-3">
-                <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium truncate">{selectedPath}</div>
-                  <div className="text-[10px] text-muted-foreground">Папка выбрана</div>
+                <Unplug className="h-6 w-6 text-primary shrink-0" />
+                <div>
+                  <div className="text-xs font-medium">Оффлайн (локально)</div>
+                  <div className="text-[10px] text-muted-foreground mt-1">Все данные хранятся на вашем диске. Требуется выбор папки.</div>
                 </div>
-                <Button variant="ghost" size="sm" className="h-7 text-[10px]" onClick={handleSelectPath}>
-                  Изменить
-                </Button>
+              </div>
+            </button>
+
+            {/* ONLINE card */}
+            <button
+              type="button"
+              className={cn(
+                "p-4 rounded-xl border bg-secondary/10 text-left transition-all",
+                mode === 'online' ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-border hover:bg-secondary/20"
+              )}
+              onClick={() => setMode('online')}
+            >
+              <div className="flex items-center gap-3">
+                <Cloud className="h-6 w-6 text-primary shrink-0" />
+                <div>
+                  <div className="text-xs font-medium">Онлайн (облако)</div>
+                  <div className="text-[10px] text-muted-foreground mt-1">Безопасное хранение и синхронизация. Можно начать сразу.</div>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          {/* Additional content depending on mode */}
+          {mode === 'offline' ? (
+            isElectron() ? (
+              <div className={cn(
+                "p-4 rounded-xl border-2 border-dashed transition-all",
+                selectedPath ? "border-primary bg-primary/5" : "border-border bg-secondary/10"
+              )}>
+                {selectedPath ? (
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium truncate">{selectedPath}</div>
+                      <div className="text-[10px] text-muted-foreground">Папка выбрана</div>
+                    </div>
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px]" onClick={handleSelectPath}>
+                      Изменить
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-center space-y-3">
+                    <p className="text-xs text-muted-foreground">Нажмите кнопку ниже, чтобы выбрать рабочую директорию</p>
+                    <Button onClick={handleSelectPath} className="gap-2">
+                      <FolderOpen className="h-4 w-4" />
+                      Выбрать папку
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="text-center space-y-3">
-                <p className="text-xs text-muted-foreground">Нажмите кнопку ниже, чтобы выбрать рабочую директорию</p>
-                <Button onClick={handleSelectPath} className="gap-2">
-                  <FolderOpen className="h-4 w-4" />
-                  Выбрать папку
-                </Button>
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                <p className="text-[11px] text-red-400">
+                  Оффлайн-режим доступен только в десктопной версии приложения.
+                </p>
               </div>
-            )}
-          </div>
+            )
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                В веб-версии GodNotes все данные хранятся безопасно в облаке. 
+                Вы можете начать создавать заметки прямо сейчас!
+              </p>
+              <div className="p-4 rounded-xl border-2 border-dashed border-border bg-secondary/10 text-center">
+                <Cloud className="h-8 w-8 text-primary mx-auto mb-2" />
+                <p className="text-xs text-muted-foreground">
+                  Ваши заметки автоматически синхронизируются с облаком
+                </p>
+              </div>
+            </div>
+          )}
+
           <p className="text-[11px] text-muted-foreground italic">
-            * Вы сможете создать дополнительные пространства позже в настройках.
+            * Дополнительные пространства можно создать позже в настройках.
           </p>
-        </div>
-      ) : (
-        <div className="space-y-4 py-4">
-          <p className="text-sm text-muted-foreground">
-            В веб-версии GodNotes все данные хранятся безопасно в облаке. 
-            Вы можете начать создавать заметки прямо сейчас!
-          </p>
-          
-          <div className="p-4 rounded-xl border-2 border-dashed border-border bg-secondary/10 text-center">
-            <Cloud className="h-8 w-8 text-primary mx-auto mb-2" />
-            <p className="text-xs text-muted-foreground">
-              Ваши заметки автоматически синхронизируются с облаком
-            </p>
-          </div>
-          
-          <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-            <p className="text-[11px] text-blue-400">
-              💡 Для работы с локальными файлами и оффлайн-режима загрузите десктопную версию приложения.
-            </p>
-          </div>
         </div>
       )
     },
@@ -258,4 +331,4 @@ export function OnboardingDialog() {
       </DialogContent>
     </Dialog>
   );
-} 
+}
