@@ -575,7 +575,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       setUploadProgress(0);
 
       try {
-        // Use local server upload instead of Appwrite
+        // Use local server upload
         const formData = new FormData();
         formData.append('file', file);
 

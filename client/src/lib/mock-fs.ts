@@ -177,7 +177,18 @@ interface FileSystemState {
   resetPassword: (email: string) => Promise<void>;
   updateRecovery: (userId: string, secret: string, password: string, passwordAgain: string) => Promise<void>;
   logout: (onSuccess?: () => void) => Promise<void>;
-  clearUserData: () => void;
+  clearUserData: () => {
+    set({
+      items: [],
+      trashItems: [],
+      activeFileId: null,
+      openFiles: [],
+      expandedFolders: new Set(),
+      lastCreatedFileId: null,
+      lastCreatedFolderId: null,
+      searchQuery: '',
+    });
+  },void;
   togglePin: (id: string) => void;
   toggleFavorite: (id: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => Promise<void>;
@@ -203,49 +214,19 @@ interface FileSystemState {
   restoreVersion: (id: string, content: string) => Promise<void>;
 }
 
-const initialItems: FileSystemItem[] = [
-  { id: '5', name: 'Добро пожаловать', type: 'file', parentId: null, content: '<h1>Добро пожаловать в заметки</h1><p>Это Godnotes. Вы можете создавать папки, файлы и писать в Markdown.</p><h2>Возможности</h2><ul><li>Полноценный текстовый редактор</li><li>Папки и вложенные файлы</li><li>Темная тема по умолчанию</li><li>Быстрый поиск</li></ul>', createdAt: Date.now(), updatedAt: Date.now(), isPinned: true },
-];
+const initialItems: FileSystemItem[] = [];
 
 export const useFileSystem = create<FileSystemState>((set, get) => ({
-  items: (() => {
-    try {
-      const saved = localStorage.getItem('localItems');
-      return saved ? JSON.parse(saved) : initialItems;
-    } catch {
-      return initialItems;
-    }
-  })(),
-  trashItems: (() => {
-    try {
-      const saved = localStorage.getItem('trashItems');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  })(),
-  activeFileId: localStorage.getItem('activeFileId') || '5',
-  openFiles: (() => {
-    try {
-      const saved = localStorage.getItem('openFiles');
-      return saved ? JSON.parse(saved) : ['5'];
-    } catch {
-      return ['5'];
-    }
-  })(),
-  expandedFolders: (() => {
-    try {
-      const saved = localStorage.getItem('expandedFolders');
-      return saved ? new Set(JSON.parse(saved)) : new Set();
-    } catch {
-      return new Set();
-    }
-  })(),
+  items: initialItems,
+  trashItems: [],
+  activeFileId: null,
+  openFiles: [],
+  expandedFolders: new Set(),
   lastCreatedFileId: null,
   lastCreatedFolderId: null,
   searchQuery: '',
-  sortOrder: (localStorage.getItem('sortOrder') as SortOrder) || 'name-asc',
-  theme: (localStorage.getItem('theme') as ThemeType) || 'obsidian-dark',
+  sortOrder: 'name-asc',
+  theme: 'obsidian-dark',
   // Состояния аутентификации теперь берутся из useAuthContext
   isAuthenticated: false,
   isAuthChecking: true,
@@ -345,7 +326,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       const currentPrefs = user.prefs || {};
       const newPrefs = { ...currentPrefs, ...prefs };
       
-      // Store in localStorage instead of Appwrite
+      // Store user preferences locally
       const userSettingsKey = `user_settings_${user.$id}`;
       localStorage.setItem(userSettingsKey, JSON.stringify(newPrefs));
       
@@ -512,39 +493,30 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       console.log('checkAuth: Current user from authService:', currentUser);
       
       if (currentUser) {
-        // Convert to Appwrite-like user format for compatibility
-        const appwriteUser = {
+        const user = {
           $id: currentUser.id,
           email: currentUser.email,
           name: currentUser.name,
-          username: currentUser.username,
           prefs: {},
-          $createdAt: currentUser.created_at,
-          $updatedAt: new Date().toISOString()
         };
         
-        // Load user preferences from localStorage
-        const userSettingsKey = `user_settings_${currentUser.id}`;
-        try {
-          const savedPrefs = localStorage.getItem(userSettingsKey);
-          if (savedPrefs) {
-            appwriteUser.prefs = JSON.parse(savedPrefs);
-            console.log('Loaded user prefs from localStorage:', appwriteUser.prefs);
-          }
-        } catch (e) {
-          console.warn('Failed to load user prefs from localStorage:', e);
-        }
-        
-        console.log('checkAuth: Setting authenticated user:', appwriteUser);
-        set({ 
-          isAuthenticated: true, 
-          user: appwriteUser as unknown as User 
-        });
+        set({ isAuthenticated: true, user: user as unknown as User });
         
         // Only fetch data if we don't have items loaded yet
         const currentState = get();
         console.log('checkAuth: Fetching user data (folders and notes)');
         await Promise.all([get().fetchFolders(), get().fetchNotes()]);
+
+        // Validate activeFileId and openFiles
+        const state = get();
+        const allIds = new Set(state.items.map(i => i.id));
+        if (state.activeFileId && !allIds.has(state.activeFileId)) {
+          set({ activeFileId: null });
+        }
+        const validOpenFiles = state.openFiles.filter(id => allIds.has(id));
+        if (validOpenFiles.length !== state.openFiles.length) {
+          set({ openFiles: validOpenFiles });
+        }
       } else {
         console.log('checkAuth: No user found, setting unauthenticated');
         set({ isAuthenticated: false, user: null });

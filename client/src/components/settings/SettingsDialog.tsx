@@ -768,7 +768,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-500 group-hover:bg-blue-500/20 transition-colors">
                         <Fingerprint className="h-4 w-4" />
                       </div>
-                      <span className="text-sm font-medium">Пароль аккаунта (Appwrite)</span>
+                      <span className="text-sm font-medium">Пароль аккаунта</span>
                     </div>
 
                     <div className="grid gap-2.5">

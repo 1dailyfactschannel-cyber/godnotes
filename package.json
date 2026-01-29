@@ -16,9 +16,7 @@
     "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5001 && electron .\"",
     "dist": "npm run build && electron-builder",
     "build:linux": "npm run build && electron-builder --linux",
-    "build:desktop": "node scripts/build-desktop.js",
-    "dev:full": "concurrently -k \"npm run dev\" \"npm run dev:client\"",
-    "start:full": "node scripts/start-full.js"
+    "dev:full": "concurrently -k \"npm run dev\" \"npm run dev:client\""
   },
   "build": {
     "appId": "com.godnotes.app",
