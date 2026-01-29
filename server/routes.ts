@@ -548,15 +548,52 @@ export async function registerRoutes(
     res.status(204).end();
   });
 
-  app.delete("/api/trash/note/:id", authenticateToken, async (req, res) => {
-    const userId = (req as any).userId;
-    const note = await storage.getNote(req.params.id);
-    if (!note || note.userId !== userId) {
+  app.patch("/api/notes/:id/public", authenticateToken, async (req, res, next) => {
+    try {
+      console.log('=== PATCH /api/notes/:id/public DEBUG START ===');
+      console.log('Request params:', req.params);
+      console.log('Request body:', req.body);
+      console.log('User ID from token:', (req as any).userId);
+      
+      const userId = (req as any).userId;
+      const existing = await storage.getNote(req.params.id);
+      console.log('Existing note:', existing ? 'found' : 'not found');
+      
+      if (!existing || existing.userId !== userId) {
+        console.log('Note not found or access denied');
         res.status(404).json({ message: "Not found" });
+        console.log('=== PATCH /api/notes/:id/public DEBUG END (not found) ===');
         return;
+      }
+      
+      const { isPublic } = req.body;
+      console.log('isPublic value:', isPublic);
+      
+      if (typeof isPublic !== 'boolean') {
+        console.log('Invalid isPublic type');
+        res.status(400).json({ message: "isPublic must be a boolean" });
+        console.log('=== PATCH /api/notes/:id/public DEBUG END (invalid type) ===');
+        return;
+      }
+      
+      // Update the note with isPublic field
+      console.log('Calling storage.updateNote...');
+      const updated = await storage.updateNote(req.params.id, { isPublic });
+      console.log('Update result:', updated ? 'success' : 'failed');
+      
+      const response = { 
+        message: "Public access updated",
+        isPublic: updated?.isPublic ?? isPublic
+      };
+      
+      console.log('Sending response:', response);
+      res.json(response);
+      console.log('=== PATCH /api/notes/:id/public DEBUG END (success) ===');
+    } catch (err) {
+      console.error('API endpoint error:', err);
+      console.log('=== PATCH /api/notes/:id/public DEBUG END (error) ===');
+      next(err);
     }
-    await storage.permanentDeleteNote(req.params.id);
-    res.status(204).end();
   });
 
   return httpServer;

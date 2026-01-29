@@ -16,7 +16,6 @@ const Profile = lazy(() => import("@/pages/Profile"));
 const CalendarPage = lazy(() => import("@/pages/CalendarPage"));
 const TodoPage = lazy(() => import("@/pages/Todo"));
 const TaskWindow = lazy(() => import("@/pages/TaskWindow"));
-const SharedNotePage = lazy(() => import("@/pages/SharedNotePage"));
 const ResetPasswordPage = lazy(() => import("@/pages/ResetPassword"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -29,6 +28,26 @@ function AppRoutes() {
       setLocation("/");
     }
   }, [isAuthenticated, location, setLocation]);
+
+  // Redirect to login when user logs out (isAuthenticated becomes false)
+  useEffect(() => {
+    console.log('Auth effect triggered:', { isAuthenticated, location });
+    if (!isAuthenticated && location !== "/login" && location !== "/reset-password") {
+      console.log('Redirecting to login because user is not authenticated');
+      setLocation("/login");
+    }
+  }, [isAuthenticated, location, setLocation]);
+
+  // Additional effect to ensure redirect happens immediately after logout
+  useEffect(() => {
+    if (!isAuthenticated) {
+      console.log('User is not authenticated, checking current location:', location);
+      if (location !== "/login" && location !== "/reset-password") {
+        console.log('Force redirecting to login');
+        setLocation("/login");
+      }
+    }
+  }, [isAuthenticated]);
 
   return (
     <Suspense fallback={<div className="flex items-center justify-center h-screen bg-background text-foreground">Loading...</div>}>
@@ -54,9 +73,6 @@ function AppRoutes() {
         </Route>
         <Route path="/task/:taskId">
           {isAuthenticated ? <TaskWindow /> : <Redirect to="/login" />}
-        </Route>
-        <Route path="/share/:noteId">
-          <SharedNotePage />
         </Route>
         <Route path="/reset-password">
           <ResetPasswordPage />

@@ -8,7 +8,7 @@ import {
   DialogFooter
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { FolderOpen, Sparkles, Shield, BookOpen, Rocket, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { FolderOpen, Sparkles, Shield, BookOpen, Rocket, ArrowRight, CheckCircle2, Cloud } from 'lucide-react';
 import { useFileSystem } from '@/lib/mock-fs';
 import { selectDirectory, setStoreValue, getStoreValue, isElectron } from '@/lib/electron';
 import { toast } from '@/hooks/use-toast';
@@ -106,9 +106,11 @@ export function OnboardingDialog() {
     },
     {
       title: "Где хранить ваши знания?",
-      description: "Выберите папку на вашем компьютере для синхронизации.",
+      description: isElectron() 
+        ? "Выберите папку на вашем компьютере для синхронизации." 
+        : "Функция выбора локальной папки доступна только в десктопной версии.",
       icon: <FolderOpen className="h-12 w-12 text-primary" />,
-      content: (
+      content: isElectron() ? (
         <div className="space-y-4 py-4">
           <p className="text-sm text-muted-foreground">
             В GodNotes используется концепция <strong>Пространств</strong>. Каждое пространство — это папка на вашем диске, 
@@ -143,6 +145,26 @@ export function OnboardingDialog() {
           <p className="text-[11px] text-muted-foreground italic">
             * Вы сможете создать дополнительные пространства позже в настройках.
           </p>
+        </div>
+      ) : (
+        <div className="space-y-4 py-4">
+          <p className="text-sm text-muted-foreground">
+            В веб-версии GodNotes все данные хранятся безопасно в облаке. 
+            Вы можете начать создавать заметки прямо сейчас!
+          </p>
+          
+          <div className="p-4 rounded-xl border-2 border-dashed border-border bg-secondary/10 text-center">
+            <Cloud className="h-8 w-8 text-primary mx-auto mb-2" />
+            <p className="text-xs text-muted-foreground">
+              Ваши заметки автоматически синхронизируются с облаком
+            </p>
+          </div>
+          
+          <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+            <p className="text-[11px] text-blue-400">
+              💡 Для работы с локальными файлами и оффлайн-режима загрузите десктопную версию приложения.
+            </p>
+          </div>
         </div>
       )
     },

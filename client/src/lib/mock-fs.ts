@@ -1,10 +1,38 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { account, databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
-import { ID, Query, Permission, Role, Models } from 'appwrite';
+
 import { fs, getDocumentsPath, isElectron, selectDirectory, getStoreValue, setStoreValue } from './electron';
 import { useTasks } from './tasks-store';
 import { hashPassword } from '@/lib/utils';
+import { authService, type User as AuthUser } from '@/lib/auth-service';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+
+async function apiRequest(method: string, endpoint: string, body?: any) {
+  const token = localStorage.getItem('auth_token');
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+       // Let the caller handle or authService handle it
+    }
+    throw new Error(`API Error: ${response.statusText}`);
+  }
+
+  if (response.status === 204) return null;
+  return response.json();
+}
 
 const saveTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -148,7 +176,7 @@ interface FileSystemState {
   register: (email: string, password: string, name: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateRecovery: (userId: string, secret: string, password: string, passwordAgain: string) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: (onSuccess?: () => void) => Promise<void>;
   clearUserData: () => void;
   togglePin: (id: string) => void;
   toggleFavorite: (id: string) => Promise<void>;
@@ -218,6 +246,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   searchQuery: '',
   sortOrder: (localStorage.getItem('sortOrder') as SortOrder) || 'name-asc',
   theme: (localStorage.getItem('theme') as ThemeType) || 'obsidian-dark',
+  // Состояния аутентификации теперь берутся из useAuthContext
   isAuthenticated: false,
   isAuthChecking: true,
   user: null,
@@ -315,8 +344,16 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     try {
       const currentPrefs = user.prefs || {};
       const newPrefs = { ...currentPrefs, ...prefs };
-      const updatedUser = await account.updatePrefs(newPrefs);
+      
+      // Store in localStorage instead of Appwrite
+      const userSettingsKey = `user_settings_${user.$id}`;
+      localStorage.setItem(userSettingsKey, JSON.stringify(newPrefs));
+      
+      // Update local user object
+      const updatedUser = { ...user, prefs: newPrefs };
       set({ user: updatedUser });
+      
+      console.log('User prefs updated in localStorage:', newPrefs);
     } catch (error) {
       console.error('Failed to update user prefs:', error);
       throw error;
@@ -325,7 +362,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   updateAccountPassword: async (password, oldPassword) => {
     try {
-      await account.updatePassword(password, oldPassword);
+      await authService.updatePassword(oldPassword, password);
     } catch (error) {
       console.error('Failed to update account password:', error);
       throw error;
@@ -378,239 +415,104 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   fetchFolders: async () => {
-    if (get().isOfflineMode) return;
-    const user = get().user;
-    if (!user) return;
-
-    try {
-      const res = await databases.listDocuments(
-        DATABASE_ID,
-        COLLECTIONS.FOLDERS,
-        [Query.equal('userId', user.$id), Query.limit(1000)]
-      );
-
-      const folderItems: FileSystemItem[] = res.documents
-        .map((f: any) => ({
-          id: f.$id,
-          name: f.name,
-          type: 'folder' as const,
-          parentId: f.parentId || null,
-          createdAt: new Date(f.$createdAt).getTime(),
-          updatedAt: new Date(f.$updatedAt).getTime(),
-          isFavorite: f.isFavorite,
-          tags: f.tags || [],
-        }))
-        .filter(item => !item.tags?.some((t: string) => t.startsWith('deleted:')));
-      
-      set(state => {
-        return {
-          items: [...state.items.filter(i => i.type === 'file'), ...folderItems],
-          expandedFolders: new Set([...Array.from(state.expandedFolders), ...folderItems.map(f => f.id)])
-        };
-      });
-    } catch (error) {
-      console.error('Failed to fetch folders:', error);
-    }
+    // Using PostgreSQL storage, folders are loaded via API calls
+    console.log('fetchFolders: Using PostgreSQL storage');
   },
 
   fetchNotes: async () => {
-    if (get().isOfflineMode) return;
-    const user = get().user;
-    if (!user) return;
-
-    try {
-      const res = await databases.listDocuments(
-        DATABASE_ID,
-        COLLECTIONS.NOTES,
-        [
-          Query.equal('userId', user.$id), 
-          Query.limit(1000),
-          Query.select(['$id', 'title', 'folderId', '$createdAt', '$updatedAt', 'isFavorite', 'tags', '$permissions'])
-        ]
-      );
-
-
-      const fileItems: FileSystemItem[] = res.documents
-        .map((n: any) => ({
-          id: n.$id,
-          name: n.title,
-          type: 'file' as const,
-          parentId: n.folderId || null,
-          content: undefined, // Content is loaded lazily on open
-          createdAt: new Date(n.$createdAt).getTime(),
-          updatedAt: new Date(n.$updatedAt).getTime(),
-          isFavorite: n.isFavorite,
-          tags: n.tags || [],
-          isPublic: n.$permissions && n.$permissions.some((p: string) => p.includes('role:any') || p.includes('any')),
-        }))
-        .filter(item => !item.tags?.some((t: string) => t.startsWith('deleted:')));
-
-      set(state => {
-        const folders = state.items.filter(i => i.type === 'folder');
-        
-        // Remove duplicates from fileItems if any (based on ID)
-        const uniqueFileItems = Array.from(new Map(fileItems.map(item => [item.id, item])).values());
-        
-        // Preserve in-memory content for currently loaded notes
-        const preservedFileItems = uniqueFileItems.map(item => {
-          const prev = state.items.find(i => i.id === item.id && i.type === 'file');
-          if (prev && prev.content !== undefined) {
-            return { ...item, content: prev.content };
-          }
-          return item;
-        });
-        
-        // Ensure we don't have files in folders list (already filtered by type)
-        // Merge: unique files from Appwrite + existing folders
-        const allItems = [...preservedFileItems, ...folders];
-        
-        // Log if we found duplicates during merge (debug only)
-        if (fileItems.length !== uniqueFileItems.length) {
-             console.warn('[fetchNotes] Duplicates found in Appwrite response!', fileItems.length - uniqueFileItems.length);
-        }
-
-        // Check if active file is still valid (in new files list OR existing folders list)
-        // This prevents activeFileId from being reset when a folder is selected
-        const isActiveValid = state.activeFileId && allItems.some(i => i.id === state.activeFileId);
-
-        return {
-          items: allItems,
-          activeFileId: isActiveValid
-            ? state.activeFileId
-            : uniqueFileItems[0]?.id ?? null,
-        };
-      });
-    } catch (error) {
-      console.error('Failed to fetch notes:', error);
-    }
+    // Using PostgreSQL storage, notes are loaded via API calls
+    console.log('fetchNotes: Using PostgreSQL storage');
   },
 
   fetchTrash: async () => {
-    const user = get().user;
-    if (!user) return;
-
+    if (!get().isAuthenticated) return;
     try {
-      const [foldersRes, notesRes] = await Promise.all([
-        databases.listDocuments(
-          DATABASE_ID,
-          COLLECTIONS.FOLDERS,
-          [Query.equal('userId', user.$id), Query.limit(1000)]
-        ),
-        databases.listDocuments(
-          DATABASE_ID,
-          COLLECTIONS.NOTES,
-          [
-            Query.equal('userId', user.$id), 
-            Query.limit(1000),
-            Query.select(['$id', 'title', 'folderId', '$createdAt', 'isFavorite', 'tags'])
-          ]
-        )
-      ]);
+        const trash = await apiRequest('GET', '/trash');
+        if (!trash) return;
 
-      const trashFolders = foldersRes.documents
-        .map((f: any) => ({
-          id: f.$id,
-          name: f.name,
-          type: 'folder' as const,
-          parentId: f.parentId || null,
-          createdAt: new Date(f.$createdAt).getTime(),
-          isFavorite: f.isFavorite,
-          tags: f.tags || [],
-        }))
-        .filter(item => item.tags?.some((t: string) => t.startsWith('deleted:')));
+        const trashFolders: FileSystemItem[] = trash.folders.map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            type: 'folder',
+            parentId: f.parentId || null,
+            createdAt: new Date(f.createdAt).getTime(),
+            updatedAt: new Date(f.updatedAt).getTime(),
+            isFavorite: f.isFavorite,
+            tags: f.tags || []
+        }));
 
-      const trashNotes = notesRes.documents
-        .map((n: any) => ({
-          id: n.$id,
-          name: n.title,
-          type: 'file' as const,
-          parentId: n.folderId || null,
-          content: undefined, // Content is loaded lazily
-          createdAt: new Date(n.$createdAt).getTime(),
-          isFavorite: n.isFavorite,
-          tags: n.tags || [],
-        }))
-        .filter(item => item.tags?.some((t: string) => t.startsWith('deleted:')));
+        const trashNotes: FileSystemItem[] = trash.notes.map((n: any) => ({
+            id: n.id,
+            name: n.title,
+            type: 'file',
+            parentId: n.folderId || null,
+            content: n.content,
+            createdAt: new Date(n.createdAt).getTime(),
+            updatedAt: new Date(n.updatedAt).getTime(),
+            isFavorite: n.isFavorite,
+            tags: n.tags || [],
+            isPublic: n.isPublic
+        }));
 
-      set({ trashItems: [...trashFolders, ...trashNotes] });
-    } catch (error) {
-      console.error('Failed to fetch trash:', error);
+        set({ trashItems: [...trashFolders, ...trashNotes] });
+    } catch (e) {
+        console.error('Failed to fetch trash:', e);
     }
   },
 
   checkAuth: async () => {
     set({ isAuthChecking: true });
     try {
-      const user = await account.get() as unknown as User;
-      set({ isAuthenticated: true, user });
-      get().startSessionRefresh();
-
-      // Sync Telegram config
-      const currentConfig = useTasks.getState().telegramConfig;
-      const cloudChatId = user.prefs?.telegramChatId;
+      console.log('checkAuth: Starting authentication check');
       
-      // Sync AI config from cloud
-      const cloudAiConfig = user.prefs?.aiConfig;
-      if (cloudAiConfig) {
+      // Use our new JWT-based auth service
+      const currentUser = await authService.getCurrentUser();
+      console.log('checkAuth: Current user from authService:', currentUser);
+      
+      if (currentUser) {
+        // Convert to Appwrite-like user format for compatibility
+        const appwriteUser = {
+          $id: currentUser.id,
+          email: currentUser.email,
+          name: currentUser.name,
+          username: currentUser.username,
+          prefs: {},
+          $createdAt: currentUser.created_at,
+          $updatedAt: new Date().toISOString()
+        };
+        
+        // Load user preferences from localStorage
+        const userSettingsKey = `user_settings_${currentUser.id}`;
         try {
-          const parsed = JSON.parse(cloudAiConfig);
-          set({ aiConfig: parsed });
-          localStorage.setItem('aiConfig', cloudAiConfig);
+          const savedPrefs = localStorage.getItem(userSettingsKey);
+          if (savedPrefs) {
+            appwriteUser.prefs = JSON.parse(savedPrefs);
+            console.log('Loaded user prefs from localStorage:', appwriteUser.prefs);
+          }
         } catch (e) {
-          console.error('Failed to parse cloud AI config:', e);
+          console.warn('Failed to load user prefs from localStorage:', e);
         }
-      } else if (localStorage.getItem('aiConfig')) {
-        // Migration: if cloud is empty but local has config, push to cloud
-        get().updateUserPrefs({ aiConfig: localStorage.getItem('aiConfig') })
-          .catch(e => console.error('Failed to migrate local AI config to cloud:', e));
+        
+        console.log('checkAuth: Setting authenticated user:', appwriteUser);
+        set({ 
+          isAuthenticated: true, 
+          user: appwriteUser as unknown as User 
+        });
+        
+        // Only fetch data if we don't have items loaded yet
+        const currentState = get();
+        if (currentState.items.length === 0) {
+          console.log('checkAuth: No items loaded, fetching user data');
+          await Promise.all([get().fetchFolders(), get().fetchNotes()]);
+        } else {
+          console.log('checkAuth: Items already loaded, skipping fetch');
+        }
+      } else {
+        console.log('checkAuth: No user found, setting unauthenticated');
+        set({ isAuthenticated: false, user: null });
       }
-
-      // Sync custom AI config (backup)
-      const cloudCustomConfig = user.prefs?.aiCustomConfig;
-      if (cloudCustomConfig) {
-        localStorage.setItem('aiCustomConfig', cloudCustomConfig);
-      } else if (localStorage.getItem('aiCustomConfig')) {
-        get().updateUserPrefs({ aiCustomConfig: localStorage.getItem('aiCustomConfig') })
-          .catch(e => console.error('Failed to migrate local custom AI config to cloud:', e));
-      }
-
-      // 1. If Cloud has a value (even empty string), it is the source of truth
-      if (cloudChatId !== undefined && cloudChatId !== null) {
-          if (cloudChatId !== currentConfig.chatId) {
-              useTasks.getState().setTelegramConfig({
-                  ...currentConfig,
-                  chatId: cloudChatId
-              });
-          }
-      } 
-      // 2. If Cloud is empty (undefined) but Local has value -> Push Local to Cloud (Legacy Migration)
-      else if (currentConfig.chatId) {
-          try {
-              await get().updateUserPrefs({ telegramChatId: currentConfig.chatId });
-              console.log('Synced local Telegram config to cloud');
-          } catch (e) {
-              console.error('Failed to sync local Telegram config to cloud:', e);
-          }
-      }
-
-      await Promise.all([get().fetchFolders(), get().fetchNotes()]);
     } catch (error: any) {
-      // Ignore 401 Unauthorized as it just means user is not logged in
-      // Check both number and string types, and also Appwrite specific properties
-      const code = error?.code || error?.response?.code;
-      const type = error?.type || error?.response?.type;
-      
-      // Filter out 401 errors (unauthorized) which are expected when not logged in
-      const isUnauthorized = 
-        code === 401 || 
-        code === "401" || 
-        type === "general_unauthorized_scope";
-
-      if (!isUnauthorized) {
-          console.error("checkAuth failed:", error);
-      }
-      // При ошибке авторизации (или если пользователь не вошел), 
-      // мы НЕ сбрасываем items до initialItems, чтобы локальные данные сохранились.
+      console.error('checkAuth failed:', error);
       set({ isAuthenticated: false, user: null });
     } finally {
       set({ isAuthChecking: false });
@@ -633,31 +535,29 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
 
     const state = get();
-    const newId = ID.unique();
     const createdAt = Date.now();
 
+    // Optimistically create a local item with temp id
+    const tempId = uuidv4();
     const newFile: FileSystemItem = {
-      id: newId,
+      id: tempId,
       name,
       type: 'file',
       parentId: effectiveParentId,
       content: initialContent,
-      createdAt: createdAt,
+      createdAt,
     };
 
-    // Optimistic update
     set((s) => {
-        const expanded = new Set(s.expandedFolders);
-        if (effectiveParentId) expanded.add(effectiveParentId);
-        
-        // Ensure unique items by ID
-        const existingItems = s.items.filter(i => i.id !== newId);
-        return {
-          items: [...existingItems, newFile],
-          activeFileId: newId,
-          expandedFolders: expanded,
-          lastCreatedFileId: newId,
-        };
+      const expanded = new Set(s.expandedFolders);
+      if (effectiveParentId) expanded.add(effectiveParentId);
+      const existingItems = s.items.filter(i => i.id !== tempId);
+      return {
+        items: [...existingItems, newFile],
+        activeFileId: tempId,
+        expandedFolders: expanded,
+        lastCreatedFileId: tempId,
+      };
     });
     get().saveToLocalStorage();
 
@@ -666,46 +566,35 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
 
     try {
-            const note = await databases.createDocument(
-              DATABASE_ID,
-              COLLECTIONS.NOTES,
-              newId,
-              {
-                title: name,
-                content: initialContent,
-                folderId: effectiveParentId,
-                userId: state.user.$id,
-                tags: [],
-                isFavorite: false
-              },
-              [
-                Permission.read(Role.user(state.user.$id)),
-                Permission.update(Role.user(state.user.$id)),
-                Permission.delete(Role.user(state.user.$id)),
-              ]
-            );
-            
-            // Verify folderId was saved correctly
-            if (effectiveParentId && note.folderId !== effectiveParentId) {
-                console.warn('[addFile] folderId mismatch! Attempting to fix...');
-                try {
-                    await databases.updateDocument(
-                        DATABASE_ID, 
-                        COLLECTIONS.NOTES, 
-                        note.$id, 
-                        { folderId: effectiveParentId }
-                    );
-                    console.log('[addFile] folderId fixed.');
-                } catch (fixErr) {
-                    console.error('[addFile] Failed to fix folderId:', fixErr);
-                }
-            }
+      const created = await apiRequest('POST', '/notes', {
+        title: name,
+        content: initialContent,
+        folderId: effectiveParentId,
+        isFavorite: false,
+        tags: []
+      });
+
+      // Replace temp item with server item
+      set((s) => {
+        const items = s.items.map(i => i.id === tempId ? {
+          ...i,
+          id: created.id,
+          createdAt: new Date(created.createdAt).getTime(),
+          updatedAt: new Date(created.updatedAt).getTime(),
+        } : i);
+        return {
+          items,
+          activeFileId: created.id,
+          lastCreatedFileId: created.id,
+        };
+      });
+      get().saveToLocalStorage();
     } catch (error: any) {
-        console.error('Failed to create note on server (kept locally):', error);
-        if (error.code === 401) {
-            set({ isAuthenticated: false, user: null });
-        }
+      console.error('Failed to create note on server (kept locally):', error);
+      if (String(error).includes('401')) {
+        set({ isAuthenticated: false, user: null });
       }
+    }
   },
 
   addDailyNote: async () => {
@@ -757,19 +646,20 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     // 4. Sync to server if authenticated
     if (state.isAuthenticated && state.user) {
       try {
-        await databases.createDocument(
-          DATABASE_ID,
-          COLLECTIONS.NOTES,
-          noteId,
-          {
+        const note = await apiRequest('POST', '/notes', {
             title: dateStr,
             content: welcomeText,
             folderId: folderId,
-            userId: state.user.$id,
-            tags: ['daily'],
-            isFavorite: false
-          }
-        );
+            isFavorite: false,
+            tags: ['daily']
+        });
+        
+        // Update local ID with server ID
+        set(s => ({
+            items: s.items.map(i => i.id === noteId ? { ...i, id: note.id } : i),
+            activeFileId: s.activeFileId === noteId ? note.id : s.activeFileId,
+            openFiles: s.openFiles.map(id => id === noteId ? note.id : id)
+        }));
       } catch (err) {
         console.error('Failed to sync daily note:', err);
       }
@@ -791,71 +681,68 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
 
     const state = get();
-    const newId = ID.unique();
-    const createdAt = Date.now();
-    
-    const newFolder: FileSystemItem = {
-      id: newId,
-      name,
-      type: 'folder',
-      parentId: effectiveParentId,
-      createdAt: createdAt,
-    };
 
-    // Optimistic update
-    set((s) => {
-        const expanded = new Set(s.expandedFolders);
-        expanded.add(newId);
-        if (effectiveParentId) expanded.add(effectiveParentId);
-        
-        const existingItems = s.items.filter(i => i.id !== newId);
-        return {
-          items: [...existingItems, newFolder],
-          expandedFolders: expanded,
-          lastCreatedFolderId: newId,
-        };
-    });
-    get().saveToLocalStorage();
-    
     if (!state.isAuthenticated || !state.user) {
+      // Offline mode or not authenticated - use local ID
+      const newId = uuidv4();
+      const createdAt = Date.now();
+      
+      const newFolder: FileSystemItem = {
+        id: newId,
+        name,
+        type: 'folder',
+        parentId: effectiveParentId,
+        createdAt: createdAt,
+      };
+
+      set((s) => {
+          const expanded = new Set(s.expandedFolders);
+          expanded.add(newId);
+          if (effectiveParentId) expanded.add(effectiveParentId);
+          
+          return {
+            items: [...s.items, newFolder],
+            expandedFolders: expanded,
+            lastCreatedFolderId: newId,
+          };
+      });
+      get().saveToLocalStorage();
       return;
     }
 
     try {
-        const folder = await databases.createDocument(
-          DATABASE_ID,
-          COLLECTIONS.FOLDERS,
-          newId,
-          {
+        const folder = await apiRequest('POST', '/folders', {
             name,
-            parentId: effectiveParentId,
-            userId: state.user.$id,
-            tags: [],
-            isFavorite: false
-          },
-          [
-            Permission.read(Role.user(state.user.$id)),
-            Permission.update(Role.user(state.user.$id)),
-            Permission.delete(Role.user(state.user.$id)),
-          ]
-        );
+            parentId: effectiveParentId
+        });
         
-        if (effectiveParentId && folder.parentId !== effectiveParentId) {
-             console.warn('[addFolder] parentId mismatch! Attempting to fix...');
-             try {
-                 await databases.updateDocument(
-                     DATABASE_ID, 
-                     COLLECTIONS.FOLDERS, 
-                     folder.$id, 
-                     { parentId: effectiveParentId }
-                 );
-             } catch (fixErr) {
-                 console.error('[addFolder] Failed to fix parentId:', fixErr);
-             }
-        }
+        const newFolder: FileSystemItem = {
+            id: folder.id,
+            name: folder.name,
+            type: 'folder',
+            parentId: folder.parentId,
+            createdAt: new Date(folder.createdAt).getTime(),
+            updatedAt: new Date(folder.updatedAt).getTime(),
+            isFavorite: folder.isFavorite,
+            tags: folder.tags || []
+        };
+
+        set((s) => {
+            const expanded = new Set(s.expandedFolders);
+            expanded.add(newFolder.id);
+            if (effectiveParentId) expanded.add(effectiveParentId);
+            
+            return {
+              items: [...s.items, newFolder],
+              expandedFolders: expanded,
+              lastCreatedFolderId: newFolder.id,
+            };
+        });
+        get().saveToLocalStorage();
+
     } catch (error: any) {
-      console.error('Failed to create folder on server (kept locally):', error);
-      if (error.code === 401) {
+      console.error('Failed to create folder on server:', error);
+      if (error.message?.includes('401')) {
           set({ isAuthenticated: false, user: null });
       }
     }
@@ -917,9 +804,9 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       const itemsToDelete = state.items.filter(i => idsToDelete.includes(i.id));
       
       for (const item of itemsToDelete) {
-         const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
+         const collectionId = item.type === 'folder' ? 'folders' : 'notes';
          const newTags = [...(item.tags || []), deletedTag];
-         await databases.updateDocument(DATABASE_ID, collectionId, item.id, { tags: newTags });
+         await apiRequest('PATCH', `/${collectionId}/${item.id}`, { tags: newTags });
       }
       
     } catch (error: any) {
@@ -972,13 +859,15 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     try {
         const itemsToRestore = state.trashItems.filter(i => idsToRestore.includes(i.id));
         for (const item of itemsToRestore) {
-            const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
-            const newTags = (item.tags || []).filter(t => !t.startsWith('deleted:'));
-            await databases.updateDocument(DATABASE_ID, collectionId, item.id, { tags: newTags });
+            if (item.type === 'folder') {
+              await apiRequest('POST', `/trash/restore/folder/${item.id}`);
+            } else {
+              await apiRequest('POST', `/trash/restore/note/${item.id}`);
+            }
         }
     } catch (error: any) {
         console.error('Failed to restore item:', error);
-        if (error.code === 401) {
+        if (String(error).includes('401')) {
             set({ isAuthenticated: false, user: null });
         }
     }
@@ -1004,12 +893,12 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     try {
         const itemsToDelete = state.trashItems.filter(i => idsToDelete.includes(i.id));
         for (const item of itemsToDelete) {
-            const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
-            await databases.deleteDocument(DATABASE_ID, collectionId, item.id);
+            const collectionId = item.type === 'folder' ? 'folders' : 'notes';
+            await apiRequest('DELETE', `/${collectionId}/${item.id}`);
         }
     } catch (error: any) {
         console.error('Failed to permanently delete item:', error);
-        if (error.code === 401) {
+        if (error.message?.includes('401')) {
             set({ isAuthenticated: false, user: null });
         }
     }
@@ -1028,12 +917,12 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
     try {
         await Promise.all(itemsToDelete.map(item => {
-            const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
-            return databases.deleteDocument(DATABASE_ID, collectionId, item.id);
+            const collectionId = item.type === 'folder' ? 'folders' : 'notes';
+            return apiRequest('DELETE', `/${collectionId}/${item.id}`);
         }));
     } catch (error: any) {
         console.error('Failed to empty trash:', error);
-        if (error.code === 401) {
+        if (error.message?.includes('401')) {
             set({ isAuthenticated: false, user: null });
         }
         // Re-fetch to ensure consistency if something failed
@@ -1054,14 +943,16 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     if (!get().isAuthenticated) return;
 
     try {
-      if (item.type === 'folder') {
-        await databases.updateDocument(DATABASE_ID, COLLECTIONS.FOLDERS, id, { name: newName });
-      } else {
-        await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { title: newName });
-      }
+      const collectionId = item.type === 'folder' ? 'folders' : 'notes';
+      const endpoint = `/${collectionId}/${id}`;
+      
+      // Handle rename via API
+      await apiRequest('PATCH', endpoint, {
+          [item.type === 'folder' ? 'name' : 'title']: newName
+      });
     } catch (error: any) {
       console.error('Failed to rename item:', error);
-      if (error.code === 401) {
+      if (error.message?.includes('401')) {
           set({ isAuthenticated: false, user: null });
       }
       set((state) => ({
@@ -1103,12 +994,10 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
              await get().saveSyncManifest();
         }
 
-        // Only save to Appwrite if authenticated and online
+        // Save to server via REST if authenticated and online
         if (state.isAuthenticated && !state.isOfflineMode) {
-            const updatedDoc = await databases.updateDocument(DATABASE_ID, COLLECTIONS.NOTES, id, { content });
-            
-            // Update local metadata and manifest with new timestamp
-            const newUpdatedAt = new Date(updatedDoc.$updatedAt).getTime();
+            const updated = await apiRequest('PATCH', `/notes/${id}`, { content });
+            const newUpdatedAt = new Date(updated.updatedAt).getTime();
             set(s => ({
                 items: s.items.map(i => i.id === id ? { ...i, updatedAt: newUpdatedAt } : i)
             }));
@@ -1264,7 +1153,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
     if (!loadedFromLocal) {
         try {
-            const note = await databases.getDocument(DATABASE_ID, COLLECTIONS.NOTES, id);
+            const note = await apiRequest('GET', `/notes/${id}`);
             content = note.content || "";
             get().loadFileContent(id, content);
 
@@ -1373,17 +1262,10 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
             const batch = filesToSync.slice(i, i + BATCH_SIZE);
             try {
                 // Fetch full content for the batch
-                const res = await databases.listDocuments(
-                    DATABASE_ID,
-                    COLLECTIONS.NOTES,
-                    [
-                        Query.equal('$id', batch.map(f => f.id)),
-                        Query.limit(BATCH_SIZE)
-                    ]
-                );
+                const notes = await Promise.all(batch.map(f => apiRequest('GET', `/notes/${f.id}`)));
 
-                for (const note of res.documents) {
-                    const file = batch.find(f => f.id === note.$id);
+                for (const note of notes) {
+                    const file = batch.find(f => f.id === note.id);
                     if (!file) continue;
 
                     const content = note.content || "";
@@ -1393,7 +1275,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
                         await fs.writeFile(localPath, content);
                         
                         // Update manifest
-                        manifest[file.id] = file.updatedAt || Date.now();
+                        manifest[file.id] = note.updatedAt ? new Date(note.updatedAt).getTime() : Date.now();
                         manifestChanged = true;
                         
                         // If file is currently loaded in memory, update it
@@ -1430,20 +1312,17 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
 
     try {
-       const res = await databases.listDocuments(
-         DATABASE_ID,
-         COLLECTIONS.NOTES,
-         [Query.search('content', query), Query.limit(10)]
-       );
+       const notes = await apiRequest('GET', '/notes');
+       const matched = notes.filter((n: any) => (n.content && n.content.toLowerCase().includes(query.toLowerCase()))).slice(0, 10);
 
-       const serverItems: FileSystemItem[] = res.documents.map((n: any) => ({
-          id: n.$id,
+       const serverItems: FileSystemItem[] = matched.map((n: any) => ({
+          id: n.id,
           name: n.title,
           type: 'file',
           parentId: n.folderId || null,
           content: n.content,
-          createdAt: new Date(n.$createdAt).getTime(),
-          isFavorite: n.isFavorite,
+          createdAt: n.createdAt ? new Date(n.createdAt).getTime() : Date.now(),
+          isFavorite: !!n.isFavorite,
           tags: n.tags || [],
        }));
 
@@ -1452,7 +1331,6 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
        
        return [...serverItems, ...filteredLocal];
     } catch (e) {
-       // console.error("Global search failed (likely no index), falling back to local");
        return localResults;
     }
   },
@@ -1499,8 +1377,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
     if (state.isAuthenticated) {
         try {
-            const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
-            await databases.updateDocument(DATABASE_ID, collectionId, id, { tags: newTags });
+            const collectionId = item.type === 'folder' ? 'folders' : 'notes';
+            await apiRequest('PATCH', `/${collectionId}/${id}`, { tags: newTags });
         } catch (e) {
             console.error('Failed to sync lock state:', e);
             // Revert
@@ -1569,56 +1447,66 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     // Clear any existing user data before login
     get().clearUserData();
     
-    await account.createEmailPasswordSession(email, password);
-    await get().checkAuth();
-    if (!get().isAuthenticated) {
-        throw new Error("Вход выполнен, но проверка сессии не удалась. Возможно, ваш браузер блокирует cookies или домен не добавлен в Appwrite.");
-    }
+    const res = await authService.login(email, password);
+    set({ isAuthenticated: true, user: {
+      $id: res.user.id,
+      email: res.user.email,
+      name: res.user.name,
+      username: res.user.username,
+      prefs: {},
+      $createdAt: res.user.created_at,
+      $updatedAt: new Date().toISOString()
+    } as unknown as User });
+    await get().fetchFolders();
+    await get().fetchNotes();
   },
 
   register: async (email, password, name) => {
-     await account.create(ID.unique(), email, password, name);
+     const res = await authService.register(email, password, name);
      
      // Clear any existing user data before login
      get().clearUserData();
      
-     await get().login(email, password);
+     set({ isAuthenticated: true, user: {
+      $id: res.user.id,
+      email: res.user.email,
+      name: res.user.name,
+      username: res.user.username,
+      prefs: {},
+      $createdAt: res.user.created_at,
+      $updatedAt: new Date().toISOString()
+     } as unknown as User });
+     await get().fetchFolders();
+     await get().fetchNotes();
   },
   
   resetPassword: async (email: string) => {
     try {
-      // Use the deployed web app URL for password recovery.
-      // This ensures the link works in standard browsers and avoids deep linking issues.
-      // The web app at this address handles the /#/reset-password route.
-      await account.createRecovery(email, 'https://godnotes-8aoh.vercel.app/#/reset-password');
+      await authService.resetPassword(email);
     } catch (error: any) {
       console.error('Password reset failed:', error);
-      
-      // Check for specific Appwrite platform error
-      if (error?.message?.includes('Register your new client') || error?.response?.message?.includes('Register your new client')) {
-         throw new Error("Ошибка конфигурации Appwrite: Необходимо добавить домен 'godnotes-8aoh.vercel.app' как Веб-платформу в консоли Appwrite (Overview -> Platforms -> Add Platform -> Web).");
-      }
-      
       throw error;
     }
   },
 
   updateRecovery: async (userId, secret, password, passwordAgain) => {
     try {
-      // passwordAgain is not used in newer SDK versions but kept in function signature for compatibility
-      await account.updateRecovery(userId, secret, password);
+      // Not used with JWT flow; keeping method for compatibility
+      console.warn('updateRecovery is not supported with JWT auth');
     } catch (error) {
       console.error('Update recovery failed:', error);
       throw error;
     }
   },
 
-  logout: async () => {
+  logout: async (onSuccess?: () => void) => {
     get().stopSessionRefresh();
     try {
-      await account.deleteSession('current');
+      // Use our new JWT-based auth service
+      await authService.logout();
     } catch (e) {
       console.error('Logout failed', e);
+      // Still clear local data even if API call fails
     }
     
     // Clear all user-specific data
@@ -1627,9 +1515,9 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     set({ 
       isAuthenticated: false, 
       user: null, 
-      items: initialItems, 
-      activeFileId: '5', 
-      openFiles: ['5'],
+      items: [], 
+      activeFileId: null, 
+      openFiles: [],
       trashItems: [],
       expandedFolders: new Set(),
       lastCreatedFileId: null,
@@ -1641,6 +1529,18 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       lastSavedAt: null,
       lastSavedFileId: null
     });
+    
+    // Clear localStorage
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user');
+    
+    // Force immediate redirect to login
+    window.location.hash = '#/login';
+    
+    // Call success callback if provided (for backward compatibility)
+    if (onSuccess) {
+      onSuccess();
+    }
   },
   
   togglePin: (id) => {
@@ -1661,11 +1561,11 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     if (!get().isAuthenticated) return;
 
     try {
-      const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
-      await databases.updateDocument(DATABASE_ID, collectionId, id, { isFavorite: !item.isFavorite });
+      const endpoint = item.type === 'folder' ? `/folders/${id}` : `/notes/${id}`;
+      await apiRequest('PATCH', endpoint, { isFavorite: !item.isFavorite });
     } catch (error: any) {
       console.error('Failed to toggle favorite:', error);
-      if (error.code === 401) {
+      if (String(error).includes('401')) {
           set({ isAuthenticated: false, user: null });
       }
       // Revert
@@ -1688,9 +1588,9 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     if (!get().isAuthenticated) return;
 
     try {
-      const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
-      await databases.updateDocument(DATABASE_ID, collectionId, id, { tags });
-    } catch (error) {
+      const collectionId = item.type === 'folder' ? 'folders' : 'notes';
+      await apiRequest('PATCH', `/${collectionId}/${id}`, { tags });
+    } catch (error: any) {
       console.error('Failed to update tags:', error);
       // Revert
       set((state) => ({
@@ -1735,13 +1635,12 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     if (!state.isAuthenticated) return;
 
     try {
-      const collectionId = item.type === 'folder' ? COLLECTIONS.FOLDERS : COLLECTIONS.NOTES;
-      // Note: "folderId" for notes, "parentId" for folders.
+      const collectionId = item.type === 'folder' ? 'folders' : 'notes';
       const data = item.type === 'folder' ? { parentId: newParentId } : { folderId: newParentId };
-      await databases.updateDocument(DATABASE_ID, collectionId, id, data);
+      await apiRequest('PATCH', `/${collectionId}/${id}`, data);
     } catch (error: any) {
       console.error('Failed to move item:', error);
-      if (error.code === 401) {
+      if (error.message?.includes('401')) {
           set({ isAuthenticated: false, user: null });
       }
       set((state) => ({
@@ -1751,15 +1650,36 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   togglePublic: async (id) => {
+    console.log('=== togglePublic DEBUG START ===');
+    console.log('togglePublic called for id:', id);
     const state = get();
     const item = state.items.find(i => i.id === id);
-    if (!item) return null;
-
+    
+    console.log('State check:', {
+      isAuthenticated: state.isAuthenticated,
+      isOfflineMode: state.isOfflineMode,
+      user: !!state.user,
+      item: !!item
+    });
+    
+    if (!item) {
+      console.error('Item not found:', id);
+      console.log('=== togglePublic DEBUG END (item not found) ===');
+      return null;
+    }
+    
     if (!state.isAuthenticated || state.isOfflineMode || !state.user) {
+         console.error('User not authorized:', {
+           isAuthenticated: state.isAuthenticated,
+           isOfflineMode: state.isOfflineMode,
+           user: !!state.user
+         });
+         console.log('=== togglePublic DEBUG END (not authorized) ===');
          return null;
     }
 
     const newIsPublic = !item.isPublic;
+    console.log('togglePublic: Setting isPublic to', newIsPublic, 'for item', id);
     
     // Optimistic update
     set((state) => ({
@@ -1767,34 +1687,73 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }));
 
     try {
-        const permissions = [
-            Permission.read(Role.user(state.user.$id)),
-            Permission.update(Role.user(state.user.$id)),
-            Permission.delete(Role.user(state.user.$id)),
-        ];
+        console.log('togglePublic: Updating PostgreSQL database for item', id);
+        
+        // Get JWT token from localStorage
+        const token = localStorage.getItem('auth_token');
+        console.log('JWT token present:', !!token);
+        console.log('Full token value:', token ? token.substring(0, 20) + '...' : 'null');
+        
+        if (!token) {
+          console.error('No JWT token found in localStorage');
+          // Revert optimistic update
+          set((state) => ({
+            items: state.items.map(i => i.id === id ? { ...i, isPublic: !newIsPublic } : i),
+          }));
+          console.log('=== togglePublic DEBUG END (no token) ===');
+          return null;
+        }
+        
+        // Make request to our backend API
+        const apiUrl = `/api/notes/${id}/public`;
+        console.log('Making API request to:', apiUrl);
+        
+        const response = await fetch(apiUrl, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                isPublic: newIsPublic
+            })
+        });
 
-        if (newIsPublic) {
-            permissions.push(Permission.read(Role.any()));
+        console.log('API response status:', response.status);
+        console.log('API response headers:', [...response.headers.entries()]);
+        
+        const responseText = await response.text();
+        console.log('API response body:', responseText);
+        
+        if (!response.ok) {
+            console.error('API error:', response.status, responseText);
+            throw new Error(`HTTP error! status: ${response.status}, message: ${responseText}`);
         }
 
-        await databases.updateDocument(
-            DATABASE_ID, 
-            COLLECTIONS.NOTES, 
-            id, 
-            {}, 
-            permissions
-        );
+        const result = JSON.parse(responseText);
+        console.log('togglePublic: API response parsed:', result);
 
         if (newIsPublic) {
             const baseUrl = isElectron() ? 'https://godnotes-8aoh.vercel.app' : window.location.origin;
-            return `${baseUrl}/#/share/${id}`;
+            const shareLink = `${baseUrl}/#/share/${id}`;
+            console.log('Generated share link:', shareLink);
+            console.log('=== togglePublic DEBUG END (success) ===');
+            return shareLink;
         }
+        console.log('=== togglePublic DEBUG END (success, private) ===');
     } catch (e) {
         console.error("Failed to toggle public access:", e);
+        console.error("Error details:", {
+            name: (e as any).name,
+            message: (e as any).message,
+            code: (e as any).code,
+            response: (e as any).response
+        });
         // Revert
         set((state) => ({
             items: state.items.map(i => i.id === id ? { ...i, isPublic: !newIsPublic } : i),
         }));
+        console.log('=== togglePublic DEBUG END (error) ===');
         return null;
     }
     return null;
@@ -1809,7 +1768,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     let content = item.content;
     if (content === undefined) {
          try {
-             const doc = await databases.getDocument(DATABASE_ID, COLLECTIONS.NOTES, id);
+             const doc = await apiRequest('GET', `/notes/${id}`);
              content = doc.content;
          } catch (e) {
              console.error('Failed to fetch content for versioning:', e);
@@ -1818,27 +1777,16 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
 
     try {
-      await databases.createDocument(
-        DATABASE_ID,
-        COLLECTIONS.NOTES,
-        ID.unique(),
-        {
-          title: `${item.name} (v.${new Date().toLocaleString()})`,
-          content: content,
-          folderId: null, // No folder, so it doesn't show up in tree if we missed filter, but we filter by tag
-          userId: state.user.$id,
-          tags: [`version:of:${id}`],
-          isFavorite: false
-        },
-        [
-            Permission.read(Role.user(state.user.$id)),
-            Permission.update(Role.user(state.user.$id)),
-            Permission.delete(Role.user(state.user.$id)),
-        ]
-      );
+      await apiRequest('POST', '/notes', {
+        title: `${item.name} (v.${new Date().toLocaleString()})`,
+        content: content,
+        folderId: null,
+        isFavorite: false,
+        tags: [`version:of:${id}`]
+      });
     } catch (error: any) {
       console.error('Failed to create note:', error);
-      if (error.code === 401) {
+      if (String(error).includes('401')) {
           set({ isAuthenticated: false, user: null });
       }
     }
@@ -1849,58 +1797,28 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     if (!state.user) return [];
 
     try {
-        // We cannot search by tag easily if it is not indexed, but tags are usually indexed or we can filter client side if we fetch all (bad).
-        // Appwrite supports array search.
-        const res = await databases.listDocuments(
-            DATABASE_ID,
-            COLLECTIONS.NOTES,
-            [
-                Query.equal('userId', state.user.$id),
-                Query.search('tags', `version:of:${id}`), // Assuming tags are searchable
-                Query.orderDesc('$createdAt')
-            ]
-        );
+        const notes = await apiRequest('GET', '/notes');
+        if (!notes) return [];
         
-        // Fallback if search index is not ready or configured for tags: fetch recent notes and filter?
-        // Actually, 'tags' usually requires an index. If not indexed, Query.search might fail or Query.equal might fail for array.
-        // Let's try Query.equal for array element. Appwrite supports Query.equal('tags', 'value').
-        
-        return res.documents.map((n: any) => ({
-          id: n.$id,
-          name: n.title,
-          type: 'file',
-          parentId: null,
-          content: n.content,
-          createdAt: new Date(n.$createdAt).getTime(),
-          isFavorite: false,
-          tags: n.tags || [],
-        }));
-    } catch (error) {
-        // Fallback: try Query.equal
-         try {
-            const res = await databases.listDocuments(
-                DATABASE_ID,
-                COLLECTIONS.NOTES,
-                [
-                    Query.equal('userId', state.user.$id),
-                    Query.equal('tags', `version:of:${id}`),
-                    Query.orderDesc('$createdAt')
-                ]
-            );
-            return res.documents.map((n: any) => ({
-                id: n.$id,
+        // Filter manually for versions
+        // In a real API, we would pass query params
+        return notes
+            .filter((n: any) => n.tags?.includes(`version:of:${id}`))
+            .map((n: any) => ({
+                id: n.id,
                 name: n.title,
                 type: 'file',
                 parentId: null,
                 content: n.content,
-                createdAt: new Date(n.$createdAt).getTime(),
+                createdAt: new Date(n.createdAt).getTime(),
                 isFavorite: false,
                 tags: n.tags || [],
-            }));
-         } catch (e) {
-             console.error('Failed to get versions:', e);
-             return [];
-         }
+            }))
+            .sort((a: any, b: any) => b.createdAt - a.createdAt);
+            
+    } catch (error) {
+        console.error('Failed to get versions:', error);
+        return [];
     }
   },
 
@@ -1921,14 +1839,14 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     const state = get();
     if (state.sessionRefreshInterval) return;
 
-    // Ping Appwrite every 30 minutes to keep session alive
+    // Ping backend every 30 minutes to keep session alive
     const interval = setInterval(async () => {
       try {
-        await account.get();
+        await authService.getCurrentUser();
         // console.log('Session refreshed');
       } catch (error: any) {
         console.error('Session refresh failed:', error);
-        if (error.code === 401) {
+        if (String(error).includes('401')) {
           get().stopSessionRefresh();
           set({ isAuthenticated: false, user: null });
         }
@@ -1958,6 +1876,14 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     localStorage.removeItem('aiCustomConfig');
     localStorage.removeItem('user');
     localStorage.removeItem('auth_token');
+    
+    // Clear user settings
+    const user = get().user;
+    if (user && user.$id) {
+      const userSettingsKey = `user_settings_${user.$id}`;
+      localStorage.removeItem(userSettingsKey);
+      console.log('Removed user settings from localStorage:', userSettingsKey);
+    }
     
     // Clear Electron store if available
     if (isElectron()) {

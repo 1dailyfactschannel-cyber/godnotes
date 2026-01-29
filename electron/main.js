@@ -249,7 +249,7 @@ ipcMain.handle('export-pdf', async (event, htmlContent, defaultFilename) => {
   }
 });
 
-ipcMain.handle('import-pdf', async () => {
+ipcMain.handle('import-pdf', async (event, options = {}) => {
   try {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: 'Выберите PDF файл для импорта',
@@ -262,15 +262,102 @@ ipcMain.handle('import-pdf', async () => {
     }
 
     const filePath = filePaths[0];
-    const dataBuffer = await fs.readFile(filePath);
-    const pdf = require('pdf-parse');
-    const data = await pdf(dataBuffer);
+    const fileName = path.basename(filePath);
+    
+    // Send progress start notification
+    event.sender.send('import-progress', { 
+      status: 'started', 
+      filename: fileName,
+      message: 'Начинаем импорт PDF файла...'
+    });
 
-    return { 
-      success: true, 
-      text: data.text, 
-      filename: path.basename(filePath, '.pdf') 
-    };
+    // Use pdfreader for PDF parsing
+    const PdfReader = require('pdfreader').PdfReader;
+    let fullText = '';
+    let itemCount = 0;
+    const maxItems = options.maxItems || 10000; // Limit for heavy files
+    
+    return new Promise((resolve) => {
+      let timeoutId;
+      
+      // Timeout for very large files
+      if (options.timeout !== false) {
+        timeoutId = setTimeout(() => {
+          event.sender.send('import-progress', { 
+            status: 'timeout', 
+            filename: fileName,
+            message: 'Файл слишком большой, импорт остановлен'
+          });
+          resolve({ success: false, error: 'File too large or processing timeout' });
+        }, options.timeout || 30000); // 30 seconds default
+      }
+
+      new PdfReader().parseFileItems(filePath, function(err, item) {
+        if (timeoutId) clearTimeout(timeoutId);
+        
+        if (err) {
+          event.sender.send('import-progress', { 
+            status: 'error', 
+            filename: fileName,
+            message: 'Ошибка при чтении файла: ' + err.message
+          });
+          resolve({ success: false, error: err.message });
+        } else if (!item) {
+          // End of file
+          event.sender.send('import-progress', { 
+            status: 'completed', 
+            filename: fileName,
+            message: 'Импорт завершен успешно!',
+            textLength: fullText.length
+          });
+          
+          resolve({ 
+            success: true, 
+            text: fullText.trim(),
+            filename: fileName.replace('.pdf', ''),
+            textLength: fullText.length
+          });
+        } else if (item.text) {
+          fullText += item.text + ' ';
+          itemCount++;
+          
+          // Send progress updates every 100 items
+          if (itemCount % 100 === 0) {
+            event.sender.send('import-progress', { 
+              status: 'progress', 
+              filename: fileName,
+              processed: itemCount,
+              message: `Обработано ${itemCount} элементов...`
+            });
+          }
+          
+          // Safety limit for very large files
+          if (itemCount > maxItems) {
+            event.sender.send('import-progress', { 
+              status: 'warning', 
+              filename: fileName,
+              message: 'Файл очень большой, импортируем только часть содержимого'
+            });
+            // Continue but limit the amount of text
+            if (fullText.length > 50000) { // ~50KB limit
+              event.sender.send('import-progress', { 
+                status: 'completed', 
+                filename: fileName,
+                message: 'Импорт завершен (ограниченная версия)'
+              });
+              resolve({ 
+                success: true, 
+                text: fullText.trim(),
+                filename: fileName.replace('.pdf', ''),
+                textLength: fullText.length,
+                truncated: true
+              });
+            }
+          }
+        }
+      });
+    });
+
   } catch (error) {
     log.error('Import PDF error:', error);
     return { success: false, error: error.message };
@@ -462,7 +549,7 @@ if (!gotTheLock) {
             "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
             "font-src 'self' data: https://fonts.gstatic.com; " +
             "img-src 'self' data: blob: https:; " +
-            "connect-src 'self' http://localhost:5001 https://cloud.appwrite.io https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com https://github.com https://objects.githubusercontent.com https://1.1.1.1 wss:;"
+            "connect-src 'self' http://localhost:* https://cloud.appwrite.io https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com https://github.com https://objects.githubusercontent.com https://1.1.1.1 wss:;"
           ]
         }
       });

@@ -51,7 +51,7 @@ import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 
 export default function AppLayout() {
-  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs, addFile, isZenMode, toggleZenMode } = useFileSystem();
+  const { items, searchQuery, setSearchQuery, selectFile, activeFileId, theme, setTheme, toggleFolder, expandedFolders, hotkeys, setHotkey, initLocalFs, startPeriodicSync, stopPeriodicSync, isOfflineMode, toggleOfflineMode, updateUserPrefs, addFile, isZenMode, toggleZenMode, checkAuth: fsCheckAuth, isAuthenticated: fsIsAuthenticated } = useFileSystem();
   const { isAuthenticated, user } = useAuthContext();
   const { telegramConfig, setTelegramConfig } = useTasks();
   const { isAiSidebarOpen, toggleAiSidebar } = useEditorStore();
@@ -67,6 +67,13 @@ export default function AppLayout() {
   const [userProfileOpen, setUserProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isGraphOpen, setIsGraphOpen] = useState(false);
+
+  // Synchronize AuthContext with FileSystem store
+  useEffect(() => {
+    if (isAuthenticated && !fsIsAuthenticated) {
+      fsCheckAuth();
+    }
+  }, [isAuthenticated, fsIsAuthenticated, fsCheckAuth]);
 
   const [spaceNameDialogOpen, setSpaceNameDialogOpen] = useState(false);
   const [pendingSpacePath, setPendingSpacePath] = useState<string | null>(null);
@@ -522,13 +529,13 @@ export default function AppLayout() {
            </div>
 
            {breadcrumbs.length > 0 && (
-             <div className="flex items-center gap-1 custom-title-bar-center">
+             <div className="flex items-center gap-1 custom-title-bar-center flex-1 min-w-0">
                <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
                <div className="flex items-center gap-1 text-[10px]">
                  {breadcrumbs.map((item, index) => (
                    <div key={item.id} className="flex items-center">
                      {index > 0 && <ChevronRight className="h-3 w-3 mx-0.5 opacity-40" />}
-                     <span className="truncate max-w-[150px] hover:text-foreground transition-colors cursor-default">
+                     <span className="whitespace-normal break-words hover:text-foreground transition-colors cursor-default">
                        {item.name}
                      </span>
                    </div>

@@ -34,7 +34,7 @@ export interface IStorage {
   getNote(id: string): Promise<Note | undefined>;
   listNotesByUser(userId: string): Promise<Note[]>;
   createNote(note: InsertNote): Promise<Note>;
-  updateNote(id: string, note: UpdateNote): Promise<Note | undefined>;
+  updateNote(id: string, note: UpdateNote & { isPublic?: boolean }): Promise<Note | undefined>;
   deleteNote(id: string): Promise<void>;
   importUser(user: User): Promise<User>;
   listUsers(): Promise<User[]>;
@@ -186,12 +186,13 @@ export class MemStorage implements IStorage {
       isDeleted: false,
       tags: [],
       isFavorite: false,
+      isPublic: false,
     };
     this.notes.set(id, note);
     return note;
   }
 
-  async updateNote(id: string, note: UpdateNote): Promise<Note | undefined> {
+  async updateNote(id: string, note: UpdateNote & { isPublic?: boolean }): Promise<Note | undefined> {
     const existing = this.notes.get(id);
     if (!existing) {
       return undefined;
@@ -451,6 +452,7 @@ export class FileSystemStorage extends MemStorage {
 
   async createNote(insertNote: InsertNote): Promise<Note> {
     const note = await super.createNote(insertNote);
+    note.isPublic = false;
     const filePath = this.getNotePath(note);
     const folderPath = path.dirname(filePath);
     if (!fs.existsSync(folderPath)) {
@@ -461,7 +463,7 @@ export class FileSystemStorage extends MemStorage {
     return note;
   }
 
-  async updateNote(id: string, note: UpdateNote): Promise<Note | undefined> {
+  async updateNote(id: string, note: UpdateNote & { isPublic?: boolean }): Promise<Note | undefined> {
     const oldNote = await this.getNote(id);
     if (!oldNote) return undefined;
     
@@ -580,6 +582,9 @@ class PostgresStorage implements IStorage {
     `);
     await this.pool.query(`
         ALTER TABLE folders ADD COLUMN IF NOT EXISTS is_favorite boolean NOT NULL DEFAULT false;
+    `);
+    await this.pool.query(`
+        ALTER TABLE folders ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAULT ARRAY[]::text[];
     `);
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS notes (
@@ -740,12 +745,13 @@ class PostgresStorage implements IStorage {
         title: insertNote.title,
         content: insertNote.content ?? "",
         folderId: insertNote.folderId ?? null,
+        isPublic: false,
       })
       .returning();
     return rows[0];
   }
 
-  async updateNote(id: string, note: UpdateNote): Promise<Note | undefined> {
+  async updateNote(id: string, note: UpdateNote & { isPublic?: boolean }): Promise<Note | undefined> {
     await this.ready;
     const rows = await this.db
       .update(notes)

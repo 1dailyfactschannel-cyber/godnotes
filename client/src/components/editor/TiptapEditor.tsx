@@ -1,5 +1,5 @@
-import { storage, BUCKET_ID } from '@/lib/appwrite';
-import { ID } from 'appwrite';
+
+
 import { useEditor, EditorContent, ReactRenderer } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
@@ -7,6 +7,8 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { Link } from '@tiptap/extension-link';
+import { TemplatesManager } from '@/components/templates/TemplatesManager';
+import { TextAlign } from '@tiptap/extension-text-align';
 // import { Image } from '@tiptap/extension-image';
 import { Youtube } from '@tiptap/extension-youtube';
 import Heading from '@tiptap/extension-heading';
@@ -50,6 +52,7 @@ declare module '@tiptap/core' {
 
 import Highlight from '@tiptap/extension-highlight';
 import { Color } from '@tiptap/extension-color';
+
 import { common, createLowlight } from 'lowlight';
 import { WikiLinkExtension, WikiLinkList } from '@/lib/tiptap-extensions/wiki-link';
 import { MermaidExtension } from '@/lib/tiptap-extensions/mermaid';
@@ -89,6 +92,9 @@ import {
   Folder as FolderIcon,
   PaintBucket,
   Palette,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
   Search,
   History, 
   Sparkles,
@@ -247,6 +253,53 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isTagsDialogOpen, setIsTagsDialogOpen] = useState(false);
+  const [templates, setTemplates] = useState([
+    {
+      id: 'meeting-plan',
+      name: 'План встречи',
+      content: '<h2>План встречи</h2><p><strong>Дата:</strong> ${new Date().toLocaleDateString()}</p><p><strong>Участники:</strong> </p><h3>Повестка дня</h3><ul><li></li></ul><h3>Итоги</h3><ul><li></li></ul><h3>Задачи</h3><ul data-type="taskList"><li data-checked="false"></li></ul>',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    },
+    {
+      id: 'todo-list',
+      name: 'Список дел',
+      content: '<h2>✅ Список дел</h2><ul data-type="taskList"><li data-checked="false">Приоритет 1</li><li data-checked="false">Приоритет 2</li><li data-checked="false"></li></ul>',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    },
+    {
+      id: 'book-review',
+      name: 'Рецензия на книгу',
+      content: '<h2>📚 Рецензия на книгу</h2><p><strong>Автор:</strong> </p><p><strong>Оценка:</strong> ⭐⭐⭐⭐⭐</p><h3>Основные мысли</h3><blockquote></blockquote><h3>Что применить</h3><ul><li></li></ul>',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    },
+    {
+      id: 'technical-spec',
+      name: 'Техническое задание',
+      content: '<h2>📋 Техническое задание</h2><h3>1. Описание проекта</h3><p></p><h3>2. Функциональные требования</h3><ul><li></li></ul><h3>3. Стек технологий</h3><p></p>',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+  ]);
+
+  const handleSaveTemplates = (newTemplates: typeof templates) => {
+    setTemplates(newTemplates);
+    localStorage.setItem('godnotes-templates', JSON.stringify(newTemplates));
+  };
+
+  // Загрузка шаблонов из localStorage при монтировании
+  useEffect(() => {
+    const savedTemplates = localStorage.getItem('godnotes-templates');
+    if (savedTemplates) {
+      try {
+        setTemplates(JSON.parse(savedTemplates));
+      } catch (e) {
+        console.error('Failed to load templates from localStorage:', e);
+      }
+    }
+  }, []);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [localSearchQuery, setLocalSearchQuery] = useState('');
   const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
@@ -263,24 +316,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     }
   }, [lastSavedAt, lastSavedFileId, activeFileId]);
 
-  const TEMPLATES = [
-    {
-      name: 'План встречи',
-      content: '<h2>План встречи</h2><p><strong>Дата:</strong> ${new Date().toLocaleDateString()}</p><p><strong>Участники:</strong> </p><h3>Повестка дня</h3><ul><li></li></ul><h3>Итоги</h3><ul><li></li></ul><h3>Задачи</h3><ul data-type="taskList"><li data-checked="false"></li></ul>'
-    },
-    {
-      name: 'Список дел',
-      content: '<h2>✅ Список дел</h2><ul data-type="taskList"><li data-checked="false">Приоритет 1</li><li data-checked="false">Приоритет 2</li><li data-checked="false"></li></ul>'
-    },
-    {
-      name: 'Рецензия на книгу',
-      content: '<h2>📚 Рецензия на книгу</h2><p><strong>Автор:</strong> </p><p><strong>Оценка:</strong> ⭐⭐⭐⭐⭐</p><h3>Основные мысли</h3><blockquote></blockquote><h3>Что применить</h3><ul><li></li></ul>'
-    },
-    {
-      name: 'Техническое задание',
-      content: '<h2>📋 Техническое задание</h2><h3>1. Описание проекта</h3><p></p><h3>2. Функциональные требования</h3><ul><li></li></ul><h3>3. Стек технологий</h3><p></p>'
-    }
-  ];
+
 
   
 
@@ -304,7 +340,9 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       Typography,
       TextStyle,
       Color,
-      FontSize,
+      TextAlign.configure({
+        types: ['heading', 'paragraph'],
+      }),
       Highlight.configure({ multicolor: true }),
       TaskList,
       TaskItem.configure({
@@ -537,14 +575,21 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       setUploadProgress(0);
 
       try {
-        const response = await storage.createFile(
-            BUCKET_ID,
-            ID.unique(),
-            file
-        );
+        // Use local server upload instead of Appwrite
+        const formData = new FormData();
+        formData.append('file', file);
 
-        // Get file URL
-        const url = storage.getFileView(BUCKET_ID, response.$id).toString();
+        const response = await fetch('/api/uploads', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        const url = result.url; // This will be something like "/uploads/filename.ext"
         
         console.log("File uploaded successfully", { url });
 
@@ -1104,16 +1149,25 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
                 <div className="text-[10px] font-bold text-muted-foreground px-2 py-1 uppercase tracking-widest mb-1">
                   Выберите шаблон
                 </div>
-                <div className="flex flex-col gap-1">
-                  {TEMPLATES.map((template) => (
+                <div className="flex flex-col gap-1 mb-2">
+                  {templates.map((template) => (
                     <Button
-                      key={template.name}
+                      key={template.id}
                       variant="ghost"
                       size="sm"
                       className="justify-start font-normal text-xs h-8"
                       onClick={() => {
                         if (activeFileId) {
-                          applyTemplate(activeFileId, template.content);
+                          // Process template variables
+                          const processedContent = template.content.replace(/\$\{([^}]+)\}/g, (match, expr) => {
+                            try {
+                              return eval(expr);
+                            } catch (e) {
+                              return match; // Return original if evaluation fails
+                            }
+                          });
+                          
+                          applyTemplate(activeFileId, processedContent);
                           toast({
                             title: "Шаблон применен",
                             description: `Добавлен шаблон: ${template.name}`
@@ -1125,6 +1179,11 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
                     </Button>
                   ))}
                 </div>
+                <Separator className="my-2" />
+                <TemplatesManager 
+                  templates={templates} 
+                  onSaveTemplates={handleSaveTemplates}
+                />
               </PopoverContent>
             </Popover>
           </div>
@@ -1199,6 +1258,36 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
               className="h-8 w-8"
             >
               <Code className="h-4 w-4" />
+            </Toggle>
+            
+            {/* Выравнивание текста */}
+            <Separator orientation="vertical" className="h-4 mx-1" />
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive({ textAlign: 'left' })} 
+              onPressedChange={() => editor?.chain().focus().setTextAlign('left').run()}
+              className="h-8 w-8"
+              title="Выравнять по левому краю"
+            >
+              <AlignLeft className="h-4 w-4" />
+            </Toggle>
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive({ textAlign: 'center' })} 
+              onPressedChange={() => editor?.chain().focus().setTextAlign('center').run()}
+              className="h-8 w-8"
+              title="Выравнять по центру"
+            >
+              <AlignCenter className="h-4 w-4" />
+            </Toggle>
+            <Toggle 
+              size="sm" 
+              pressed={editor?.isActive({ textAlign: 'right' })} 
+              onPressedChange={() => editor?.chain().focus().setTextAlign('right').run()}
+              className="h-8 w-8"
+              title="Выравнять по правому краю"
+            >
+              <AlignRight className="h-4 w-4" />
             </Toggle>
             
             <Popover>

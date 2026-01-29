@@ -20,8 +20,6 @@ import {
   CloudDownload,
   Lock,
   LockOpen,
-  Globe,
-  FileDown,
   Calendar
 } from 'lucide-react';
 import { useFileSystem, FileSystemItem, SortOrder, compareItems } from '@/lib/mock-fs';
@@ -159,59 +157,71 @@ export function FileTree({ items: propItems, searchQuery }: { items?: FileSystem
     addFolder(parentId);
   };
 
-  async function handleImportPdf(parentId?: string | null) {
-    if (!isElectron() || !window.electron?.importPdf) {
-      toast({
-        title: "Недоступно",
-        description: "Импорт PDF доступен только в настольной версии приложения",
-        variant: "destructive",
-      });
-      return;
-    }
 
-    try {
-      const result = await window.electron.importPdf();
-      if (result.success && result.text) {
-        let effectiveParentId = parentId;
-        if (effectiveParentId === undefined) {
-          const state = useFileSystem.getState();
-          const activeItem = state.items.find(i => i.id === state.activeFileId);
-          if (activeItem) {
-            effectiveParentId = activeItem.type === 'folder' ? activeItem.id : activeItem.parentId;
-          } else {
-            effectiveParentId = null;
-          }
-        }
-        
-        // Simple HTML conversion for Tiptap
-        const htmlContent = result.text
-          .split('\n')
-          .filter(line => line.trim().length > 0)
-          .map(line => `<p>${line}</p>`)
-          .join('');
+  // Handle import progress events - REMOVED
+  /*
+  useEffect(() => {
+    if (!isElectron() || !window.electron) return;
 
-        await addFile(effectiveParentId || null, result.filename || 'Импортированная заметка', htmlContent);
-        
-        toast({
-          title: "Импорт завершен",
-          description: `Файл "${result.filename}" успешно импортирован`,
-        });
-      } else if (result.error && result.error !== 'Cancelled') {
-        toast({
-          title: "Ошибка импорта",
-          description: result.error,
-          variant: "destructive",
-        });
+    const handleProgress = (data: any) => {
+      setImportProgress(data);
+      
+      // Show toast notifications for important events
+      switch (data.status) {
+        case 'started':
+          toast({
+            title: "Импорт PDF",
+            description: `Начинаем импорт файла "${data.filename}"`,
+            duration: 2000
+          });
+          break;
+        case 'completed':
+          toast({
+            title: "✅ Импорт завершен",
+            description: data.truncated 
+              ? `Файл "${data.filename}" импортирован (ограниченная версия)` 
+              : `Файл "${data.filename}" успешно импортирован`,
+            duration: 3000
+          });
+          setImportProgress(null);
+          break;
+        case 'error':
+          toast({
+            title: "❌ Ошибка импорта",
+            description: data.message,
+            variant: "destructive",
+            duration: 5000
+          });
+          setImportProgress(null);
+          break;
+        case 'timeout':
+          toast({
+            title: "⏰ Таймаут",
+            description: data.message,
+            variant: "destructive",
+            duration: 5000
+          });
+          setImportProgress(null);
+          break;
       }
-    } catch (error) {
-      console.error('Import PDF failed:', error);
-      toast({
-        title: "Ошибка",
-        description: "Произошла ошибка при импорте PDF",
-        variant: "destructive",
-      });
-    }
-  }
+    };
+
+    window.electron.onImportProgress(handleProgress);
+    
+    return () => {
+      window.electron?.removeImportProgressListener();
+    };
+  }, [toast]);
+  */
+
+  const handleImportPdf = async () => {
+    // PDF import functionality temporarily disabled
+    toast({
+      title: "Функция недоступна",
+      description: "Импорт PDF временно отключен",
+      variant: "destructive"
+    });
+  };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -260,15 +270,6 @@ export function FileTree({ items: propItems, searchQuery }: { items?: FileSystem
               </Button>
             </TooltipTrigger>
             <TooltipContent>Новая папка</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => handleImportPdf()}>
-                <FileDown className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Импорт PDF</TooltipContent>
           </Tooltip>
 
           {isElectron() && (
@@ -322,7 +323,6 @@ export function FileTree({ items: propItems, searchQuery }: { items?: FileSystem
               level={level} 
               onOpenTags={() => setTaggingItemId(item.id)}
               searchQuery={searchQuery}
-              onImportPdf={handleImportPdf}
             />
           )}
         />
@@ -337,7 +337,7 @@ export function FileTree({ items: propItems, searchQuery }: { items?: FileSystem
   );
 }
 
-const FileTreeRow = memo(({ item, level, onOpenTags, searchQuery, onImportPdf }: { item: FileSystemItem, level: number, onOpenTags: () => void, searchQuery?: string, onImportPdf: (parentId?: string | null) => void }) => {
+const FileTreeRow = memo(({ item, level, onOpenTags, searchQuery, onImportPdf }: { item: FileSystemItem, level: number, onOpenTags: () => void, searchQuery?: string, onImportPdf?: (parentId?: string | null) => void }) => {
   const expandedFolders = useFileSystem(state => state.expandedFolders);
   const activeFileId = useFileSystem(state => state.activeFileId);
   const lastCreatedFolderId = useFileSystem(state => state.lastCreatedFolderId);
@@ -593,7 +593,6 @@ const FileTreeRow = memo(({ item, level, onOpenTags, searchQuery, onImportPdf }:
                {item.isPinned && <Pin className="h-2 w-2 text-primary fill-primary shrink-0" />}
                {item.isFavorite && <Star className="h-2 w-2 text-yellow-500 fill-yellow-500 shrink-0 ml-0.5" />}
                {item.isProtected && <Lock className="h-2 w-2 text-orange-500 shrink-0 ml-0.5" />}
-               {item.isPublic && <Globe className="h-2 w-2 text-blue-500 shrink-0 ml-0.5" />}
                {item.tags && item.tags.length > 0 && <Tag className="h-2 w-2 text-blue-400 shrink-0 ml-0.5" />}
             </span>
             {isEditing ? (
@@ -654,14 +653,14 @@ const FileTreeRow = memo(({ item, level, onOpenTags, searchQuery, onImportPdf }:
                     >
                       <FolderPlus className="mr-2 h-4 w-4" /> Новая папка
                     </DropdownMenuItem>
-                    <DropdownMenuItem 
+                    {/* <DropdownMenuItem 
                       onClick={(e) => {
                         e.stopPropagation();
                         onImportPdf(item.id);
                       }}
                     >
                       <FileDown className="mr-2 h-4 w-4" /> Импорт PDF
-                    </DropdownMenuItem>
+                    </DropdownMenuItem> */}
                   </>
                 )}
                 <DropdownMenuItem onClick={() => togglePin(item.id)}>
@@ -675,26 +674,6 @@ const FileTreeRow = memo(({ item, level, onOpenTags, searchQuery, onImportPdf }:
                 <DropdownMenuItem onClick={() => toggleLock(item.id)}>
                     {item.isProtected ? <LockOpen className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
                     {item.isProtected ? 'Снять защиту' : 'Защитить'}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={async (e) => {
-                    e.stopPropagation();
-                    const wasPublic = item.isPublic;
-                    const link = await togglePublic(item.id);
-                    if (link) {
-                        navigator.clipboard.writeText(link);
-                        toast({
-                            title: "Доступ открыт",
-                            description: "Ссылка скопирована в буфер обмена",
-                        });
-                    } else if (wasPublic) {
-                        toast({
-                            title: "Доступ закрыт",
-                            description: "Заметка больше не доступна по ссылке",
-                        });
-                    }
-                }}>
-                    <Globe className="mr-2 h-4 w-4" />
-                    {item.isPublic ? 'Закрыть доступ' : 'Открыть доступ'}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={onOpenTags}>
                   <Tag className="mr-2 h-4 w-4" /> Теги
@@ -732,14 +711,14 @@ const FileTreeRow = memo(({ item, level, onOpenTags, searchQuery, onImportPdf }:
             >
               <FolderPlus className="mr-2 h-4 w-4" /> Новая папка
             </ContextMenuItem>
-            <ContextMenuItem 
+            {/* <ContextMenuItem 
               onClick={(e) => {
                 e.stopPropagation();
                 onImportPdf(item.id);
               }}
             >
               <FileDown className="mr-2 h-4 w-4" /> Импорт PDF
-            </ContextMenuItem>
+            </ContextMenuItem> */}
             <ContextMenuSeparator />
           </>
         )}
@@ -754,25 +733,6 @@ const FileTreeRow = memo(({ item, level, onOpenTags, searchQuery, onImportPdf }:
         <ContextMenuItem onClick={() => toggleLock(item.id)}>
             {item.isProtected ? <LockOpen className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
             {item.isProtected ? 'Снять защиту' : 'Защитить'}
-        </ContextMenuItem>
-        <ContextMenuItem onClick={async () => {
-             const wasPublic = item.isPublic;
-             const link = await togglePublic(item.id);
-             if (link) {
-                 navigator.clipboard.writeText(link);
-                 toast({
-                     title: "Доступ открыт",
-                     description: "Ссылка скопирована в буфер обмена",
-                 });
-             } else if (wasPublic) {
-                 toast({
-                     title: "Доступ закрыт",
-                     description: "Заметка больше не доступна по ссылке",
-                 });
-             }
-         }}>
-            <Globe className="mr-2 h-4 w-4" />
-            {item.isPublic ? 'Закрыть доступ' : 'Открыть доступ'}
         </ContextMenuItem>
         <ContextMenuItem onClick={onOpenTags}>
             <Tag className="mr-2 h-4 w-4" /> Теги

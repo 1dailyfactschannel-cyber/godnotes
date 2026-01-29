@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { LogOut, User as UserIcon, Save, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useFileSystem } from "@/lib/mock-fs";
+import { useAuthContext } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import { useState, useEffect } from "react";
 
@@ -23,7 +24,8 @@ interface UserProfileDialogProps {
 export function UserProfileDialog({ open, onOpenChange }: UserProfileDialogProps) {
   console.log('UserProfileDialog rendered, open:', open);
   const { toast } = useToast();
-  const { user, logout, updateUserPrefs, isAuthenticated } = useFileSystem();
+  const { user, logout: fsLogout, updateUserPrefs, isAuthenticated } = useFileSystem();
+  const { logout: authLogout } = useAuthContext();
   const [, setLocation] = useLocation();
   const [telegram, setTelegram] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -32,8 +34,11 @@ export function UserProfileDialog({ open, onOpenChange }: UserProfileDialogProps
   useEffect(() => {
     if (open && !isAuthenticated) {
       // Вызываем checkAuth для синхронизации состояния
-      const fs = useFileSystem.getState();
-      fs.checkAuth();
+      // Используем setTimeout чтобы избежать flushSync warning
+      setTimeout(() => {
+        const fs = useFileSystem.getState();
+        fs.checkAuth();
+      }, 0);
     }
   }, [open, isAuthenticated]);
 
@@ -44,12 +49,21 @@ export function UserProfileDialog({ open, onOpenChange }: UserProfileDialogProps
   }, [open, user]);
 
   const handleLogout = async () => {
-    await logout();
-    toast({
-      title: "Выход из системы",
-      description: "Вы успешно вышли из аккаунта",
-    });
-    onOpenChange(false);
+    try {
+      await fsLogout();
+      await authLogout();
+      toast({
+        title: "Выход из системы",
+        description: "Вы успешно вышли из аккаунта",
+      });
+      onOpenChange(false);
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Ошибка",
+        description: "Не удалось выйти из системы",
+      });
+    }
   };
 
   const handleSaveTelegram = async () => {

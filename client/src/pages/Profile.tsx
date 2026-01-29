@@ -2,20 +2,23 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useFileSystem } from '@/lib/mock-fs';
+import { useAuthContext } from "@/contexts/AuthContext";
 import { cn } from '@/lib/utils';
 import { useLocation } from 'wouter';
 import { ArrowLeft, LogOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function Profile() {
-  const { theme, logout, user } = useFileSystem();
+  const { theme, logout: fsLogout, user } = useFileSystem();
+  const { logout: authLogout } = useAuthContext();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
   const handleLogout = async () => {
     try {
-      await logout();
-      setLocation("/login");
+      await fsLogout();
+      await authLogout();
+      // Редирект происходит автоматически в App.tsx когда isAuthenticated становится false
     } catch (err) {
       toast({
         variant: "destructive",

@@ -66,6 +66,7 @@ export const notes = pgTable("notes", {
   isDeleted: boolean("is_deleted").default(false).notNull(),
   isFavorite: boolean("is_favorite").default(false).notNull(),
   tags: text("tags").array().default(sql`ARRAY[]::text[]`).notNull(),
+  isPublic: boolean("is_public").default(false).notNull(),
 });
 
 export const insertNoteSchema = z.object({
@@ -76,9 +77,13 @@ export const insertNoteSchema = z.object({
   tags: z.array(z.string()).optional(),
 });
 
-export const updateNoteSchema = insertNoteSchema.partial();
+export const updateNoteSchema = insertNoteSchema.partial().extend({
+  isPublic: z.boolean().optional()
+});
 
-export type Note = typeof notes.$inferSelect;
+export type Note = typeof notes.$inferSelect & {
+  isPublic?: boolean;
+};
 export type InsertNote = {
   userId: string;
   title: string;
