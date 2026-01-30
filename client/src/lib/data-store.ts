@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { compareItems } from './compare';
 export { compareItems };
-import { apiRequest } from './api';
+import { apiRequest, API_BASE_URL } from './api';
 
 import { fs, getDocumentsPath, isElectron, selectDirectory, getStoreValue, setStoreValue } from './electron';
 import { persistStateToLocalStorage } from './storage';
@@ -103,6 +103,7 @@ interface FileSystemState {
   fetchFolders: () => Promise<void>;
   fetchNotes: () => Promise<void>;
   fetchTrash: () => Promise<void>;
+  syncMissingNotes: () => Promise<void>;
   checkAuth: () => Promise<void>;
   addFile: (parentId: string | null, name?: string, initialContent?: string) => Promise<void>;
   addDailyNote: () => Promise<void>;
@@ -362,13 +363,13 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   fetchFolders: async () => {
-    // Load folders from API and merge into items
+    // Load folders from API and merge into items (preserve local-only folders)
     if (!get().isAuthenticated || get().isOfflineMode) return;
     try {
       const folders = await apiRequest('GET', '/folders');
       if (!folders) return;
 
-      const mapped: FileSystemItem[] = folders.map((f: any) => ({
+      const serverFolders: FileSystemItem[] = folders.map((f: any) => ({
         id: f.id,
         name: f.name,
         type: 'folder',
@@ -379,21 +380,43 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         tags: Array.isArray(f.tags) ? f.tags : []
       }));
 
-      const other = get().items.filter(i => i.type !== 'folder');
-      set({ items: [...mapped, ...other] });
+      const stateItems = get().items;
+      const nonFolderItems = stateItems.filter(i => i.type !== 'folder');
+      const currentFolders = stateItems.filter(i => i.type === 'folder');
+
+      // Merge by id: start from existing folders, update/add from server
+      const folderMap = new Map<string, FileSystemItem>(currentFolders.map(f => [f.id, f]));
+      for (const sf of serverFolders) {
+        const existing = folderMap.get(sf.id);
+        if (existing) {
+          folderMap.set(sf.id, {
+            ...existing,
+            name: sf.name,
+            parentId: sf.parentId,
+            createdAt: sf.createdAt,
+            updatedAt: sf.updatedAt,
+            isFavorite: sf.isFavorite,
+            tags: sf.tags,
+          });
+        } else {
+          folderMap.set(sf.id, sf);
+        }
+      }
+
+      set({ items: [...Array.from(folderMap.values()), ...nonFolderItems] });
     } catch (e) {
       console.error('Failed to fetch folders:', e);
     }
   },
 
   fetchNotes: async () => {
-    // Load notes from API and merge into items
+    // Load notes from API and merge into items (preserve local-only notes)
     if (!get().isAuthenticated || get().isOfflineMode) return;
     try {
       const notes = await apiRequest('GET', '/notes');
       if (!notes) return;
 
-      const mapped: FileSystemItem[] = notes.map((n: any) => ({
+      const serverNotes: FileSystemItem[] = notes.map((n: any) => ({
         id: n.id,
         name: n.title,
         type: 'file',
@@ -406,8 +429,32 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         isPublic: !!n.isPublic
       }));
 
-      const other = get().items.filter(i => i.type !== 'file');
-      set({ items: [...other, ...mapped] });
+      const stateItems = get().items;
+      const nonFileItems = stateItems.filter(i => i.type !== 'file');
+      const currentNotes = stateItems.filter(i => i.type === 'file');
+
+      // Merge by id: start from existing notes, update/add from server
+      const noteMap = new Map<string, FileSystemItem>(currentNotes.map(n => [n.id, n]));
+      for (const sn of serverNotes) {
+        const existing = noteMap.get(sn.id);
+        if (existing) {
+          noteMap.set(sn.id, {
+            ...existing,
+            name: sn.name,
+            parentId: sn.parentId,
+            content: sn.content,
+            createdAt: sn.createdAt,
+            updatedAt: sn.updatedAt,
+            isFavorite: sn.isFavorite,
+            tags: sn.tags,
+            isPublic: sn.isPublic,
+          });
+        } else {
+          noteMap.set(sn.id, sn);
+        }
+      }
+
+      set({ items: [...nonFileItems, ...Array.from(noteMap.values())] });
     } catch (e) {
       console.error('Failed to fetch notes:', e);
     }
@@ -449,6 +496,87 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
   },
 
+  // Create missing server notes for local-only files and migrate temp ids to server ids
+  syncMissingNotes: async () => {
+    const state = get();
+    if (!state.isAuthenticated || state.isOfflineMode) return;
+    try {
+      const serverNotes: any[] = await apiRequest('GET', '/notes');
+      const serverIds = new Set<string>((serverNotes || []).map((n: any) => n.id));
+      const localFiles = state.items.filter(i => i.type === 'file');
+
+      for (const localItem of localFiles) {
+        if (!serverIds.has(localItem.id)) {
+          try {
+            const created = await apiRequest('POST', '/notes', {
+              title: localItem.name,
+              content: localItem.content ?? '',
+              folderId: localItem.parentId ?? null,
+              isFavorite: !!localItem.isFavorite,
+              tags: localItem.tags || []
+            });
+            const createdUpdatedAt = new Date(created.updatedAt).getTime();
+            set(s => ({
+              items: s.items.map(i => i.id === localItem.id ? { ...i, id: created.id, createdAt: new Date(created.createdAt).getTime(), updatedAt: createdUpdatedAt } : i),
+              activeFileId: s.activeFileId === localItem.id ? created.id : s.activeFileId,
+              openFiles: s.openFiles.map(fid => fid === localItem.id ? created.id : fid),
+              lastCreatedFileId: s.lastCreatedFileId === localItem.id ? created.id : s.lastCreatedFileId
+            }));
+            get().saveToLocalStorage();
+            if (state.localDocumentsPath && isElectron() && fs) {
+              const oldPath = `${state.localDocumentsPath}/GodNotes/${localItem.id}.md`;
+              const newPath = `${state.localDocumentsPath}/GodNotes/${created.id}.md`;
+              try {
+                const existsOld = await fs.exists(oldPath);
+                if (existsOld) {
+                  const readRes = await fs.readFile(oldPath);
+                  if (readRes.success && typeof readRes.content === 'string') {
+                    await fs.writeFile(newPath, readRes.content);
+                    await fs.deleteFile(oldPath);
+                  } else {
+                    await fs.writeFile(newPath, localItem.content ?? '');
+                  }
+                } else {
+                  await fs.writeFile(newPath, localItem.content ?? '');
+                }
+              } catch (fsErr) {
+                console.error('syncMissingNotes: local file migration failed', fsErr);
+              }
+            }
+            try {
+              const manifest = { ...get().syncManifest };
+              delete manifest[localItem.id];
+              manifest[created.id] = createdUpdatedAt;
+              set({ syncManifest: manifest });
+              await get().saveSyncManifest();
+            } catch (mErr) {
+              console.error('syncMissingNotes: manifest update failed', mErr);
+            }
+            try {
+              const prevQueue = get().offlineQueue || [];
+              const migratedQueue = prevQueue.map(q => {
+                if (q.itemId === localItem.id || q.endpoint === `/notes/${localItem.id}`) {
+                  const newEndpoint = q.endpoint.replace(`/notes/${localItem.id}`, `/notes/${created.id}`);
+                  return { ...q, itemId: q.itemId === localItem.id ? created.id : q.itemId, endpoint: newEndpoint };
+                }
+                return q;
+              });
+              set({ offlineQueue: migratedQueue });
+              localStorage.setItem('offlineQueue', JSON.stringify(migratedQueue));
+            } catch (qErr) {
+              console.error('syncMissingNotes: offline queue rewrite failed', qErr);
+            }
+            set({ lastSavedAt: Date.now(), lastSavedFileId: created.id });
+          } catch (createErr) {
+            console.error('syncMissingNotes: failed to create server note', createErr);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('syncMissingNotes failed', e);
+    }
+  },
+
   checkAuth: async () => {
     set({ isAuthChecking: true });
     try {
@@ -478,6 +606,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         console.log('checkAuth: Fetching user data (folders and notes)');
         await Promise.all([get().fetchFolders(), get().fetchNotes()]);
         await get().processOfflineQueue();
+        await get().syncMissingNotes();
 
         // Validate activeFileId and openFiles
         const state = get();
@@ -1055,9 +1184,94 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         }
         set({ lastSavedAt: Date.now(), lastSavedFileId: id });
       } catch (error: any) {
+        const msg = String(error?.message || error);
         console.error('Failed to update note content:', error);
-        if (error.code === 401) {
+        // Handle unauthorized cases robustly
+        if (msg.includes('401') || (error as any)?.code === 401) {
             set({ isAuthenticated: false, user: null });
+        }
+        // Fallback: if note doesn't exist on server (404), create it and replace local id
+        if (msg.includes('404') && state.isAuthenticated && !state.isOfflineMode) {
+            const localItem = get().items.find(i => i.id === id);
+            if (localItem && localItem.type === 'file') {
+                try {
+                    const created = await apiRequest('POST', '/notes', {
+                        title: localItem.name,
+                        content,
+                        folderId: localItem.parentId ?? null,
+                        isFavorite: !!localItem.isFavorite,
+                        tags: localItem.tags || []
+                    });
+                    const createdUpdatedAt = new Date(created.updatedAt).getTime();
+                    // Update in-memory items and UI references to new id
+                    set(s => ({
+                        items: s.items.map(i => i.id === id ? { ...i, id: created.id, createdAt: new Date(created.createdAt).getTime(), updatedAt: createdUpdatedAt } : i),
+                        activeFileId: s.activeFileId === id ? created.id : s.activeFileId,
+                        openFiles: s.openFiles.map(fid => fid === id ? created.id : fid),
+                        lastCreatedFileId: s.lastCreatedFileId === id ? created.id : s.lastCreatedFileId
+                    }));
+                    get().saveToLocalStorage();
+
+                    // Migrate local file from old id to new id (Electron)
+                    if (state.localDocumentsPath && isElectron() && fs) {
+                        const oldPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
+                        const newPath = `${state.localDocumentsPath}/GodNotes/${created.id}.md`;
+                        try {
+                            const existsOld = await fs.exists(oldPath);
+                            if (existsOld) {
+                                const readRes = await fs.readFile(oldPath);
+                                if (readRes.success && typeof readRes.content === 'string') {
+                                    await fs.writeFile(newPath, readRes.content);
+                                    await fs.deleteFile(oldPath);
+                                } else {
+                                    await fs.writeFile(newPath, content);
+                                }
+                            } else {
+                                // If the old file wasn't found, at least ensure the new file exists with current content
+                                await fs.writeFile(newPath, content);
+                            }
+                        } catch (fsErr) {
+                            console.error('Local file migrate failed:', fsErr);
+                        }
+                    }
+
+                    // Update sync manifest: remove old id, set new id
+                    try {
+                        const manifest = { ...get().syncManifest };
+                        delete manifest[id];
+                        manifest[created.id] = createdUpdatedAt;
+                        set({ syncManifest: manifest });
+                        await get().saveSyncManifest();
+                    } catch (mErr) {
+                        console.error('Failed to update sync manifest during id migration:', mErr);
+                    }
+
+                    // Rewrite offline queue entries to point to the new id
+                    try {
+                        const prevQueue = get().offlineQueue || [];
+                        const migratedQueue = prevQueue.map(q => {
+                            if (q.itemId === id || q.endpoint === `/notes/${id}`) {
+                                const newEndpoint = q.endpoint.replace(`/notes/${id}`, `/notes/${created.id}`);
+                                return { ...q, itemId: q.itemId === id ? created.id : q.itemId, endpoint: newEndpoint };
+                            }
+                            return q;
+                        });
+                        set({ offlineQueue: migratedQueue });
+                        localStorage.setItem('offlineQueue', JSON.stringify(migratedQueue));
+                    } catch (qErr) {
+                        console.error('Failed to rewrite offline queue after id migration:', qErr);
+                    }
+
+                    // Ensure last saved refers to new server id
+                    set({ lastSavedAt: Date.now(), lastSavedFileId: created.id });
+                } catch (createErr: any) {
+                    console.error('Fallback create note failed:', createErr);
+                    const createMsg = String(createErr?.message || createErr);
+                    if (createMsg.includes('401') || (createErr as any)?.code === 401) {
+                        set({ isAuthenticated: false, user: null });
+                    }
+                }
+            }
         }
       } finally {
         saveTimeouts.delete(id);
@@ -1499,11 +1713,18 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
   updateRecovery: async (userId, secret, password, passwordAgain) => {
     try {
-      // Not used with JWT flow; keeping method for compatibility
-      console.warn('updateRecovery is not supported with JWT auth');
-    } catch (error) {
+      if (password !== passwordAgain) {
+        throw new Error('Пароли не совпадают');
+      }
+      await apiRequest('POST', '/auth/recover-password', {
+        userId,
+        secret,
+        new_password: password,
+      });
+    } catch (error: any) {
       console.error('Update recovery failed:', error);
-      throw error;
+      const message = error?.message || String(error) || 'Не удалось обновить пароль';
+      throw new Error(message);
     }
   },
 
@@ -1754,7 +1975,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         }
         
         // Make request to our backend API
-        const apiUrl = `/api/notes/${id}/public`;
+        const apiUrl = `${API_BASE_URL}/notes/${id}/public`;
         console.log('Making API request to:', apiUrl);
         
         const response = await fetch(apiUrl, {

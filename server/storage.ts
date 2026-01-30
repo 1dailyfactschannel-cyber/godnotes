@@ -42,18 +42,319 @@ export interface IStorage {
   deleteNote(id: string): Promise<void>;
   importUser(user: User): Promise<User>;
   listUsers(): Promise<User[]>;
-  getTrash(userId: string): Promise<{ folders: Folder[], notes: Note[] }>;
-  restoreFolder(id: string): Promise<void>;
-  restoreNote(id: string): Promise<void>;
-  permanentDeleteFolder(id: string): Promise<void>;
-  permanentDeleteNote(id: string): Promise<void>;
-  getFavorites(userId: string): Promise<{ folders: Folder[], notes: Note[] }>;
+  // Add password update capability
+  updateUserPassword(userId: string, hashedPassword: string): Promise<User | undefined>;
+}
+
+export class PostgresStorage implements IStorage {
+  private db: ReturnType<typeof drizzle>;
+  private pool: Pool;
+  private ready: Promise<void>;
+
+  constructor(connectionString: string) {
+    this.pool = new Pool({
+      connectionString,
+    });
+    this.db = drizzle(this.pool);
+    this.ready = this.testConnection();
+  }
+
+  private async testConnection(): Promise<void> {
+    try {
+      await this.pool.query('SELECT 1');
+      console.log('PostgreSQL connected successfully');
+    } catch (error) {
+      console.error('Failed to connect to PostgreSQL', error);
+      throw error;
+    }
+  }
+
+  async getUser(id: string): Promise<User | undefined> {
+    await this.ready;
+    const rows = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
+    return rows[0];
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    await this.ready;
+    const rows = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
+    return rows[0];
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    await this.ready;
+    const rows = await this.db.select().from(users).where(eq(users.username, username)).limit(1);
+    return rows[0];
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    await this.ready;
+    const id = randomUUID();
+    const rows = await this.db
+      .insert(users)
+      .values({
+        id,
+        email: insertUser.email,
+        username: insertUser.username ?? null,
+        password: insertUser.password,
+        name: insertUser.name ?? null,
+        avatar_url: null,
+        is_verified: false,
+        is_active: true,
+        created_at: new Date(),
+        updated_at: new Date(),
+      })
+      .returning();
+    return rows[0];
+  }
+
+  async importUser(user: User): Promise<User> {
+    await this.ready;
+    const rows = await this.db
+      .insert(users)
+      .values(user)
+      .onConflictDoUpdate({ target: users.id, set: user })
+      .returning();
+    return rows[0];
+  }
+
+  async listUsers(): Promise<User[]> {
+    await this.ready;
+    return this.db.select().from(users);
+  }
+
+  async updateUserPassword(userId: string, hashedPassword: string): Promise<User | undefined> {
+    await this.ready;
+    const rows = await this.db
+      .update(users)
+      .set({ password: hashedPassword, updated_at: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return rows[0];
+  }
+
+  async getFolder(id: string): Promise<Folder | undefined> {
+    await this.ready;
+    const rows = await this.db.select().from(folders).where(eq(folders.id, id)).limit(1);
+    return rows[0];
+  }
+
+  async listFoldersByUser(userId: string): Promise<Folder[]> {
+    await this.ready;
+    return this.db.select().from(folders).where(and(eq(folders.userId, userId), eq(folders.isDeleted, false)));
+  }
+
+  async createFolder(insertFolder: InsertFolder): Promise<Folder> {
+    await this.ready;
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await this.db
+      .insert(folders)
+      .values({
+        id,
+        userId: insertFolder.userId,
+        name: insertFolder.name,
+        parentId: insertFolder.parentId ?? null,
+        createdAt: now,
+        updatedAt: now,
+        isDeleted: false,
+        isFavorite: insertFolder.isFavorite ?? false,
+        tags: [],
+      })
+      .returning();
+    return rows[0];
+  }
+
+  async updateFolder(id: string, folder: UpdateFolder): Promise<Folder | undefined> {
+    await this.ready;
+    const rows = await this.db
+      .update(folders)
+      .set({
+        name: folder.name,
+        parentId: folder.parentId ?? null,
+        updatedAt: new Date(),
+        isDeleted: folder.isDeleted,
+        isFavorite: folder.isFavorite,
+        tags: folder.tags,
+      })
+      .where(eq(folders.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteFolder(id: string): Promise<void> {
+    await this.ready;
+    await this.db.update(folders).set({ isDeleted: true, updatedAt: new Date() }).where(eq(folders.id, id));
+    // Cascade delete children (set isDeleted to true)
+    await this.db.update(folders).set({ isDeleted: true, updatedAt: new Date() }).where(eq(folders.parentId, id));
+    await this.db.update(notes).set({ isDeleted: true, updatedAt: new Date() }).where(eq(notes.folderId, id));
+  }
+
+  async getNote(id: string): Promise<Note | undefined> {
+    await this.ready;
+    const rows = await this.db.select().from(notes).where(eq(notes.id, id)).limit(1);
+    return rows[0];
+  }
+
+  async listNotesByUser(userId: string): Promise<Note[]> {
+    await this.ready;
+    return this.db.select().from(notes).where(and(eq(notes.userId, userId), eq(notes.isDeleted, false)));
+  }
+
+  async createNote(insertNote: InsertNote): Promise<Note> {
+    await this.ready;
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await this.db
+      .insert(notes)
+      .values({
+        id,
+        userId: insertNote.userId,
+        title: insertNote.title,
+        content: insertNote.content ?? "",
+        folderId: insertNote.folderId ?? null,
+        createdAt: now,
+        updatedAt: now,
+        isDeleted: false,
+        tags: [],
+        isFavorite: false,
+        isPublic: false,
+      })
+      .returning();
+    return rows[0];
+  }
+
+  async updateNote(id: string, note: UpdateNote & { isPublic?: boolean }): Promise<Note | undefined> {
+    await this.ready;
+    const rows = await this.db
+      .update(notes)
+      .set({
+        title: note.title,
+        content: note.content ?? "",
+        folderId: note.folderId ?? null,
+        updatedAt: new Date(),
+        isDeleted: note.isDeleted,
+        isFavorite: note.isFavorite,
+        isPublic: note.isPublic,
+        tags: note.tags,
+      })
+      .where(eq(notes.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteNote(id: string): Promise<void> {
+    await this.ready;
+    await this.db.update(notes).set({ isDeleted: true, updatedAt: new Date() }).where(eq(notes.id, id));
+  }
+
+  async getTrash(userId: string): Promise<{ folders: Folder[], notes: Note[] }> {
+    await this.ready;
+    const deletedFolders = await this.db.select().from(folders).where(and(eq(folders.userId, userId), eq(folders.isDeleted, true)));
+    const deletedNotes = await this.db.select().from(notes).where(and(eq(notes.userId, userId), eq(notes.isDeleted, true)));
+    return { folders: deletedFolders, notes: deletedNotes };
+  }
+
+  async getFavorites(userId: string): Promise<{ folders: Folder[], notes: Note[] }> {
+    await this.ready;
+    const favoriteFolders = await this.db.select().from(folders).where(and(eq(folders.userId, userId), eq(folders.isDeleted, false), eq(folders.isFavorite, true)));
+    const favoriteNotes = await this.db.select().from(notes).where(and(eq(notes.userId, userId), eq(notes.isDeleted, false), eq(notes.isFavorite, true)));
+    return { folders: favoriteFolders, notes: favoriteNotes };
+  }
+
+  async restoreFolder(id: string): Promise<void> {
+    await this.ready;
+    await this.db.update(folders).set({ isDeleted: false, updatedAt: new Date() }).where(eq(folders.id, id));
+    // Restore children
+    await this.db.update(folders).set({ isDeleted: false, updatedAt: new Date() }).where(eq(folders.parentId, id));
+    await this.db.update(notes).set({ isDeleted: false, updatedAt: new Date() }).where(eq(notes.folderId, id));
+  }
+
+  async restoreNote(id: string): Promise<void> {
+    await this.ready;
+    await this.db.update(notes).set({ isDeleted: false, updatedAt: new Date() }).where(eq(notes.id, id));
+  }
+
+  async permanentDeleteFolder(id: string): Promise<void> {
+    await this.ready;
+    await this.db.delete(folders).where(eq(folders.id, id));
+    await this.db.delete(folders).where(eq(folders.parentId, id)); // Delete child folders
+    await this.db.delete(notes).where(eq(notes.folderId, id)); // Delete child notes
+  }
+
+  async permanentDeleteNote(id: string): Promise<void> {
+    await this.ready;
+    await this.db.delete(notes).where(eq(notes.id, id));
+  }
+
   // Tasks CRUD
-  getTask(id: string): Promise<Task | undefined>;
-  listTasksByUser(userId: string): Promise<Task[]>;
-  createTask(task: InsertTask): Promise<Task>;
-  updateTask(id: string, task: UpdateTask): Promise<Task | undefined>;
-  deleteTask(id: string): Promise<void>;
+  async getTask(id: string): Promise<Task | undefined> {
+    await this.ready;
+    const rows = await this.db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+    return rows[0];
+  }
+
+  async listTasksByUser(userId: string): Promise<Task[]> {
+    await this.ready;
+    const rows = await this.db.select().from(tasks).where(eq(tasks.userId, userId));
+    return rows;
+  }
+
+  async createTask(insertTask: InsertTask): Promise<Task> {
+    await this.ready;
+    const id = randomUUID();
+    const rows = await this.db
+      .insert(tasks)
+      .values({
+        id,
+        userId: insertTask.userId,
+        content: insertTask.content,
+        description: insertTask.description ?? null,
+        callLink: insertTask.callLink ?? null,
+        isCompleted: false,
+        status: insertTask.status ?? null,
+        parentId: insertTask.parentId ?? null,
+        dueDate: insertTask.dueDate ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        notify: insertTask.notify ?? false,
+        isNotified: insertTask.isNotified ?? false,
+        priority: insertTask.priority ?? 'medium',
+        tags: insertTask.tags ?? [],
+        recurring: insertTask.recurring ?? null,
+      })
+      .returning();
+    return rows[0];
+  }
+
+  async updateTask(id: string, task: UpdateTask): Promise<Task | undefined> {
+    await this.ready;
+    const rows = await this.db
+      .update(tasks)
+      .set({
+        content: task.content,
+        description: task.description ?? null,
+        callLink: task.callLink ?? null,
+        isCompleted: task.isCompleted,
+        status: task.status ?? null,
+        parentId: task.parentId ?? null,
+        dueDate: task.dueDate ?? null,
+        notify: task.notify,
+        isNotified: task.isNotified,
+        priority: task.priority,
+        tags: task.tags,
+        recurring: task.recurring ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    await this.ready;
+    await this.db.delete(tasks).where(eq(tasks.id, id));
+  }
 }
 
 export class MemStorage implements IStorage {
@@ -110,6 +411,14 @@ export class MemStorage implements IStorage {
 
   async listUsers(): Promise<User[]> {
     return Array.from(this.users.values());
+  }
+
+  async updateUserPassword(userId: string, hashedPassword: string): Promise<User | undefined> {
+    const user = this.users.get(userId);
+    if (!user) return undefined;
+    const updated: User = { ...user, password: hashedPassword, updated_at: new Date() };
+    this.users.set(userId, updated);
+    return updated;
   }
 
   async getFolder(id: string): Promise<Folder | undefined> {
@@ -367,7 +676,328 @@ export class MemStorage implements IStorage {
   }
  }
 
- export class ProxyStorage implements IStorage {
+ export class FileSystemStorage implements IStorage {
+  private storagePath: string;
+
+  constructor(basePath: string) {
+    this.storagePath = path.join(basePath, 'fs-storage');
+    if (!fs.existsSync(this.storagePath)) {
+      fs.mkdirSync(this.storagePath, { recursive: true });
+    }
+    console.log(`FileSystemStorage initialized at: ${this.storagePath}`);
+  }
+
+  private getFilePath(entityType: string, id: string): string {
+    return path.join(this.storagePath, `${entityType}-${id}.json`);
+  }
+
+  private async readEntity<T>(entityType: string, id: string): Promise<T | undefined> {
+    const filePath = this.getFilePath(entityType, id);
+    if (fs.existsSync(filePath)) {
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      return JSON.parse(content) as T;
+    }
+    return undefined;
+  }
+
+  private async writeEntity<T>(entityType: string, id: string, entity: T): Promise<void> {
+    const filePath = this.getFilePath(entityType, id);
+    await fs.promises.writeFile(filePath, JSON.stringify(entity, null, 2), 'utf-8');
+  }
+
+  private async deleteEntity(entityType: string, id: string): Promise<void> {
+    const filePath = this.getFilePath(entityType, id);
+    if (fs.existsSync(filePath)) {
+      await fs.promises.unlink(filePath);
+    }
+  }
+
+  private async listEntities<T>(entityType: string, filterFn: (entity: T) => boolean): Promise<T[]> {
+    const files = await fs.promises.readdir(this.storagePath);
+    const entities: T[] = [];
+    for (const file of files) {
+      if (file.startsWith(`${entityType}-`) && file.endsWith('.json')) {
+        const filePath = path.join(this.storagePath, file);
+        const content = await fs.promises.readFile(filePath, 'utf-8');
+        const entity = JSON.parse(content) as T;
+        if (filterFn(entity)) {
+          entities.push(entity);
+        }
+      }
+    }
+    return entities;
+  }
+
+  async getUser(id: string): Promise<User | undefined> {
+    return this.readEntity<User>('user', id);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const users = await this.listEntities<User>('user', () => true);
+    return users.find(user => user.email === email);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const users = await this.listEntities<User>('user', () => true);
+    return users.find(user => user.username === username);
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const id = randomUUID();
+    const user: User = {
+      id,
+      email: insertUser.email,
+      username: insertUser.username ?? null,
+      password: insertUser.password,
+      name: insertUser.name ?? null,
+      avatar_url: null,
+      is_verified: false,
+      is_active: true,
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+    await this.writeEntity('user', id, user);
+    return user;
+  }
+
+  async importUser(user: User): Promise<User> {
+    await this.writeEntity('user', user.id, user);
+    return user;
+  }
+
+  async listUsers(): Promise<User[]> {
+    return this.listEntities<User>('user', () => true);
+  }
+
+  async updateUserPassword(userId: string, hashedPassword: string): Promise<User | undefined> {
+    const user = await this.readEntity<User>('user', userId);
+    if (!user) return undefined;
+    const updated: User = { ...user, password: hashedPassword, updated_at: new Date() };
+    await this.writeEntity('user', userId, updated);
+    return updated;
+  }
+
+  async getFolder(id: string): Promise<Folder | undefined> {
+    return this.readEntity<Folder>('folder', id);
+  }
+
+  async listFoldersByUser(userId: string): Promise<Folder[]> {
+    return this.listEntities<Folder>('folder', (folder) => folder.userId === userId && !folder.isDeleted);
+  }
+
+  async createFolder(insertFolder: InsertFolder): Promise<Folder> {
+    const id = randomUUID();
+    const now = new Date();
+    const folder: Folder = {
+      id,
+      userId: insertFolder.userId,
+      name: insertFolder.name,
+      parentId: insertFolder.parentId ?? null,
+      createdAt: now,
+      updatedAt: now,
+      isDeleted: false,
+      isFavorite: insertFolder.isFavorite ?? false,
+      tags: [],
+    };
+    await this.writeEntity('folder', id, folder);
+    return folder;
+  }
+
+  async updateFolder(id: string, folder: UpdateFolder): Promise<Folder | undefined> {
+    const existing = await this.readEntity<Folder>('folder', id);
+    if (!existing) {
+      return undefined;
+    }
+    const updated: Folder = {
+      ...existing,
+      ...folder,
+      updatedAt: new Date(),
+    };
+    await this.writeEntity('folder', id, updated);
+    return updated;
+  }
+
+  async deleteFolder(id: string): Promise<void> {
+    const folder = await this.readEntity<Folder>('folder', id);
+    if (folder) {
+      folder.isDeleted = true;
+      folder.updatedAt = new Date();
+      await this.writeEntity('folder', id, folder);
+
+      const childrenFolders = await this.listEntities<Folder>('folder', f => f.parentId === id);
+      for (const child of childrenFolders) {
+        await this.deleteFolder(child.id);
+      }
+
+      const childrenNotes = await this.listEntities<Note>('note', n => n.folderId === id);
+      for (const child of childrenNotes) {
+        await this.deleteNote(child.id);
+      }
+    }
+  }
+
+  async getNote(id: string): Promise<Note | undefined> {
+    return this.readEntity<Note>('note', id);
+  }
+
+  async listNotesByUser(userId: string): Promise<Note[]> {
+    return this.listEntities<Note>('note', (note) => note.userId === userId && !note.isDeleted);
+  }
+
+  async createNote(insertNote: InsertNote): Promise<Note> {
+    const id = randomUUID();
+    const now = new Date();
+    const note: Note = {
+      id,
+      userId: insertNote.userId,
+      title: insertNote.title,
+      content: insertNote.content ?? "",
+      folderId: insertNote.folderId ?? null,
+      createdAt: now,
+      updatedAt: now,
+      isDeleted: false,
+      tags: [],
+      isFavorite: false,
+      isPublic: false,
+    };
+    await this.writeEntity('note', id, note);
+    return note;
+  }
+
+  async updateNote(id: string, note: UpdateNote & { isPublic?: boolean }): Promise<Note | undefined> {
+    const existing = await this.readEntity<Note>('note', id);
+    if (!existing) {
+      return undefined;
+    }
+    const updated: Note = {
+      ...existing,
+      ...note,
+      updatedAt: new Date(),
+    };
+    await this.writeEntity('note', id, updated);
+    return updated;
+  }
+
+  async deleteNote(id: string): Promise<void> {
+    const note = await this.readEntity<Note>('note', id);
+    if (note) {
+      note.isDeleted = true;
+      note.updatedAt = new Date();
+      await this.writeEntity('note', id, note);
+    }
+  }
+
+  async getTrash(userId: string): Promise<{ folders: Folder[], notes: Note[] }> {
+    const folders = await this.listEntities<Folder>('folder', f => f.userId === userId && f.isDeleted);
+    const notes = await this.listEntities<Note>('note', n => n.userId === userId && n.isDeleted);
+    return { folders, notes };
+  }
+
+  async getFavorites(userId: string): Promise<{ folders: Folder[], notes: Note[] }> {
+    const folders = await this.listEntities<Folder>('folder', f => f.userId === userId && !f.isDeleted && f.isFavorite);
+    const notes = await this.listEntities<Note>('note', n => n.userId === userId && !n.isDeleted && n.isFavorite);
+    return { folders, notes };
+  }
+
+  async restoreFolder(id: string): Promise<void> {
+    const folder = await this.readEntity<Folder>('folder', id);
+    if (folder) {
+      folder.isDeleted = false;
+      folder.updatedAt = new Date();
+      await this.writeEntity('folder', id, folder);
+
+      const childrenFolders = await this.listEntities<Folder>('folder', f => f.parentId === id);
+      for (const child of childrenFolders) {
+        await this.restoreFolder(child.id);
+      }
+
+      const childrenNotes = await this.listEntities<Note>('note', n => n.folderId === id);
+      for (const child of childrenNotes) {
+        await this.restoreNote(child.id);
+      }
+    }
+  }
+
+  async restoreNote(id: string): Promise<void> {
+    const note = await this.readEntity<Note>('note', id);
+    if (note) {
+      note.isDeleted = false;
+      note.updatedAt = new Date();
+      await this.writeEntity('note', id, note);
+    }
+  }
+
+  async permanentDeleteFolder(id: string): Promise<void> {
+    const childrenFolders = await this.listEntities<Folder>('folder', f => f.parentId === id);
+    for (const child of childrenFolders) {
+      await this.permanentDeleteFolder(child.id);
+    }
+
+    const childrenNotes = await this.listEntities<Note>('note', n => n.folderId === id);
+    for (const child of childrenNotes) {
+      await this.permanentDeleteNote(child.id);
+    }
+    await this.deleteEntity('folder', id);
+  }
+
+  async permanentDeleteNote(id: string): Promise<void> {
+    await this.deleteEntity('note', id);
+  }
+
+  // Tasks CRUD
+  async getTask(id: string): Promise<Task | undefined> {
+    return this.readEntity<Task>('task', id);
+  }
+
+  async listTasksByUser(userId: string): Promise<Task[]> {
+    return this.listEntities<Task>('task', (task) => task.userId === userId);
+  }
+
+  async createTask(insertTask: InsertTask): Promise<Task> {
+    const id = randomUUID();
+    const now = new Date();
+    const task: Task = {
+      id,
+      userId: insertTask.userId,
+      content: insertTask.content,
+      description: insertTask.description ?? null,
+      callLink: insertTask.callLink ?? null,
+      isCompleted: false,
+      status: insertTask.status ?? null,
+      parentId: insertTask.parentId ?? null,
+      dueDate: insertTask.dueDate ?? null,
+      createdAt: now,
+      updatedAt: now,
+      notify: insertTask.notify ?? false,
+      isNotified: insertTask.isNotified ?? false,
+      priority: insertTask.priority ?? 'medium',
+      tags: insertTask.tags ?? [],
+      recurring: insertTask.recurring ?? null,
+    };
+    await this.writeEntity('task', id, task);
+    return task;
+  }
+
+  async updateTask(id: string, task: UpdateTask): Promise<Task | undefined> {
+    const existing = await this.readEntity<Task>('task', id);
+    if (!existing) {
+      return undefined;
+    }
+    const updated: Task = {
+      ...existing,
+      ...task,
+      updatedAt: new Date(),
+    };
+    await this.writeEntity('task', id, updated);
+    return updated;
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    await this.deleteEntity('task', id);
+  }
+}
+
+export class ProxyStorage implements IStorage {
    private current: IStorage;
 
    constructor(initial: IStorage) {
@@ -409,7 +1039,9 @@ export class MemStorage implements IStorage {
    async createTask(task: InsertTask): Promise<Task> { return this.current.createTask(task); }
    async updateTask(id: string, task: UpdateTask): Promise<Task | undefined> { return this.current.updateTask(id, task); }
    async deleteTask(id: string): Promise<void> { return this.current.deleteTask(id); }
- }
+   // Update user password across storage implementations and interface.
+   async updateUserPassword(userId: string, hashedPassword: string): Promise<User | undefined> { return this.current.updateUserPassword(userId, hashedPassword); }
+}
 
 const STORAGE_CONFIG_FILE = path.join(process.cwd(), '.storage-config.json');
 

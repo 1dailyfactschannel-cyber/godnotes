@@ -22,6 +22,9 @@ import sharp from "sharp";
 const JWT_SECRET = "your_very_secure_session_secret_change_this_immediately";
 const JWT_EXPIRES_IN = "24h";
 
+// In-memory reset tokens (development only)
+const resetTokens = new Map<string, { token: string; expiresAt: number }>();
+
 console.log('JWT_SECRET:', JWT_SECRET);
 
 // Middleware для проверки JWT
@@ -376,6 +379,88 @@ export async function registerRoutes(
     res.status(204).end();
   });
 
+  app.post("/api/auth/reset-password", async (req, res, next) => {
+    try {
+      const parsed = z.object({ email: z.string().email() }).parse(req.body);
+      const user = await storage.getUserByEmail(parsed.email);
+      // Always respond success to avoid leaking which emails exist
+      if (user) {
+        const token = crypto.randomBytes(32).toString("hex");
+        const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+        resetTokens.set(user.id, { token, expiresAt });
+        // Log deep link for development purposes
+        console.log(`[Auth] Password reset link (dev): godnotes://reset-password?userId=${user.id}&secret=${token}`);
+      }
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid payload", issues: err.issues });
+        return;
+      }
+      next(err);
+    }
+  });
+
+  // Confirm password recovery with secret (unauthenticated)
+  app.post("/api/auth/recover-password", async (req, res, next) => {
+    try {
+      const parsed = z.object({
+        userId: z.string(),
+        secret: z.string(),
+        new_password: z.string().min(6),
+      }).parse(req.body);
+
+      const entry = resetTokens.get(parsed.userId);
+      if (!entry || entry.token !== parsed.secret || entry.expiresAt < Date.now()) {
+        res.status(400).json({ message: "Invalid or expired recovery link" });
+        return;
+      }
+
+      const user = await storage.getUser(parsed.userId);
+      if (!user) {
+        res.status(400).json({ message: "Invalid user" });
+        return;
+      }
+
+      const hashed = await bcrypt.hash(parsed.new_password, 10);
+      await storage.updateUserPassword(parsed.userId, hashed);
+      resetTokens.delete(parsed.userId);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid payload", issues: err.issues });
+        return;
+      }
+      next(err);
+    }
+  });
+
+  app.put("/api/auth/password", authenticateToken, async (req, res, next) => {
+    try {
+      const parsed = z.object({ old_password: z.string(), new_password: z.string().min(6) }).parse(req.body);
+      const userId = (req as any).userId;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        res.status(401).json({ message: "Unauthorized: User not found" });
+        return;
+      }
+      const isPasswordValid = await bcrypt.compare(parsed.old_password, user.password);
+      if (!isPasswordValid) {
+        res.status(400).json({ message: "Invalid old password" });
+        return;
+      }
+      const hashed = await bcrypt.hash(parsed.new_password, 10);
+      await storage.updateUserPassword(userId, hashed);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid payload", issues: err.issues });
+        return;
+      }
+      next(err);
+    }
+  });
+
   app.get("/api/folders", authenticateToken, async (req, res) => {
     const userId = (req as any).userId;
     const folders = await storage.listFoldersByUser(userId);
@@ -598,12 +683,7 @@ export async function registerRoutes(
   });
 
   // Tasks CRUD
-  const serializeTask = (t: any) => ({
-    ...t,
-    createdAt: t.createdAt ? new Date(t.createdAt).getTime() : undefined,
-    updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : undefined,
-    dueDate: t.dueDate ? new Date(t.dueDate).getTime() : undefined,
-  });
+
 
   app.get("/api/tasks", authenticateToken, async (req, res) => {
     const userId = (req as any).userId;
@@ -736,9 +816,6 @@ export async function registerRoutes(
   });
 
   return httpServer;
-}
-
-// ... existing code ...
 
   // Helper: extract upload filenames from text
   const extractUploadFilenames = (text: string | null | undefined): Set<string> => {

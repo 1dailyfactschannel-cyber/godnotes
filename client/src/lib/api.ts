@@ -9,7 +9,31 @@ export function resolveApiBaseUrl(): string {
     }
   })();
   const envUrl = typeof process !== 'undefined' ? (process as any)?.env?.VITE_API_URL : undefined;
-  return viteUrl || envUrl || 'http://localhost:5001/api';
+  if (viteUrl || envUrl) return viteUrl || envUrl;
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  const port = typeof window !== 'undefined' ? window.location.port : '';
+
+  // Treat localhost, loopback, and private network ranges as local dev
+  const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(hostname);
+  const isPrivateNetwork = /^10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$/.test(hostname)
+    || /^192\.168\.[0-9]{1,3}\.[0-9]{1,3}$/.test(hostname)
+    || /^172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]{1,3}\.[0-9]{1,3}$/.test(hostname);
+  const isLocalDev = isLocalHost || isPrivateNetwork;
+
+  // In local development (Vite/Electron), always point to backend API via current origin proxy
+  if (isLocalDev) {
+    if (origin && origin.startsWith('http')) {
+      return `${origin}/api`;
+    }
+    return 'http://localhost:5002/api';
+  }
+
+  if (origin && origin.startsWith('http')) {
+    return `${origin}/api`;
+  }
+  return 'http://localhost:5002/api';
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();

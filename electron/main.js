@@ -441,7 +441,7 @@ if (!gotTheLock) {
        mainWindow.loadFile(indexPath).catch(e => log.error('Failed to load index.html:', e));
     } else {
        // In dev, load localhost with cache busting
-       const PORT = process.env.VITE_PORT || process.env.PORT || 5001;
+       const PORT = process.env.PORT || process.env.VITE_PORT || 5002;
        const timestamp = Date.now();
        loadURLWithRetry(`http://localhost:${PORT}?v=${timestamp}`);
     }
@@ -458,7 +458,7 @@ if (!gotTheLock) {
     // Restrict navigation to external origins
     mainWindow.webContents.on('will-navigate', (event, url) => {
       try {
-        const devOrigin = `http://localhost:${process.env.VITE_PORT || process.env.PORT || 5001}`;
+        const devOrigin = `http://localhost:${process.env.PORT || process.env.VITE_PORT || 5002}`;
         const allowedOrigins = app.isPackaged ? ['file://'] : [devOrigin];
         const isAllowed = allowedOrigins.some(origin => url.startsWith(origin)) || url.startsWith('file://');
         if (!isAllowed) {
@@ -505,7 +505,7 @@ if (!gotTheLock) {
                  mainWindow.loadURL(fileUrl);
               } else {
                  // Dev mode
-                 const PORT = process.env.VITE_PORT || process.env.PORT || 5001;
+                 const PORT = process.env.PORT || process.env.VITE_PORT || 5002;
                  mainWindow.loadURL(`http://localhost:${PORT}/${internalRoute}`);
               }
           }
@@ -556,7 +556,7 @@ if (!gotTheLock) {
     // CSP Configuration
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const cspDev = "default-src 'self' data: blob: http://localhost:* https://api.telegram.org https://fonts.googleapis.com https://fonts.gstatic.com; " +
-                     "script-src 'self' 'unsafe-eval' blob:; " +
+                     "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; " +
                      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
                      "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
                      "font-src 'self' data: https://fonts.gstatic.com; " +
@@ -691,7 +691,7 @@ if (!gotTheLock) {
         const fileUrl = `file://${indexPath}${internalRoute}`;
         taskWindow.loadURL(fileUrl);
     } else {
-        const PORT = process.env.VITE_PORT || process.env.PORT || 5001;
+        const PORT = process.env.VITE_PORT || process.env.PORT || 5002;
         taskWindow.loadURL(`http://localhost:${PORT}/${internalRoute}`);
     }
     

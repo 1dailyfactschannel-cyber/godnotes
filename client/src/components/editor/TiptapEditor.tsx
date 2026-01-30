@@ -125,6 +125,7 @@ import { Logo } from '@/components/Logo';
 import { LockScreen } from '@/components/protection/LockScreen';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ToastAction } from '@/components/ui/toast';
+import { API_BASE_URL } from '@/lib/api';
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -452,18 +453,22 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       handleTextInput(view, from, to, text) {
         if (text === '/') {
           const coords = view.coordsAtPos(from);
-          setSlashMenuPosition({
-            top: coords.bottom,
-            left: coords.left,
-          });
-          setIsSlashMenuOpen(true);
+          setTimeout(() => {
+            setSlashMenuPosition({
+              top: coords.bottom,
+              left: coords.left,
+            });
+            setIsSlashMenuOpen(true);
+          }, 0);
         }
         return false;
       },
       handleKeyDown(view, event) {
         if (event.key === 'Escape' && isSlashMenuOpen) {
-          setIsSlashMenuOpen(false);
-          setSlashMenuPosition(null);
+          setTimeout(() => {
+            setIsSlashMenuOpen(false);
+            setSlashMenuPosition(null);
+          }, 0);
           return true;
         }
 
@@ -579,7 +584,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await fetch('/api/uploads', {
+        const response = await fetch(`${API_BASE_URL}/uploads`, {
           method: 'POST',
           body: formData,
           headers: (() => {
@@ -682,8 +687,12 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     if (!editor || !searchTerm) return;
     const win: any = window;
     if (typeof win.find === 'function') {
-      editor.commands.focus('start');
-      win.find(searchTerm, false, false, true, false, false, false);
+      setTimeout(() => {
+        if (!editor.isDestroyed) {
+          editor.commands.focus('start');
+          win.find(searchTerm, false, false, true, false, false, false);
+        }
+      }, 0);
     }
   }, [editor, searchTerm, activeFileId]);
 
@@ -691,8 +700,10 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     const handleClickOutside = (event: MouseEvent) => {
       if (!slashMenuRef.current) return;
       if (!slashMenuRef.current.contains(event.target as Node)) {
-        setIsSlashMenuOpen(false);
-        setSlashMenuPosition(null);
+        setTimeout(() => {
+          setIsSlashMenuOpen(false);
+          setSlashMenuPosition(null);
+        }, 0);
       }
     };
     if (isSlashMenuOpen) {
@@ -705,8 +716,10 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
 
   const applySlashCommand = (command: string) => {
     if (!editor) return;
-    setIsSlashMenuOpen(false);
-    setSlashMenuPosition(null);
+    setTimeout(() => {
+      setIsSlashMenuOpen(false);
+      setSlashMenuPosition(null);
+    }, 0);
     const chain = editor.chain().focus();
     if (command === 'heading1') {
       chain.toggleHeading({ level: 1 }).run();
@@ -802,14 +815,22 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
 
   useEffect(() => {
     if (editor) {
-      editor.setEditable(!isReadOnly);
+      setTimeout(() => {
+        if (!editor.isDestroyed) {
+          editor.setEditable(!isReadOnly);
+        }
+      }, 0);
     }
   }, [isReadOnly, editor]);
 
   useEffect(() => {
     if (editor && activeFile) {
       if (editor.getHTML() !== activeFile.content) {
-         editor.commands.setContent(activeFile.content || '');
+        setTimeout(() => {
+          if (!editor.isDestroyed) {
+            editor.commands.setContent(activeFile.content || '');
+          }
+        }, 0);
       }
     }
   }, [activeFileId, editor, activeFile]);
@@ -827,7 +848,11 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       // Ensure editor is ready and not destroyed before focusing
       if (editor && !editor.isDestroyed) {
         try {
-          editor.commands.focus('end');
+          setTimeout(() => {
+            if (!editor.isDestroyed) {
+              editor.commands.focus('end');
+            }
+          }, 0);
         } catch (e) {
           console.warn('Editor focus failed:', e);
         }
