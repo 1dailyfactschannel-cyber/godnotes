@@ -6,6 +6,15 @@ export interface Release {
 
 export const changelog: Release[] = [
     {
+        version: '1.3.2',
+        date: '2 Фев 2026',
+        notes: [
+            'Редактор: исправлено применение заголовков H1/H2 (сброс fontSize перед переключением)',
+            'Редактор: добавлены явные размеры для .ProseMirror h1/h2/h3',
+            'UX: согласовано поведение панели и слэш-меню для заголовков'
+        ]
+    },
+    {
         version: '1.3.0',
         date: '24 Янв 2026',
         notes: [

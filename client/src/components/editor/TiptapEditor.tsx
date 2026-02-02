@@ -341,6 +341,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       Typography,
       TextStyle,
       Color,
+      FontSize,
       TextAlign.configure({
         types: ['heading', 'paragraph'],
       }),
@@ -722,11 +723,11 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     }, 0);
     const chain = editor.chain().focus();
     if (command === 'heading1') {
-      chain.toggleHeading({ level: 1 }).run();
+      chain.unsetFontSize().toggleHeading({ level: 1 }).run();
       return;
     }
     if (command === 'heading2') {
-      chain.toggleHeading({ level: 2 }).run();
+      chain.unsetFontSize().toggleHeading({ level: 2 }).run();
       return;
     }
     if (command === 'bulletList') {
@@ -1487,7 +1488,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('heading', { level: 1 })} 
-              onPressedChange={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+              onPressedChange={() => editor?.chain().focus().unsetFontSize().toggleHeading({ level: 1 }).run()}
               className="h-8 w-8"
             >
               <Heading1 className="h-4 w-4" />
@@ -1495,7 +1496,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('heading', { level: 2 })} 
-              onPressedChange={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+              onPressedChange={() => editor?.chain().focus().unsetFontSize().toggleHeading({ level: 2 }).run()}
               className="h-8 w-8"
             >
               <Heading2 className="h-4 w-4" />
