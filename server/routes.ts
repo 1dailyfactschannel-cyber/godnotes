@@ -576,11 +576,13 @@ export async function registerRoutes(
         res.status(404).json({ message: "Not found" });
         return;
       }
+      console.log('PATCH /api/notes/:id req.body:', req.body); // Добавлено логирование
       const parsed = updateNoteSchema.parse(req.body);
       const updated = await storage.updateNote(req.params.id, parsed);
       res.json(updated);
     } catch (err) {
       if (err instanceof z.ZodError) {
+        console.error('ZodError issues:', err.issues); // Добавлено логирование
         res.status(400).json({ message: "Invalid payload", issues: err.issues });
         return;
       }
@@ -719,53 +721,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/tasks/:id", authenticateToken, async (req, res) => {
-    const userId = (req as any).userId;
-    const task = await storage.getTask(req.params.id);
-    if (!task || task.userId !== userId) {
-      res.status(404).json({ message: "Not found" });
-      return;
-    }
-    res.json(serializeTask(task));
-  });
-
-  app.patch("/api/tasks/:id", authenticateToken, async (req, res, next) => {
-    try {
-      const userId = (req as any).userId;
-      const existing = await storage.getTask(req.params.id);
-      if (!existing || existing.userId !== userId) {
-        res.status(404).json({ message: "Not found" });
-        return;
-      }
-      const parsed = updateTaskSchema.parse(req.body);
-      const updated = await storage.updateTask(req.params.id, {
-        ...parsed,
-        dueDate: typeof parsed.dueDate === 'number' ? new Date(parsed.dueDate) : parsed.dueDate,
-      });
-      res.json(updated ? serializeTask(updated) : undefined);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        res.status(400).json({ message: "Invalid payload", issues: err.issues });
-        return;
-      }
-      next(err);
-    }
-  });
-
-  app.delete("/api/tasks/:id", authenticateToken, async (req, res, next) => {
-    try {
-      const userId = (req as any).userId;
-      const existing = await storage.getTask(req.params.id);
-      if (!existing || existing.userId !== userId) {
-        res.status(404).json({ message: "Not found" });
-        return;
-      }
-      await storage.deleteTask(req.params.id);
-      res.status(204).end();
-    } catch (err) {
-      next(err);
-    }
-  });
+  // Duplicate /api/tasks routes removed (handled earlier in file)
 
   app.patch("/api/notes/:id/public", authenticateToken, async (req, res, next) => {
     try {

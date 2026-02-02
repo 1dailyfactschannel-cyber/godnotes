@@ -585,13 +585,15 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
         const formData = new FormData();
         formData.append('file', file);
 
+        const token = localStorage.getItem('auth_token');
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
         const response = await fetch(`${API_BASE_URL}/uploads`, {
           method: 'POST',
           body: formData,
-          headers: (() => {
-            const token = localStorage.getItem('auth_token');
-            return token ? { 'Authorization': `Bearer ${token}` } : {};
-          })()
+          headers,
         });
 
         if (!response.ok) {
@@ -731,23 +733,23 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
       return;
     }
     if (command === 'bulletList') {
-      chain.toggleBulletList().run();
+      chain.unsetFontSize().toggleBulletList().run();
       return;
     }
     if (command === 'orderedList') {
-      chain.toggleOrderedList().run();
+      chain.unsetFontSize().toggleOrderedList().run();
       return;
     }
     if (command === 'blockquote') {
-      chain.toggleBlockquote().run();
+      chain.unsetFontSize().toggleBlockquote().run();
       return;
     }
     if (command === 'codeBlock') {
-      chain.toggleCodeBlock().run();
+      chain.unsetFontSize().toggleCodeBlock().run();
       return;
     }
     if (command === 'mermaid') {
-      chain.setMermaid().run();
+      chain.unsetFontSize().setMermaid().run();
       return;
     }
     if (command === 'table') {
@@ -1507,7 +1509,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('bulletList')} 
-              onPressedChange={() => editor?.chain().focus().toggleBulletList().run()}
+              onPressedChange={() => editor?.chain().focus().unsetFontSize().toggleBulletList().run()}
               className="h-8 w-8"
             >
               <List className="h-4 w-4" />
@@ -1515,7 +1517,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('orderedList')} 
-              onPressedChange={() => editor?.chain().focus().toggleOrderedList().run()}
+              onPressedChange={() => editor?.chain().focus().unsetFontSize().toggleOrderedList().run()}
               className="h-8 w-8"
             >
               <ListOrdered className="h-4 w-4" />
@@ -1531,7 +1533,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('blockquote')} 
-              onPressedChange={() => editor?.chain().focus().toggleBlockquote().run()}
+              onPressedChange={() => editor?.chain().focus().unsetFontSize().toggleBlockquote().run()}
               className="h-8 w-8"
             >
               <Quote className="h-4 w-4" />

@@ -871,6 +871,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         return {
           items,
           expandedFolders: expanded,
+          lastCreatedFolderId: serverFolder.id,
         };
       });
       get().saveToLocalStorage();
@@ -1134,6 +1135,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
 
   updateFileContent: async (id, content) => {
+    console.log(`updateFileContent called for id: ${id}, content length: ${content.length}`);
     set((state) => ({
       items: state.items.map(i => i.id === id ? { ...i, content } : i),
     }));

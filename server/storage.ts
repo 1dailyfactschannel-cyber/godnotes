@@ -44,6 +44,19 @@ export interface IStorage {
   listUsers(): Promise<User[]>;
   // Add password update capability
   updateUserPassword(userId: string, hashedPassword: string): Promise<User | undefined>;
+  // Additional folder/note utilities
+  getTrash(userId: string): Promise<{ folders: Folder[], notes: Note[] }>;
+  getFavorites(userId: string): Promise<{ folders: Folder[], notes: Note[] }>;
+  restoreFolder(id: string): Promise<void>;
+  restoreNote(id: string): Promise<void>;
+  permanentDeleteFolder(id: string): Promise<void>;
+  permanentDeleteNote(id: string): Promise<void>;
+  // Tasks
+  getTask(id: string): Promise<Task | undefined>;
+  listTasksByUser(userId: string): Promise<Task[]>;
+  createTask(task: InsertTask): Promise<Task>;
+  updateTask(id: string, task: UpdateTask): Promise<Task | undefined>;
+  deleteTask(id: string): Promise<void>;
 }
 
 export class PostgresStorage implements IStorage {
@@ -287,19 +300,19 @@ export class PostgresStorage implements IStorage {
     await this.db.delete(notes).where(eq(notes.id, id));
   }
 
-  // Tasks CRUD
+  // Tasks CRUD (in-memory)
   async getTask(id: string): Promise<Task | undefined> {
     await this.ready;
     const rows = await this.db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
     return rows[0];
   }
-
+ 
   async listTasksByUser(userId: string): Promise<Task[]> {
     await this.ready;
     const rows = await this.db.select().from(tasks).where(eq(tasks.userId, userId));
     return rows;
   }
-
+ 
   async createTask(insertTask: InsertTask): Promise<Task> {
     await this.ready;
     const id = randomUUID();
@@ -326,7 +339,7 @@ export class PostgresStorage implements IStorage {
       .returning();
     return rows[0];
   }
-
+ 
   async updateTask(id: string, task: UpdateTask): Promise<Task | undefined> {
     await this.ready;
     const rows = await this.db
@@ -350,7 +363,7 @@ export class PostgresStorage implements IStorage {
       .returning();
     return rows[0];
   }
-
+ 
   async deleteTask(id: string): Promise<void> {
     await this.ready;
     await this.db.delete(tasks).where(eq(tasks.id, id));
@@ -608,71 +621,55 @@ export class MemStorage implements IStorage {
 
   // Tasks CRUD (Postgres)
   async getTask(id: string): Promise<Task | undefined> {
-    await this.ready;
-    const rows = await this.db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
-    return rows[0];
+    return this.tasksMap.get(id);
   }
 
   async listTasksByUser(userId: string): Promise<Task[]> {
-    await this.ready;
-    const rows = await this.db.select().from(tasks).where(eq(tasks.userId, userId));
-    return rows;
+    return Array.from(this.tasksMap.values()).filter(t => t.userId === userId);
   }
 
   async createTask(insertTask: InsertTask): Promise<Task> {
-    await this.ready;
     const id = randomUUID();
-    const rows = await this.db
-      .insert(tasks)
-      .values({
-        id,
-        userId: insertTask.userId,
-        content: insertTask.content,
-        description: insertTask.description ?? null,
-        callLink: insertTask.callLink ?? null,
-        isCompleted: false,
-        status: insertTask.status ?? null,
-        parentId: insertTask.parentId ?? null,
-        dueDate: insertTask.dueDate ?? null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        notify: insertTask.notify ?? false,
-        isNotified: insertTask.isNotified ?? false,
-        priority: insertTask.priority ?? 'medium',
-        tags: insertTask.tags ?? [],
-        recurring: insertTask.recurring ?? null,
-      })
-      .returning();
-    return rows[0];
+    const now = new Date();
+    const task: Task = {
+      id,
+      userId: insertTask.userId,
+      content: insertTask.content,
+      description: insertTask.description ?? null,
+      callLink: insertTask.callLink ?? null,
+      isCompleted: false,
+      status: insertTask.status ?? null,
+      parentId: insertTask.parentId ?? null,
+      dueDate: insertTask.dueDate ?? null,
+      createdAt: now,
+      updatedAt: now,
+      notify: insertTask.notify ?? false,
+      isNotified: insertTask.isNotified ?? false,
+      priority: insertTask.priority ?? 'medium',
+      tags: insertTask.tags ?? [],
+      recurring: insertTask.recurring ?? null,
+    };
+    this.tasksMap.set(id, task);
+    return task;
   }
 
   async updateTask(id: string, task: UpdateTask): Promise<Task | undefined> {
-    await this.ready;
-    const rows = await this.db
-      .update(tasks)
-      .set({
-        content: task.content,
-        description: task.description ?? null,
-        callLink: task.callLink ?? null,
-        isCompleted: task.isCompleted,
-        status: task.status ?? null,
-        parentId: task.parentId ?? null,
-        dueDate: task.dueDate ?? null,
-        notify: task.notify,
-        isNotified: task.isNotified,
-        priority: task.priority,
-        tags: task.tags,
-        recurring: task.recurring ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(tasks.id, id))
-      .returning();
-    return rows[0];
+    const existing = this.tasksMap.get(id);
+    if (!existing) {
+      return undefined;
+    }
+    const updated: Task = {
+      ...existing,
+      ...task,
+      updatedAt: new Date(),
+      dueDate: task.dueDate ?? existing.dueDate ?? null,
+    };
+    this.tasksMap.set(id, updated);
+    return updated;
   }
 
   async deleteTask(id: string): Promise<void> {
-    await this.ready;
-    await this.db.delete(tasks).where(eq(tasks.id, id));
+    this.tasksMap.delete(id);
   }
  }
 

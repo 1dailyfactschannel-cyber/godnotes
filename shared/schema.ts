@@ -43,7 +43,9 @@ export const insertFolderSchema = z.object({
   tags: z.array(z.string()).optional(),
 });
 
-export const updateFolderSchema = insertFolderSchema.partial();
+export const updateFolderSchema = insertFolderSchema.partial().extend({
+  isDeleted: z.boolean().optional(),
+});
 
 export type Folder = typeof folders.$inferSelect;
 export type InsertFolder = {
@@ -78,7 +80,8 @@ export const insertNoteSchema = z.object({
 });
 
 export const updateNoteSchema = insertNoteSchema.partial().extend({
-  isPublic: z.boolean().optional()
+  isPublic: z.boolean().optional(),
+  isDeleted: z.boolean().optional(),
 });
 
 export type Note = typeof notes.$inferSelect & {
@@ -119,7 +122,7 @@ export const insertTaskSchema = z.object({
   callLink: z.string().optional(),
   status: z.string().optional(),
   parentId: z.string().nullable().optional(),
-  dueDate: z.number().optional(),
+  dueDate: z.coerce.date().optional(),
   notify: z.boolean().optional(),
   isNotified: z.boolean().optional(),
   priority: z.enum(["high", "medium", "low"]).optional(),
