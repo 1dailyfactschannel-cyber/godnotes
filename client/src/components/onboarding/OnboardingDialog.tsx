@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { FolderOpen, Sparkles, Shield, BookOpen, Rocket, ArrowRight, CheckCircle2, Cloud, Unplug } from 'lucide-react';
 import { useFileSystem } from '@/lib/data-store';
 import { selectDirectory, setStoreValue, getStoreValue, isElectron } from '@/lib/electron';
+import { useAuthContext } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -18,18 +19,20 @@ export function OnboardingDialog() {
   const [isOpen, setIsOpen] = useState(false);
   const [step, setStep] = useState(1);
   const { localDocumentsPath, setStoragePath } = useFileSystem();
+  const { user } = useAuthContext();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [mode, setMode] = useState<'offline' | 'online' | null>(null);
 
   useEffect(() => {
     const checkOnboarding = async () => {
-      const completed = await getStoreValue('onboardingCompleted');
+      if (!user) return;
+      const completed = await getStoreValue(`onboarding_completed_${user.id}`);
       if (!completed) {
         setIsOpen(true);
       }
     };
     checkOnboarding();
-  }, []);
+  }, [user]);
 
   const handleSelectPath = async () => {
     try {
@@ -106,6 +109,9 @@ export function OnboardingDialog() {
       (useFileSystem as any).setState?.({ isOfflineMode: false });
     }
     
+    if (user) {
+        await setStoreValue(`onboarding_completed_${user.id}`, true);
+    }
     await setStoreValue('onboardingCompleted', true);
     setIsOpen(false);
     

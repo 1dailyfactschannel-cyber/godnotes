@@ -1,20 +1,12 @@
 export function resolveApiBaseUrl(): string {
-  const viteUrl = (() => {
-    try {
-      // eslint-disable-next-line no-eval
-      const im: any = eval('import.meta');
-      return im?.env?.VITE_API_URL;
-    } catch {
-      return undefined;
-    }
-  })();
-  const envUrl = typeof process !== 'undefined' ? (process as any)?.env?.VITE_API_URL : undefined;
-  if (viteUrl || envUrl) return viteUrl || envUrl;
+  // Use the build-time injected environment variable
+  // In vite.config.ts, we define process.env.VITE_API_URL
+  const envUrl = process.env.VITE_API_URL;
+  if (envUrl) return envUrl;
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
-  const port = typeof window !== 'undefined' ? window.location.port : '';
-
+  
   // Treat localhost, loopback, and private network ranges as local dev
   const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(hostname);
   const isPrivateNetwork = /^10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$/.test(hostname)
@@ -22,7 +14,7 @@ export function resolveApiBaseUrl(): string {
     || /^172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]{1,3}\.[0-9]{1,3}$/.test(hostname);
   const isLocalDev = isLocalHost || isPrivateNetwork;
 
-  // In local development (Vite/Electron), always point to backend API via current origin proxy
+  // In local development (Vite/Electron), always point to backend API via current origin proxy or localhost
   if (isLocalDev) {
     if (origin && origin.startsWith('http')) {
       return `${origin}/api`;
@@ -30,10 +22,8 @@ export function resolveApiBaseUrl(): string {
     return 'http://localhost:5002/api';
   }
 
-  if (origin && origin.startsWith('http')) {
-    return `${origin}/api`;
-  }
-  return 'http://localhost:5002/api';
+  // Fallback (should be covered by process.env.VITE_API_URL in production)
+  return 'https://godnotes-8aoh.vercel.app/api';
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();

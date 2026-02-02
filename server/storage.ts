@@ -18,7 +18,7 @@ import {
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import fs from 'fs';
 import path from 'path';
 
@@ -36,7 +36,7 @@ export interface IStorage {
   updateFolder(id: string, folder: UpdateFolder): Promise<Folder | undefined>;
   deleteFolder(id: string): Promise<void>;
   getNote(id: string): Promise<Note | undefined>;
-  listNotesByUser(userId: string): Promise<Note[]>;
+  listNotesByUser(userId: string, updatedAfter?: Date): Promise<Note[]>;
   createNote(note: InsertNote): Promise<Note>;
   updateNote(id: string, note: UpdateNote & { isPublic?: boolean }): Promise<Note | undefined>;
   deleteNote(id: string): Promise<void>;
@@ -209,8 +209,16 @@ export class PostgresStorage implements IStorage {
     return rows[0];
   }
 
-  async listNotesByUser(userId: string): Promise<Note[]> {
+  async listNotesByUser(userId: string, updatedAfter?: Date): Promise<Note[]> {
     await this.ready;
+    if (updatedAfter) {
+        return this.db.select().from(notes).where(
+            and(
+                eq(notes.userId, userId),
+                gt(notes.updatedAt, updatedAfter)
+            )
+        );
+    }
     return this.db.select().from(notes).where(and(eq(notes.userId, userId), eq(notes.isDeleted, false)));
   }
 
@@ -500,9 +508,9 @@ export class MemStorage implements IStorage {
     return this.notes.get(id);
   }
 
-  async listNotesByUser(userId: string): Promise<Note[]> {
+  async listNotesByUser(userId: string, updatedAfter?: Date): Promise<Note[]> {
     return Array.from(this.notes.values()).filter(
-      (note) => note.userId === userId && !note.isDeleted,
+      (note) => note.userId === userId && (updatedAfter ? note.updatedAt > updatedAfter : !note.isDeleted),
     );
   }
 
@@ -1021,7 +1029,7 @@ export class ProxyStorage implements IStorage {
    async updateFolder(id: string, folder: UpdateFolder): Promise<Folder | undefined> { return this.current.updateFolder(id, folder); }
    async deleteFolder(id: string): Promise<void> { return this.current.deleteFolder(id); }
    async getNote(id: string): Promise<Note | undefined> { return this.current.getNote(id); }
-   async listNotesByUser(userId: string): Promise<Note[]> { return this.current.listNotesByUser(userId); }
+   async listNotesByUser(userId: string, updatedAfter?: Date): Promise<Note[]> { return this.current.listNotesByUser(userId, updatedAfter); }
    async createNote(note: InsertNote): Promise<Note> { return this.current.createNote(note); }
    async updateNote(id: string, note: UpdateNote): Promise<Note | undefined> { return this.current.updateNote(id, note); }
    async deleteNote(id: string): Promise<void> { return this.current.deleteNote(id); }

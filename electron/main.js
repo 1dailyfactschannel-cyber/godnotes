@@ -440,10 +440,9 @@ if (!gotTheLock) {
        const indexPath = path.join(__dirname, '../dist/public/index.html');
        mainWindow.loadFile(indexPath).catch(e => log.error('Failed to load index.html:', e));
     } else {
-       // In dev, load localhost with cache busting
-       const PORT = process.env.PORT || process.env.VITE_PORT || 5002;
-       const timestamp = Date.now();
-       loadURLWithRetry(`http://localhost:${PORT}?v=${timestamp}`);
+      const PORT = process.env.PORT || process.env.VITE_PORT || 5002;
+      const timestamp = Date.now();
+      loadURLWithRetry(`http://localhost:${PORT}?v=${timestamp}`);
     }
 
     // Open external links in default browser, not Electron
@@ -455,7 +454,6 @@ if (!gotTheLock) {
       return { action: 'allow' };
     });
 
-    // Restrict navigation to external origins
     mainWindow.webContents.on('will-navigate', (event, url) => {
       try {
         const devOrigin = `http://localhost:${process.env.PORT || process.env.VITE_PORT || 5002}`;
@@ -497,14 +495,11 @@ if (!gotTheLock) {
               
               if (app.isPackaged) {
                  // In production (file://), we need to use hash navigation via JS or loadURL
-                 // Since we use HashRouter, we can just reload the index with the hash?
-                 // No, file://.../index.html#/reset-password
-                 
+                 // Since we use HashRouter, load file:// with hash
                  const indexPath = path.join(__dirname, '../dist/public/index.html');
                  const fileUrl = `file://${indexPath}${internalRoute}`;
                  mainWindow.loadURL(fileUrl);
               } else {
-                 // Dev mode
                  const PORT = process.env.PORT || process.env.VITE_PORT || 5002;
                  mainWindow.loadURL(`http://localhost:${PORT}/${internalRoute}`);
               }
@@ -553,7 +548,6 @@ if (!gotTheLock) {
   }
 
   app.whenReady().then(() => {
-    // CSP Configuration
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const cspDev = "default-src 'self' data: blob: http://localhost:* https://api.telegram.org https://fonts.googleapis.com https://fonts.gstatic.com; " +
                      "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; " +
@@ -561,14 +555,14 @@ if (!gotTheLock) {
                      "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
                      "font-src 'self' data: https://fonts.gstatic.com; " +
                      "img-src 'self' data: blob: https:; " +
-                     "connect-src 'self' http://localhost:* https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com https://github.com https://objects.githubusercontent.com wss:;";
+                     "connect-src 'self' http://localhost:* https://* http://* wss:;";
       const cspProd = "default-src 'self' data: blob: https://api.telegram.org https://fonts.googleapis.com https://fonts.gstatic.com; " +
                       "script-src 'self' blob:; " +
                       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
                       "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
                       "font-src 'self' data: https://fonts.gstatic.com; " +
                       "img-src 'self' data: blob: https:; " +
-                      "connect-src 'self' https://api.telegram.org https://openrouter.ai https://api.openai.com https://api.anthropic.com https://github.com https://objects.githubusercontent.com;";
+                      "connect-src 'self' https: http: wss:;";
       const csp = app.isPackaged ? cspProd : cspDev;
       callback({
         responseHeaders: {
@@ -578,21 +572,16 @@ if (!gotTheLock) {
       });
     });
 
-    // Deny all permission requests by default
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
       callback(false);
     });
 
-    // If we are in production build (bundled), we might need to spawn the server manually.
-    // For now, we assume the server is started by the npm script wrapper.
     createWindow();
 
-    // Check if we have a deep link from cold start
     if (global.deepLinkUrl) {
        handleDeepLink(global.deepLinkUrl);
     }
 
-    // Check for updates
     autoUpdater.checkForUpdatesAndNotify();
 
     globalShortcut.register('CommandOrControl+Shift+I', () => {

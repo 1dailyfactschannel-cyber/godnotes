@@ -19,13 +19,13 @@ import fs from "fs";
 import crypto from "crypto";
 import sharp from "sharp";
 
-const JWT_SECRET = "your_very_secure_session_secret_change_this_immediately";
+const JWT_SECRET = process.env.JWT_SECRET || "your_very_secure_session_secret_change_this_immediately";
 const JWT_EXPIRES_IN = "24h";
 
 // In-memory reset tokens (development only)
 const resetTokens = new Map<string, { token: string; expiresAt: number }>();
 
-console.log('JWT_SECRET:', JWT_SECRET);
+// console.log('JWT_SECRET:', JWT_SECRET); // Do not log secrets in production
 
 // Middleware для проверки JWT
 const authenticateToken = (req: Request, res: any, next: any) => {
@@ -533,7 +533,17 @@ export async function registerRoutes(
 
   app.get("/api/notes", authenticateToken, async (req, res) => {
     const userId = (req as any).userId;
-    const notes = await storage.listNotesByUser(userId);
+    const updatedAfterQuery = req.query.updatedAfter;
+    let updatedAfter: Date | undefined;
+    
+    if (typeof updatedAfterQuery === 'string') {
+        const parsed = new Date(updatedAfterQuery);
+        if (!isNaN(parsed.getTime())) {
+            updatedAfter = parsed;
+        }
+    }
+
+    const notes = await storage.listNotesByUser(userId, updatedAfter);
     res.json(notes);
   });
 

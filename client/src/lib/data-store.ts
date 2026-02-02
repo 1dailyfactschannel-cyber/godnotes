@@ -88,6 +88,7 @@ interface FileSystemState {
   isZenMode: boolean;
   lastSavedAt: number | null;
   lastSavedFileId: string | null;
+  lastSyncedAt: number | null;
   offlineQueue: OfflineQueueItem[];
   saveToLocalStorage: () => void;
   setStoragePath: (path: string) => void;
@@ -155,13 +156,30 @@ interface FileSystemState {
   restoreVersion: (id: string, content: string) => Promise<void>;
   enqueueOfflineOp: (op: { method: 'PATCH'|'POST'|'DELETE'; endpoint: string; payload?: any; itemId?: string }) => void;
   processOfflineQueue: () => Promise<void>;
+  saveNoteToDisk: (id: string, content: string, updatedAt?: number) => Promise<void>;
 }
 
 const initialItems: FileSystemItem[] = [];
 
 export const useFileSystem = create<FileSystemState>((set, get) => ({
-  items: initialItems,
-  trashItems: [],
+  items: (() => {
+      try {
+          const saved = localStorage.getItem('localItems');
+          return saved ? JSON.parse(saved) : [];
+      } catch { return []; }
+  })(),
+  trashItems: (() => {
+      try {
+          const saved = localStorage.getItem('trashItems');
+          return saved ? JSON.parse(saved) : [];
+      } catch { return []; }
+  })(),
+  lastSyncedAt: (() => {
+      try {
+          const saved = localStorage.getItem('lastSyncedAt');
+          return saved ? parseInt(saved, 10) : null;
+      } catch { return null; }
+  })(),
   activeFileId: null,
   openFiles: [],
   expandedFolders: new Set(),
@@ -413,10 +431,28 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     // Load notes from API and merge into items (preserve local-only notes)
     if (!get().isAuthenticated || get().isOfflineMode) return;
     try {
-      const notes = await apiRequest('GET', '/notes');
+      const state = get();
+      let url = '/notes';
+      
+      // Use lastSyncedAt if available for incremental sync
+      if (state.lastSyncedAt) {
+          const date = new Date(state.lastSyncedAt);
+          url += `?updatedAfter=${date.toISOString()}`;
+      }
+
+      const notes = await apiRequest('GET', url);
       if (!notes) return;
 
-      const serverNotes: FileSystemItem[] = notes.map((n: any) => ({
+      if (Array.isArray(notes) && notes.length === 0) {
+          // No updates
+          set({ lastSyncedAt: Date.now() });
+          return;
+      }
+
+      const deletedNotes = notes.filter((n: any) => n.isDeleted);
+      const updatedNotes = notes.filter((n: any) => !n.isDeleted);
+
+      const serverNotes: FileSystemItem[] = updatedNotes.map((n: any) => ({
         id: n.id,
         name: n.title,
         type: 'file',
@@ -435,6 +471,12 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
 
       // Merge by id: start from existing notes, update/add from server
       const noteMap = new Map<string, FileSystemItem>(currentNotes.map(n => [n.id, n]));
+      
+      // Remove deleted notes from state
+      deletedNotes.forEach((n: any) => {
+          noteMap.delete(n.id);
+      });
+
       for (const sn of serverNotes) {
         const existing = noteMap.get(sn.id);
         if (existing) {
@@ -454,7 +496,31 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
         }
       }
 
-      set({ items: [...nonFileItems, ...Array.from(noteMap.values())] });
+      set({ 
+          items: [...nonFileItems, ...Array.from(noteMap.values())],
+          lastSyncedAt: Date.now()
+      });
+      localStorage.setItem('lastSyncedAt', Date.now().toString());
+      get().saveToLocalStorage();
+
+      // Sync fetched notes to local disk for offline access
+      if (isElectron()) {
+         // Use Promise.all to sync in parallel
+         await Promise.all([
+             ...serverNotes.map(async (note) => {
+                 if (typeof note.content === 'string') {
+                     await get().saveNoteToDisk(note.id, note.content, note.updatedAt);
+                 }
+             }),
+             ...deletedNotes.map(async (n: any) => {
+                 const currentState = get();
+                 if (currentState.localDocumentsPath && fs) {
+                      const localPath = `${currentState.localDocumentsPath}/GodNotes/${n.id}.md`;
+                      try { await fs.deleteFile(localPath); } catch {}
+                 }
+             })
+         ]);
+      }
     } catch (e) {
       console.error('Failed to fetch notes:', e);
     }
@@ -1156,17 +1222,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     const timeoutId = setTimeout(async () => {
       try {
         // Save to local FS (if Electron) - Debounced
-        if (state.localDocumentsPath && isElectron() && fs) {
-            const localPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
-            // Fire and forget or await? Await is safer here since we are in async timeout
-            await fs.writeFile(localPath, content).catch(e => console.error('Failed to save locally:', e));
-             
-             // Update local sync manifest to mark local version as latest
-             const now = Date.now();
-             const manifest = { ...get().syncManifest, [id]: now };
-             set({ syncManifest: manifest });
-             await get().saveSyncManifest();
-        }
+        await get().saveNoteToDisk(id, content, Date.now());
 
         // Save to server via REST if authenticated and online
         if (state.isAuthenticated && !state.isOfflineMode) {
@@ -2148,6 +2204,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     localStorage.removeItem('aiCustomConfig');
     localStorage.removeItem('user');
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('lastSyncedAt');
     
     // Clear user settings
     const user = get().user;
@@ -2170,6 +2227,23 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     }
     
     console.log('User data cleared');
+  },
+
+  saveNoteToDisk: async (id: string, content: string, updatedAt?: number) => {
+    const state = get();
+    if (!state.localDocumentsPath) return;
+    
+    if (isElectron()) {
+       const fs = window.electron?.fs;
+       if (fs) {
+           const localPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
+           try {
+             await fs.writeFile(localPath, content);
+           } catch (error) {
+             console.error('Failed to save note to disk:', error);
+           }
+       }
+    }
   }
 
 }));
