@@ -1,6 +1,6 @@
 import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
-import { storage, setStoragePath } from "./storage";
+import { storage, setStoragePath } from "./storage.js";
 import {
   insertUserSchema,
   insertFolderSchema,
