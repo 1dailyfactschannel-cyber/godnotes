@@ -1,13 +1,6 @@
 import { isElectron } from "./electron";
 
 export function resolveApiBaseUrl(): string {
-  // Use the build-time injected environment variable
-  // In vite.config.ts, we define process.env.VITE_API_URL
-  const envUrl = import.meta.env.VITE_API_URL;
-  if (envUrl) return envUrl;
-
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
   const protocol = typeof window !== 'undefined' ? window.location.protocol : '';
   const isElectronRuntime =
     typeof window !== 'undefined' &&
@@ -16,6 +9,14 @@ export function resolveApiBaseUrl(): string {
   if (isElectronRuntime && !import.meta.env.DEV) {
     return 'http://127.0.0.1:5002/api';
   }
+
+  // Use the build-time injected environment variable
+  // In vite.config.ts, we define process.env.VITE_API_URL
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) return envUrl;
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
   
   // Treat localhost, loopback, and private network ranges as local dev
   const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(hostname);

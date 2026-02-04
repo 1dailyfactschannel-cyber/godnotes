@@ -412,11 +412,13 @@ if (!gotTheLock) {
     try {
       process.env.NODE_ENV = process.env.NODE_ENV || 'production';
       process.env.PORT = process.env.PORT || '5002';
-      process.env.DOTENV_CONFIG_PATH =
-        process.env.DOTENV_CONFIG_PATH || path.join(app.getAppPath(), '.env');
+      process.env.GODNOTES_DATA_DIR =
+        process.env.GODNOTES_DATA_DIR || path.join(app.getPath('userData'), 'data');
 
-      const dotenv = require('dotenv');
-      dotenv.config({ path: process.env.DOTENV_CONFIG_PATH });
+      const fsSync = require('fs');
+      if (!fsSync.existsSync(process.env.GODNOTES_DATA_DIR)) {
+        fsSync.mkdirSync(process.env.GODNOTES_DATA_DIR, { recursive: true });
+      }
 
       const serverPath = path.join(__dirname, '../dist/index.cjs');
       log.info(`[EmbeddedServer] Starting from ${serverPath} on PORT=${process.env.PORT}`);

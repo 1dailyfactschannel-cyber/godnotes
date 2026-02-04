@@ -1053,7 +1053,8 @@ export class ProxyStorage implements IStorage {
    async updateUserPassword(userId: string, hashedPassword: string): Promise<User | undefined> { return this.current.updateUserPassword(userId, hashedPassword); }
 }
 
-const STORAGE_CONFIG_FILE = path.join(process.cwd(), '.storage-config.json');
+const STORAGE_BASE_DIR = process.env.GODNOTES_DATA_DIR || process.cwd();
+const STORAGE_CONFIG_FILE = path.join(STORAGE_BASE_DIR, '.storage-config.json');
 
 function loadStorageConfig(): string | null {
   try {
@@ -1093,7 +1094,7 @@ export const storage = new ProxyStorage(
     }
 
     // Default to local data folder for persistence
-    const defaultPath = path.join(process.cwd(), 'data');
+    const defaultPath = path.join(STORAGE_BASE_DIR, 'data');
     if (!fs.existsSync(defaultPath)) {
       fs.mkdirSync(defaultPath, { recursive: true });
     }

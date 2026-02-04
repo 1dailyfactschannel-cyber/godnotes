@@ -61,7 +61,8 @@
     "files": [
       "**/*",
       "!dist-release-*",
-      ".env"
+      "!.env",
+      "!.env.*"
     ],
     "publish": [
       {
