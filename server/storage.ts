@@ -67,6 +67,7 @@ export class PostgresStorage implements IStorage {
   constructor(connectionString: string) {
     this.pool = new Pool({
       connectionString,
+      ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
     });
     this.db = drizzle(this.pool);
     this.ready = this.testConnection();
@@ -1053,7 +1054,7 @@ export class ProxyStorage implements IStorage {
    async updateUserPassword(userId: string, hashedPassword: string): Promise<User | undefined> { return this.current.updateUserPassword(userId, hashedPassword); }
 }
 
-const STORAGE_BASE_DIR = process.env.GODNOTES_DATA_DIR || process.cwd();
+const STORAGE_BASE_DIR = process.env.GODNOTES_DATA_DIR || (process.env.VERCEL ? '/tmp' : process.cwd());
 const STORAGE_CONFIG_FILE = path.join(STORAGE_BASE_DIR, '.storage-config.json');
 
 function loadStorageConfig(): string | null {
@@ -1084,11 +1085,20 @@ export const storage = new ProxyStorage(
     // Check if we are running in Vercel Serverless environment
     // Vercel only supports Postgres/database storage, not filesystem persistence
     if (process.env.VERCEL) {
-      if (!process.env.DATABASE_URL) {
-        throw new Error('DATABASE_URL is required in Vercel environment');
+      if (process.env.DATABASE_URL) {
+        console.log('Using PostgreSQL storage (Vercel)');
+        return new PostgresStorage(process.env.DATABASE_URL);
       }
-      console.log('Using PostgreSQL storage (Vercel)');
-      return new PostgresStorage(process.env.DATABASE_URL);
+      console.error('DATABASE_URL is required in Vercel environment. Falling back to ephemeral filesystem storage in /tmp.');
+      const tmpPath = path.join(STORAGE_BASE_DIR, 'data');
+      if (!fs.existsSync(tmpPath)) {
+        try {
+          fs.mkdirSync(tmpPath, { recursive: true });
+        } catch (e) {
+          console.error('Failed to create /tmp data directory', e);
+        }
+      }
+      return new FileSystemStorage(tmpPath);
     }
 
     console.log('Saved storage config:', loadStorageConfig());

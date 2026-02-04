@@ -17,7 +17,6 @@ import multer, { type FileFilterCallback } from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import sharp from "sharp";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_very_secure_session_secret_change_this_immediately";
 const JWT_EXPIRES_IN = "24h";
@@ -146,6 +145,7 @@ export async function registerRoutes(
         let finalExt: string;
 
         if (isImage && !isGif && !isSvg) {
+          const { default: sharp } = await import("sharp");
           // Optimize to WebP, limit size, strip metadata
           finalBuffer = await sharp(originalPath)
             .rotate()
