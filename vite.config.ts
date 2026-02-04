@@ -41,6 +41,7 @@ export default defineConfig({
   },
   base: './',
   root: path.resolve(__dirname, "client"),
+  envDir: path.resolve(__dirname),
   build: {
     outDir: path.resolve(__dirname, "dist/public"),
     emptyOutDir: true,
@@ -53,6 +54,10 @@ export default defineConfig({
         target: "http://localhost:5002",
         changeOrigin: true,
         ws: true,
+      },
+      "/uploads": {
+        target: "http://localhost:5002",
+        changeOrigin: true,
       },
     },
     fs: {

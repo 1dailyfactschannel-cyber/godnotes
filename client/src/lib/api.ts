@@ -1,7 +1,7 @@
 export function resolveApiBaseUrl(): string {
   // Use the build-time injected environment variable
   // In vite.config.ts, we define process.env.VITE_API_URL
-  const envUrl = process.env.VITE_API_URL;
+  const envUrl = import.meta.env.VITE_API_URL;
   if (envUrl) return envUrl;
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';

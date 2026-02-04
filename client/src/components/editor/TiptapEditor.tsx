@@ -449,7 +449,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     ],
     editorProps: {
       attributes: {
-        class: 'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[calc(100vh-250px)] px-8 py-4 text-base leading-relaxed',
+        class: 'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[calc(100vh-250px)] px-8 py-4 text-base leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-gray-700 dark:[&_blockquote]:border-gray-600 dark:[&_blockquote]:text-gray-300',
       },
       handleTextInput(view, from, to, text) {
         if (text === '/') {
@@ -725,31 +725,31 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
     }, 0);
     const chain = editor.chain().focus();
     if (command === 'heading1') {
-      chain.unsetFontSize().toggleHeading({ level: 1 }).run();
+      chain.toggleHeading({ level: 1 }).run();
       return;
     }
     if (command === 'heading2') {
-      chain.unsetFontSize().toggleHeading({ level: 2 }).run();
+      chain.toggleHeading({ level: 2 }).run();
       return;
     }
     if (command === 'bulletList') {
-      chain.unsetFontSize().toggleBulletList().run();
+      chain.toggleBulletList().run();
       return;
     }
     if (command === 'orderedList') {
-      chain.unsetFontSize().toggleOrderedList().run();
+      chain.toggleOrderedList().run();
       return;
     }
     if (command === 'blockquote') {
-      chain.unsetFontSize().toggleBlockquote().run();
+      chain.toggleBlockquote().run();
       return;
     }
     if (command === 'codeBlock') {
-      chain.unsetFontSize().toggleCodeBlock().run();
+      chain.toggleCodeBlock().run();
       return;
     }
     if (command === 'mermaid') {
-      chain.unsetFontSize().setMermaid().run();
+      chain.setMermaid().run();
       return;
     }
     if (command === 'table') {
@@ -1490,7 +1490,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('heading', { level: 1 })} 
-              onPressedChange={() => editor?.chain().focus().unsetFontSize().toggleHeading({ level: 1 }).run()}
+              onPressedChange={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
               className="h-8 w-8"
             >
               <Heading1 className="h-4 w-4" />
@@ -1498,7 +1498,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('heading', { level: 2 })} 
-              onPressedChange={() => editor?.chain().focus().unsetFontSize().toggleHeading({ level: 2 }).run()}
+              onPressedChange={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
               className="h-8 w-8"
             >
               <Heading2 className="h-4 w-4" />
@@ -1509,7 +1509,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('bulletList')} 
-              onPressedChange={() => editor?.chain().focus().unsetFontSize().toggleBulletList().run()}
+              onPressedChange={() => editor?.chain().focus().toggleBulletList().run()}
               className="h-8 w-8"
             >
               <List className="h-4 w-4" />
@@ -1517,7 +1517,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('orderedList')} 
-              onPressedChange={() => editor?.chain().focus().unsetFontSize().toggleOrderedList().run()}
+              onPressedChange={() => editor?.chain().focus().toggleOrderedList().run()}
               className="h-8 w-8"
             >
               <ListOrdered className="h-4 w-4" />
@@ -1533,7 +1533,7 @@ export default function TiptapEditor({ isReadOnly = false, searchTerm = '' }: { 
             <Toggle 
               size="sm" 
               pressed={editor?.isActive('blockquote')} 
-              onPressedChange={() => editor?.chain().focus().unsetFontSize().toggleBlockquote().run()}
+              onPressedChange={() => editor?.chain().focus().toggleBlockquote().run()}
               className="h-8 w-8"
             >
               <Quote className="h-4 w-4" />
