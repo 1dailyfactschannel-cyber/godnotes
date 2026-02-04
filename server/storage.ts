@@ -30,6 +30,32 @@ function normalizeDatabaseUrl(raw: string | undefined): string | undefined {
   return withoutQuotes.trim();
 }
 
+function resolvePgSslOption(connectionString: string): false | { rejectUnauthorized: boolean } | undefined {
+  const normalized = normalizeDatabaseUrl(connectionString) ?? connectionString;
+
+  const envSsl = (process.env.PGSSL ?? process.env.POSTGRES_SSL ?? "").toLowerCase().trim();
+  if (envSsl === "false" || envSsl === "0" || envSsl === "no" || envSsl === "disable") return false;
+  if (envSsl === "true" || envSsl === "1" || envSsl === "yes" || envSsl === "require") return { rejectUnauthorized: false };
+
+  try {
+    const url = new URL(normalized);
+    const sslmode = (url.searchParams.get("sslmode") ?? "").toLowerCase();
+    if (sslmode === "disable" || sslmode === "allow") return false;
+    if (
+      sslmode === "require" ||
+      sslmode === "verify-ca" ||
+      sslmode === "verify-full" ||
+      sslmode === "prefer"
+    ) {
+      return { rejectUnauthorized: false };
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
 // modify the interface with any CRUD methods
 // you might need
 
@@ -76,7 +102,7 @@ export class PostgresStorage implements IStorage {
     const normalized = normalizeDatabaseUrl(connectionString) ?? connectionString;
     this.pool = new Pool({
       connectionString: normalized,
-      ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
+      ssl: resolvePgSslOption(normalized),
     });
     this.db = drizzle(this.pool);
     this.ready = this.testConnection();
