@@ -404,6 +404,34 @@ if (!gotTheLock) {
   app.quit();
 } else {
   let mainWindow;
+  let embeddedServerStarted = false;
+
+  const startEmbeddedServer = async () => {
+    if (embeddedServerStarted) return;
+    embeddedServerStarted = true;
+    try {
+      process.env.NODE_ENV = process.env.NODE_ENV || 'production';
+      process.env.PORT = process.env.PORT || '5002';
+      process.env.DOTENV_CONFIG_PATH =
+        process.env.DOTENV_CONFIG_PATH || path.join(app.getAppPath(), '.env');
+
+      const dotenv = require('dotenv');
+      dotenv.config({ path: process.env.DOTENV_CONFIG_PATH });
+
+      const serverPath = path.join(__dirname, '../dist/index.cjs');
+      log.info(`[EmbeddedServer] Starting from ${serverPath} on PORT=${process.env.PORT}`);
+      require(serverPath);
+      log.info('[EmbeddedServer] Started');
+    } catch (err) {
+      log.error('[EmbeddedServer] Failed to start:', err);
+      try {
+        dialog.showErrorBox(
+          'Server Error',
+          'Не удалось запустить встроенный сервер приложения. Регистрация и синхронизация могут не работать.',
+        );
+      } catch {}
+    }
+  };
 
   function createWindow() {
     mainWindow = new BrowserWindow({
@@ -575,6 +603,10 @@ if (!gotTheLock) {
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
       callback(false);
     });
+
+    if (app.isPackaged) {
+      startEmbeddedServer();
+    }
 
     createWindow();
 

@@ -1,3 +1,5 @@
+import { isElectron } from "./electron";
+
 export function resolveApiBaseUrl(): string {
   // Use the build-time injected environment variable
   // In vite.config.ts, we define process.env.VITE_API_URL
@@ -6,6 +8,14 @@ export function resolveApiBaseUrl(): string {
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  const protocol = typeof window !== 'undefined' ? window.location.protocol : '';
+  const isElectronRuntime =
+    typeof window !== 'undefined' &&
+    (isElectron() || (typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron')));
+
+  if (isElectronRuntime && !import.meta.env.DEV) {
+    return 'http://127.0.0.1:5002/api';
+  }
   
   // Treat localhost, loopback, and private network ranges as local dev
   const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(hostname);
@@ -13,6 +23,7 @@ export function resolveApiBaseUrl(): string {
     || /^192\.168\.[0-9]{1,3}\.[0-9]{1,3}$/.test(hostname)
     || /^172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]{1,3}\.[0-9]{1,3}$/.test(hostname);
   const isLocalDev = isLocalHost || isPrivateNetwork;
+  const isFileProtocol = protocol === 'file:';
 
   // In local development (Vite/Electron), always point to backend API via current origin proxy or localhost
   if (isLocalDev) {
@@ -20,6 +31,10 @@ export function resolveApiBaseUrl(): string {
       return `${origin}/api`;
     }
     return 'http://localhost:5002/api';
+  }
+
+  if (isFileProtocol) {
+    return 'http://127.0.0.1:5002/api';
   }
 
   // Fallback (should be covered by process.env.VITE_API_URL in production)
