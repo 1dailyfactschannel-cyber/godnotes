@@ -67,14 +67,27 @@ export async function registerRoutes(
     dueDate: t.dueDate ? new Date(t.dueDate).getTime() : undefined,
   });
 
-  const uploadDir = path.resolve(process.cwd(), "uploads");
+  // Use /tmp for uploads in Vercel environment (ephemeral storage)
+  // In production, you should use S3/Blob storage instead of local file system
+  const uploadDir = process.env.VERCEL 
+    ? path.join('/tmp', 'uploads') 
+    : path.resolve(process.cwd(), "uploads");
+
   if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
+    try {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    } catch (e) {
+      console.error(`Failed to create upload directory at ${uploadDir}`, e);
+    }
   }
 
   const upload = multer({
     storage: multer.diskStorage({
       destination: (_req: Request, _file: Express.Multer.File, cb) => {
+        // Ensure directory exists before saving (in case it was cleaned up)
+        if (!fs.existsSync(uploadDir)) {
+            try { fs.mkdirSync(uploadDir, { recursive: true }); } catch {}
+        }
         cb(null, uploadDir);
       },
       filename: (_req: Request, file: Express.Multer.File, cb) => {
