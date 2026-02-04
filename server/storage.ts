@@ -324,6 +324,11 @@ export class PostgresStorage implements IStorage {
   async createTask(insertTask: InsertTask): Promise<Task> {
     await this.ready;
     const id = randomUUID();
+    // Validate and clean up data before insertion
+    const priority = ['low', 'medium', 'high'].includes(insertTask.priority || '') 
+      ? insertTask.priority 
+      : 'medium';
+
     const rows = await this.db
       .insert(tasks)
       .values({
@@ -340,7 +345,7 @@ export class PostgresStorage implements IStorage {
         updatedAt: new Date(),
         notify: insertTask.notify ?? false,
         isNotified: insertTask.isNotified ?? false,
-        priority: insertTask.priority ?? 'medium',
+        priority: priority,
         tags: insertTask.tags ?? [],
         recurring: insertTask.recurring ?? null,
       })

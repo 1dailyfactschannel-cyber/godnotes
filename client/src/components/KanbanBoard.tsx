@@ -5,6 +5,7 @@ import {
   closestCorners, 
   KeyboardSensor, 
   PointerSensor, 
+  useDroppable,
   useSensor, 
   useSensors, 
   DragStartEvent, 
@@ -55,13 +56,97 @@ const PriorityIcon = ({ priority, className }: { priority?: Priority, className?
 
 interface SortableTaskItemProps {
   task: Task;
+  onTaskClick?: (task: Task) => void;
 }
 
-const SortableTaskItem = ({ task }: SortableTaskItemProps) => {
+const TaskCard = ({
+  task,
+  className,
+  onClick,
+  dragHandleProps,
+}: {
+  task: Task;
+  className?: string;
+  onClick?: () => void;
+  dragHandleProps?: {
+    ref?: React.Ref<HTMLDivElement>;
+    attributes?: any;
+    listeners?: any;
+  };
+}) => {
+  return (
+    <div
+      className={cn(
+        "bg-card hover:bg-accent/50 p-3 rounded-lg border border-border shadow-sm group relative flex flex-col gap-2",
+        onClick ? "cursor-pointer" : "",
+        className,
+      )}
+      onClick={onClick}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span
+          className={cn(
+            "text-sm font-medium line-clamp-2",
+            task.isCompleted && "line-through text-muted-foreground",
+          )}
+        >
+          {task.content}
+        </span>
+        <div
+          ref={dragHandleProps?.ref as any}
+          {...(dragHandleProps?.attributes || {})}
+          {...(dragHandleProps?.listeners || {})}
+          className={cn(
+            "p-1 -m-1 rounded hover:bg-background/50 select-none",
+            dragHandleProps ? "cursor-grab active:cursor-grabbing" : "",
+          )}
+          onClickCapture={(e) => e.stopPropagation()}
+          onDoubleClickCapture={(e) => e.stopPropagation()}
+          style={{ touchAction: "none" }}
+        >
+          <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-50" />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between mt-1">
+        <div className="flex items-center gap-1">
+          {task.priority && task.priority !== "medium" && (
+            <PriorityIcon priority={task.priority} className="h-3 w-3" />
+          )}
+          {task.tags && task.tags.length > 0 && (
+            <Badge
+              variant="outline"
+              className="text-[10px] h-4 px-1 py-0 max-w-[60px] truncate"
+            >
+              {task.tags[0]}
+            </Badge>
+          )}
+        </div>
+
+        {task.dueDate && (
+          <div
+            className={cn(
+              "flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap",
+              task.dueDate < Date.now() && !task.isCompleted
+                ? "text-destructive bg-destructive/10"
+                : "text-muted-foreground bg-secondary",
+            )}
+          >
+            <CalendarIcon className="h-2.5 w-2.5" />
+            {format(task.dueDate, "d MMM", { locale: ru })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const SortableTaskItem = ({ task, onTaskClick }: SortableTaskItemProps) => {
   const {
     attributes,
     listeners,
     setNodeRef,
+    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
@@ -77,7 +162,7 @@ const SortableTaskItem = ({ task }: SortableTaskItemProps) => {
       <div
         ref={setNodeRef}
         style={style}
-        className="opacity-30 bg-accent/50 border border-primary/50 rounded-lg p-3 h-[100px]"
+        className="opacity-50 bg-accent/30 border-2 border-dashed border-primary/40 rounded-lg p-3 h-[100px]"
       />
     );
   }
@@ -86,39 +171,16 @@ const SortableTaskItem = ({ task }: SortableTaskItemProps) => {
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
-      className="bg-card hover:bg-accent/50 p-3 rounded-lg border border-border shadow-sm cursor-grab active:cursor-grabbing group relative flex flex-col gap-2"
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className={cn("text-sm font-medium line-clamp-2", task.isCompleted && "line-through text-muted-foreground")}>
-          {task.content}
-        </span>
-        <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-50" />
-      </div>
-      
-      <div className="flex items-center justify-between mt-1">
-        <div className="flex items-center gap-1">
-           {task.priority && task.priority !== 'medium' && (
-                <PriorityIcon priority={task.priority} className="h-3 w-3" />
-           )}
-           {task.tags && task.tags.length > 0 && (
-               <Badge variant="outline" className="text-[10px] h-4 px-1 py-0 max-w-[60px] truncate">
-                   {task.tags[0]}
-               </Badge>
-           )}
-        </div>
-        
-        {task.dueDate && (
-            <div className={cn(
-                "flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap",
-                task.dueDate < Date.now() && !task.isCompleted ? "text-destructive bg-destructive/10" : "text-muted-foreground bg-secondary"
-            )}>
-                <CalendarIcon className="h-2.5 w-2.5" />
-                {format(task.dueDate, 'd MMM', { locale: ru })}
-            </div>
-        )}
-      </div>
+      <TaskCard
+        task={task}
+        onClick={() => onTaskClick?.(task)}
+        dragHandleProps={{
+          ref: setActivatorNodeRef,
+          attributes,
+          listeners,
+        }}
+      />
     </div>
   );
 };
@@ -133,12 +195,17 @@ interface ColumnContentProps {
     dragRef?: React.Ref<HTMLDivElement>;
     onRename?: (id: string, title: string) => void;
     onDelete?: (id: string) => void;
+    onTaskClick?: (task: Task) => void;
 }
 
 // Presentation Component
-const ColumnContent = ({ id, title, tasks, className, style, dragHandleProps, dragRef, onRename, onDelete }: ColumnContentProps) => {
+const ColumnContent = ({ id, title, tasks, className, style, dragHandleProps, dragRef, onRename, onDelete, onTaskClick }: ColumnContentProps) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editTitle, setEditTitle] = useState(title);
+    const { setNodeRef: setDropRef, isOver: isDropOver } = useDroppable({
+        id: `column-drop-${id}`,
+        data: { type: 'ColumnDrop', id },
+    });
 
     React.useEffect(() => {
         setEditTitle(title);
@@ -157,7 +224,11 @@ const ColumnContent = ({ id, title, tasks, className, style, dragHandleProps, dr
         <div 
             ref={dragRef}
             style={style}
-            className={cn("flex flex-col h-full min-w-[280px] w-[300px] bg-secondary/20 rounded-xl border border-border/50 group/column", className)}
+            className={cn(
+                "flex flex-col h-full min-w-[280px] w-[300px] bg-secondary/20 rounded-xl border border-border/50 group/column transition-colors",
+                isDropOver && "ring-2 ring-primary/30 border-primary/40 bg-secondary/30",
+                className
+            )}
         >
           <div 
             className="p-3 flex items-center justify-between border-b border-border/50 bg-secondary/30 rounded-t-xl backdrop-blur-sm"
@@ -205,15 +276,17 @@ const ColumnContent = ({ id, title, tasks, className, style, dragHandleProps, dr
                 </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <ScrollArea className="flex-1 p-2">
-            <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-              <div className="flex flex-col gap-2 min-h-[100px]">
-                {tasks.map((task) => (
-                  <SortableTaskItem key={task.id} task={task} />
-                ))}
-              </div>
-            </SortableContext>
-          </ScrollArea>
+          <div ref={setDropRef} className="flex-1">
+            <ScrollArea className="h-full p-2">
+              <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                <div className="flex flex-col gap-2 min-h-[100px]">
+                  {tasks.map((task) => (
+                    <SortableTaskItem key={task.id} task={task} onTaskClick={onTaskClick} />
+                  ))}
+                </div>
+              </SortableContext>
+            </ScrollArea>
+          </div>
         </div>
       );
 }
@@ -224,9 +297,10 @@ interface ColumnProps {
   tasks: Task[];
   onRename?: (id: string, title: string) => void;
   onDelete?: (id: string) => void;
+  onTaskClick?: (task: Task) => void;
 }
 
-const SortableColumn = ({ id, title, tasks, onRename, onDelete }: ColumnProps) => {
+const SortableColumn = ({ id, title, tasks, onRename, onDelete, onTaskClick }: ColumnProps) => {
   const { 
     setNodeRef, 
     attributes, 
@@ -261,11 +335,12 @@ const SortableColumn = ({ id, title, tasks, onRename, onDelete }: ColumnProps) =
         dragHandleProps={{...attributes, ...listeners}}
         onRename={onRename}
         onDelete={onDelete}
+        onTaskClick={onTaskClick}
     />
   );
 };
 
-export function KanbanBoard({ tasks }: { tasks: Task[] }) {
+export function KanbanBoard({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick?: (task: Task) => void }) {
   const { moveTask, columnOrder, setColumnOrder, columns, addColumn, updateColumn, deleteColumn } = useTasks();
   
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -303,7 +378,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
         activationConstraint: {
-            distance: 8, // Require movement of 8px before drag starts to prevent accidental clicks
+            distance: 3,
         },
     }),
     useSensor(KeyboardSensor, {
@@ -361,6 +436,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
     const isActiveTask = active.data.current?.type === 'Task';
     const isOverTask = over.data.current?.type === 'Task';
     const isOverColumn = over.data.current?.type === 'Column';
+    const isOverColumnDrop = over.data.current?.type === 'ColumnDrop';
 
     if (!isActiveTask) return;
 
@@ -370,7 +446,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
     }
 
     // Moving task over a column
-    if (isActiveTask && isOverColumn) {
+    if (isActiveTask && (isOverColumn || isOverColumnDrop)) {
         // Visual drop logic
     }
   };
@@ -387,6 +463,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
 
     // Handle Column Reordering
     if (active.data.current?.type === 'Column') {
+        if (over.data.current?.type !== 'Column') return;
         if (activeId !== overId) {
             const oldIndex = safeColumnOrder.indexOf(activeId as string);
             const newIndex = safeColumnOrder.indexOf(overId as string);
@@ -404,6 +481,8 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
 
     if (over.data.current?.type === 'Column') {
         targetStatus = over.id as TaskStatus;
+    } else if (over.data.current?.type === 'ColumnDrop') {
+        targetStatus = over.data.current?.id as TaskStatus;
     } else if (over.data.current?.type === 'Task') {
         const overTask = tasks.find(t => t.id === overId);
         if (overTask) {
@@ -447,6 +526,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
                     tasks={tasksByStatus[col.id] || []}
                     onRename={updateColumn}
                     onDelete={deleteColumn}
+                    onTaskClick={onTaskClick}
                 />
                 ))}
                 
@@ -462,7 +542,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
                </div>
             </div>
         </SortableContext>
-        <DragOverlay dropAnimation={dropAnimation}>
+        <DragOverlay dropAnimation={dropAnimation} adjustScale={true}>
             {activeColumn ? (
                 <ColumnContent
                     id={activeColumn.id}
@@ -471,7 +551,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
                     className="opacity-80"
                 />
             ) : activeTask ? (
-                <SortableTaskItem task={activeTask} />
+                <TaskCard task={activeTask} className="opacity-95 shadow-2xl border-primary/50 ring-2 ring-primary/20 rotate-[0.5deg] scale-[1.03]" />
             ) : null}
         </DragOverlay>
       </DndContext>

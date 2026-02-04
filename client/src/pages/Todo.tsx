@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useTasks, Task, Priority, RecurringInterval } from '@/lib/tasks-store';
+import { useFileSystem } from '@/lib/data-store';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -368,10 +369,42 @@ export const TaskItem = ({ task, level = 0, hideExternalButton = false }: { task
 
 export default function TodoPage() {
   const { toggleTask, deleteTask, addTask, setTaskDate, tasks, updateTask, viewMode, setViewMode, loadTasks } = useTasks();
+  const { items, extractTodosFromContent } = useFileSystem();
 
   useEffect(() => {
     loadTasks();
   }, [loadTasks]);
+
+  // Extract todos from notes
+  const noteTodos = useMemo(() => {
+    return items
+      .filter(item => item.type === 'file' && item.content)
+      .flatMap(item => extractTodosFromContent(item.content || '', item.id)
+        .map(todo => ({
+          ...todo,
+          noteTitle: item.name,
+          priority: 'medium' as Priority, // Default priority for extracted tasks
+          isExtracted: true
+        }))
+      );
+  }, [items, extractTodosFromContent]);
+
+  // Merge regular tasks and extracted todos
+  const allTasks = useMemo(() => {
+    // Map extracted todos to Task interface shape
+    const extractedAsTasks: Task[] = noteTodos.map(todo => ({
+      id: todo.id,
+      content: todo.title,
+      isCompleted: todo.completed,
+      priority: 'medium',
+      createdAt: Date.now(), // Placeholder
+      tags: ['из заметок'],
+      parentId: undefined,
+      description: `Из заметки: ${todo.noteTitle}`
+    }));
+    
+    return [...tasks, ...extractedAsTasks];
+  }, [tasks, noteTodos]);
 
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -385,6 +418,18 @@ export default function TodoPage() {
   const [newTaskRecurring, setNewTaskRecurring] = useState<RecurringInterval | undefined>(undefined);
   const [tagInput, setTagInput] = useState('');
   const [notify, setNotify] = useState(false);
+  const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false);
+  const [taskDialogTaskId, setTaskDialogTaskId] = useState<string | null>(null);
+  const [taskDialogContent, setTaskDialogContent] = useState('');
+  const [taskDialogDescription, setTaskDialogDescription] = useState('');
+  const [taskDialogCallLink, setTaskDialogCallLink] = useState('');
+  const [taskDialogTime, setTaskDialogTime] = useState('09:00');
+  const [taskDialogDate, setTaskDialogDate] = useState<Date | undefined>(undefined);
+  const [taskDialogPriority, setTaskDialogPriority] = useState<Priority>('medium');
+  const [taskDialogTags, setTaskDialogTags] = useState<string[]>([]);
+  const [taskDialogRecurring, setTaskDialogRecurring] = useState<RecurringInterval | undefined>(undefined);
+  const [taskDialogTagInput, setTaskDialogTagInput] = useState('');
+  const [taskDialogNotify, setTaskDialogNotify] = useState(false);
   const { toast } = useToast();
 
   const handleOpenTodoInNewWindow = () => {
@@ -407,7 +452,7 @@ export default function TodoPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [groupBy, setGroupBy] = useState<'none' | 'date' | 'priority'>('none');
 
-  const rootTasks = tasks.filter(t => !t.parentId);
+  const rootTasks = allTasks.filter(t => !t.parentId);
 
   const filteredTasks = rootTasks.filter(task => {
     const matchesSearch = task.content.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -493,6 +538,89 @@ export default function TodoPage() {
     }
   };
 
+  const openTaskDialog = (task: Task) => {
+    if (task.id.startsWith('extracted-')) return;
+
+    setTaskDialogTaskId(task.id);
+    setTaskDialogContent(task.content);
+    setTaskDialogDescription(task.description || '');
+    setTaskDialogCallLink(task.callLink || '');
+
+    if (task.dueDate) {
+      const date = new Date(task.dueDate);
+      setTaskDialogDate(date);
+      setTaskDialogTime(format(task.dueDate, 'HH:mm'));
+      setTaskDialogNotify(!!task.notify);
+    } else {
+      setTaskDialogDate(undefined);
+      setTaskDialogTime('09:00');
+      setTaskDialogNotify(false);
+    }
+
+    setTaskDialogPriority(task.priority || 'medium');
+    setTaskDialogTags(task.tags || []);
+    setTaskDialogRecurring(task.recurring || undefined);
+    setTaskDialogTagInput('');
+    setIsTaskDialogOpen(true);
+  };
+
+  const closeTaskDialog = () => {
+    setIsTaskDialogOpen(false);
+    setTaskDialogTaskId(null);
+    setTaskDialogContent('');
+    setTaskDialogDescription('');
+    setTaskDialogCallLink('');
+    setTaskDialogTime('09:00');
+    setTaskDialogDate(undefined);
+    setTaskDialogPriority('medium');
+    setTaskDialogTags([]);
+    setTaskDialogRecurring(undefined);
+    setTaskDialogTagInput('');
+    setTaskDialogNotify(false);
+  };
+
+  const handleSaveTaskDialog = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskDialogTaskId) return;
+    if (!taskDialogContent.trim()) return;
+
+    let dueDate: number | undefined = undefined;
+    if (taskDialogDate) {
+      const [hours, minutes] = taskDialogTime.split(':').map(Number);
+      const finalDate = new Date(taskDialogDate);
+      finalDate.setHours(hours, minutes);
+      dueDate = finalDate.getTime();
+    }
+
+    updateTask(taskDialogTaskId, {
+      content: taskDialogContent.trim(),
+      description: taskDialogDescription.trim() ? taskDialogDescription : undefined,
+      callLink: taskDialogCallLink.trim() ? taskDialogCallLink : undefined,
+      dueDate,
+      notify: dueDate ? taskDialogNotify : false,
+      isNotified: dueDate && taskDialogNotify ? false : undefined,
+      priority: taskDialogPriority,
+      tags: taskDialogTags,
+      recurring: taskDialogRecurring || undefined,
+    });
+
+    closeTaskDialog();
+  };
+
+  const handleTaskDialogAddTag = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && taskDialogTagInput.trim()) {
+      e.preventDefault();
+      if (!taskDialogTags.includes(taskDialogTagInput.trim())) {
+        setTaskDialogTags([...taskDialogTags, taskDialogTagInput.trim()]);
+      }
+      setTaskDialogTagInput('');
+    }
+  };
+
+  const removeTaskDialogTag = (tagToRemove: string) => {
+    setTaskDialogTags(taskDialogTags.filter(t => t !== tagToRemove));
+  };
+
   const closeDialog = () => {
     setNewTaskContent('');
     setNewTaskDescription('');
@@ -521,9 +649,9 @@ export default function TodoPage() {
     setNewTaskTags(newTaskTags.filter(t => t !== tagToRemove));
   };
 
-  const activeCount = tasks.filter(t => !t.isCompleted).length;
-  const totalCount = tasks.length;
-  const completedCount = tasks.filter(t => t.isCompleted).length;
+  const activeCount = allTasks.filter(t => !t.isCompleted).length;
+  const totalCount = allTasks.length;
+  const completedCount = allTasks.filter(t => t.isCompleted).length;
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   return (
@@ -673,7 +801,7 @@ export default function TodoPage() {
       <div className="flex-1 flex flex-col min-h-0">
         {viewMode === 'board' ? (
             <div className="flex-1 overflow-hidden">
-                <KanbanBoard tasks={filteredTasks} />
+                <KanbanBoard tasks={filteredTasks} onTaskClick={openTaskDialog} />
             </div>
         ) : (
         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-1">
@@ -849,6 +977,159 @@ export default function TodoPage() {
                     <Button type="submit">Создать задачу</Button>
                 </div>
             </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isTaskDialogOpen} onOpenChange={(open) => (open ? setIsTaskDialogOpen(true) : closeTaskDialog())}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Задача</DialogTitle>
+            <DialogDescription className="sr-only">
+              Форма редактирования задачи
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSaveTaskDialog} className="flex flex-col gap-4 mt-4">
+            <Input
+              value={taskDialogContent}
+              onChange={(e) => setTaskDialogContent(e.target.value)}
+              placeholder="Что нужно сделать?"
+              autoFocus
+            />
+
+            <Textarea
+              value={taskDialogDescription}
+              onChange={(e) => setTaskDialogDescription(e.target.value)}
+              placeholder="Описание (необязательно)..."
+              className="min-h-[80px]"
+            />
+
+            <Input
+              value={taskDialogCallLink}
+              onChange={(e) => setTaskDialogCallLink(e.target.value)}
+              placeholder="Ссылка на звонок (необязательно)..."
+            />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <Label className="text-xs text-muted-foreground">Дата</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      className={cn(
+                        "w-full justify-start text-left font-normal h-9",
+                        !taskDialogDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {taskDialogDate ? format(taskDialogDate, "d MMM yyyy", { locale: ru }) : <span>Выбрать дату</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={taskDialogDate}
+                      onSelect={setTaskDialogDate}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label className="text-xs text-muted-foreground">Время</Label>
+                <Input
+                  type="time"
+                  value={taskDialogTime}
+                  onChange={(e) => setTaskDialogTime(e.target.value)}
+                  disabled={!taskDialogDate}
+                  className="h-9"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <Label className="text-xs text-muted-foreground">Приоритет</Label>
+                <Select value={taskDialogPriority} onValueChange={(v: Priority) => setTaskDialogPriority(v)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="high">
+                      <div className="flex items-center gap-2"><Flame className="h-4 w-4 text-red-500" /> Высокий</div>
+                    </SelectItem>
+                    <SelectItem value="medium">
+                      <div className="flex items-center gap-2"><Zap className="h-4 w-4 text-yellow-500" /> Средний</div>
+                    </SelectItem>
+                    <SelectItem value="low">
+                      <div className="flex items-center gap-2"><Coffee className="h-4 w-4 text-blue-500" /> Низкий</div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label className="text-xs text-muted-foreground">Повтор</Label>
+                <Select value={taskDialogRecurring || "none"} onValueChange={(v) => setTaskDialogRecurring(v === "none" ? undefined : v as RecurringInterval)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Не повторять" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Не повторять</SelectItem>
+                    <SelectItem value="daily">Каждый день</SelectItem>
+                    <SelectItem value="weekly">Каждую неделю</SelectItem>
+                    <SelectItem value="monthly">Каждый месяц</SelectItem>
+                    <SelectItem value="yearly">Каждый год</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label className="text-xs text-muted-foreground">Теги</Label>
+              <div className="flex flex-wrap gap-1 mb-1 min-h-[24px] p-1 border rounded-md bg-background/50">
+                {taskDialogTags.length === 0 && <span className="text-xs text-muted-foreground p-1">Нет тегов</span>}
+                {taskDialogTags.map(tag => (
+                  <Badge key={tag} variant="secondary" className="gap-1 pr-1">
+                    {tag}
+                    <Button type="button" variant="ghost" size="icon" className="h-3 w-3 p-0 hover:bg-transparent" onClick={() => removeTaskDialogTag(tag)}>
+                      <X className="h-2 w-2" />
+                    </Button>
+                  </Badge>
+                ))}
+              </div>
+              <Input
+                value={taskDialogTagInput}
+                onChange={(e) => setTaskDialogTagInput(e.target.value)}
+                onKeyDown={handleTaskDialogAddTag}
+                placeholder="Добавить тег (Enter)..."
+                className="h-9"
+              />
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox id="notify-task-dialog" checked={taskDialogNotify} onCheckedChange={(c) => setTaskDialogNotify(!!c)} disabled={!taskDialogDate} />
+              <Label htmlFor="notify-task-dialog" className={!taskDialogDate ? "text-muted-foreground" : ""}>Уведомить в Telegram</Label>
+            </div>
+
+            <div className="flex justify-between gap-2 pt-2">
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  if (taskDialogTaskId) deleteTask(taskDialogTaskId);
+                  closeTaskDialog();
+                }}
+              >
+                Удалить
+              </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" onClick={closeTaskDialog}>Отмена</Button>
+                <Button type="submit">Сохранить</Button>
+              </div>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

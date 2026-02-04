@@ -44,10 +44,23 @@ export async function apiRequest(method: string, endpoint: string, body?: any) {
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
-      // Let the caller handle or authService handle it
-    }
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    const contentType = response.headers.get('content-type') || '';
+    let details: any = undefined;
+    try {
+      if (contentType.includes('application/json')) {
+        details = await response.json();
+      } else {
+        const text = await response.text();
+        details = text ? { message: text } : undefined;
+      }
+    } catch {}
+
+    const message =
+      details?.message ||
+      (Array.isArray(details?.issues) ? 'Invalid payload' : undefined) ||
+      response.statusText;
+
+    throw new Error(`API Error: ${response.status} ${message}`);
   }
 
   if (response.status === 204) return null;

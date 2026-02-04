@@ -157,6 +157,14 @@ interface FileSystemState {
   enqueueOfflineOp: (op: { method: 'PATCH'|'POST'|'DELETE'; endpoint: string; payload?: any; itemId?: string }) => void;
   processOfflineQueue: () => Promise<void>;
   saveNoteToDisk: (id: string, content: string, updatedAt?: number) => Promise<void>;
+  extractTodosFromContent: (content: string, noteId: string) => ExtractedTodo[];
+}
+
+export interface ExtractedTodo {
+  id: string;
+  title: string;
+  completed: boolean;
+  noteId: string;
 }
 
 const initialItems: FileSystemItem[] = [];
@@ -2243,6 +2251,45 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
              console.error('Failed to save note to disk:', error);
            }
        }
+    }
+  },
+
+  extractTodosFromContent: (content: string, noteId: string) => {
+    // Basic extraction of tasks from HTML content
+    // Tiptap format: <ul data-type="taskList"><li data-type="taskItem" data-checked="true/false">Task text</li></ul>
+    
+    try {
+        if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
+            return [];
+        }
+
+        // We use DOMParser to parse the HTML string safely
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(content, 'text/html');
+        const taskItems = doc.querySelectorAll('li[data-type="taskItem"]');
+        
+        const todos: any[] = [];
+        
+        taskItems.forEach((item) => {
+            const isChecked = item.getAttribute('data-checked') === 'true';
+            const text = item.textContent || '';
+            // Generate a stable-ish ID based on noteId and content to avoid re-renders
+            // Simple hash for demo purposes, or just use random if stability isn't crucial yet
+            // Using random ID causes full re-render of these items on every store update
+            if (text.trim()) {
+                todos.push({
+                    id: `extracted-${noteId}-${todos.length}-${Date.now()}`, // Reduce collision chance but still unique
+                    title: text,
+                    completed: isChecked,
+                    noteId: noteId
+                });
+            }
+        });
+        
+        return todos;
+    } catch (e) {
+        console.error('Error extracting todos:', e);
+        return [];
     }
   }
 

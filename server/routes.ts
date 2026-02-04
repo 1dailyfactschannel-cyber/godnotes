@@ -29,25 +29,18 @@ const resetTokens = new Map<string, { token: string; expiresAt: number }>();
 
 // Middleware для проверки JWT
 const authenticateToken = (req: Request, res: any, next: any) => {
-  console.log('authenticateToken called');
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.log('No valid authorization header');
     return res.status(401).json({ message: "Unauthorized: No token provided" });
   }
 
   const token = authHeader.substring(7);
   
   try {
-    console.log('Verifying token with secret:', JWT_SECRET);
-    console.log('Token to verify:', token);
     const decoded: any = jwt.verify(token, JWT_SECRET);
-    console.log('Decoded token:', decoded);
     (req as any).userId = decoded.userId;
     next();
   } catch (error: any) {
-    console.log('Token verification failed:', error.message);
-    console.log('Error name:', error.name);
     return res.status(401).json({ message: "Unauthorized: Invalid token" });
   }
 };
@@ -61,6 +54,18 @@ export async function registerRoutes(
 
   // use storage to perform CRUD operations on the storage interface
   // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+
+  const serializeTask = (t: any) => ({
+    ...t,
+    description: t.description ?? undefined,
+    callLink: t.callLink ?? undefined,
+    status: t.status ?? undefined,
+    parentId: t.parentId ?? undefined,
+    recurring: t.recurring ?? undefined,
+    createdAt: t.createdAt ? new Date(t.createdAt).getTime() : undefined,
+    updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : undefined,
+    dueDate: t.dueDate ? new Date(t.dueDate).getTime() : undefined,
+  });
 
   const uploadDir = path.resolve(process.cwd(), "uploads");
   if (!fs.existsSync(uploadDir)) {
@@ -228,26 +233,19 @@ export async function registerRoutes(
   });
 
   app.get("/api/auth/me", async (req, res) => {
-    console.log('GET /api/auth/me called');
     const authHeader = req.headers.authorization;
-    console.log('Authorization header:', authHeader);
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.log('No valid authorization header');
       res.status(401).json({ message: "Unauthorized: No token provided" });
       return;
     }
 
     const token = authHeader.substring(7);
-    console.log('Token extracted:', token);
     
     try {
-      console.log('Verifying token with secret:', JWT_SECRET);
       const decoded: any = jwt.verify(token, JWT_SECRET);
-      console.log('Decoded token:', decoded);
       const userId = decoded.userId;
       
       let user = await storage.getUser(userId);
-      console.log('User found:', user);
       
       if (!user) {
         res.status(401).json({ message: "Unauthorized: User not found" });
@@ -265,8 +263,6 @@ export async function registerRoutes(
         created_at: user.created_at
       });
     } catch (error: any) {
-      console.log('Token verification failed:', error.message);
-      console.log('Error name:', error.name);
       res.status(401).json({ message: "Unauthorized: Invalid token" });
     }
   });
@@ -695,8 +691,7 @@ export async function registerRoutes(
   });
 
   // Tasks CRUD
-
-
+  
   app.get("/api/tasks", authenticateToken, async (req, res) => {
     const userId = (req as any).userId;
     const tasks = await storage.listTasksByUser(userId);
@@ -714,7 +709,7 @@ export async function registerRoutes(
         callLink: parsed.callLink,
         status: parsed.status,
         parentId: parsed.parentId ?? null,
-        dueDate: typeof parsed.dueDate === 'number' ? new Date(parsed.dueDate) : undefined,
+        dueDate: parsed.dueDate ?? null,
         notify: parsed.notify,
         isNotified: parsed.isNotified,
         priority: parsed.priority,
@@ -727,6 +722,54 @@ export async function registerRoutes(
         res.status(400).json({ message: "Invalid payload", issues: err.issues });
         return;
       }
+      next(err);
+    }
+  });
+
+  app.get("/api/tasks/:id", authenticateToken, async (req, res) => {
+    const userId = (req as any).userId;
+    const task = await storage.getTask(req.params.id);
+    if (!task || task.userId !== userId) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.json(serializeTask(task));
+  });
+
+  app.patch("/api/tasks/:id", authenticateToken, async (req, res, next) => {
+    try {
+      const userId = (req as any).userId;
+      const existing = await storage.getTask(req.params.id);
+      if (!existing || existing.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+      }
+      const parsed = updateTaskSchema.parse(req.body);
+      const updated = await storage.updateTask(req.params.id, {
+        ...parsed,
+        dueDate: parsed.dueDate,
+      });
+      res.json(updated ? serializeTask(updated) : undefined);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid payload", issues: err.issues });
+        return;
+      }
+      next(err);
+    }
+  });
+
+  app.delete("/api/tasks/:id", authenticateToken, async (req, res, next) => {
+    try {
+      const userId = (req as any).userId;
+      const existing = await storage.getTask(req.params.id);
+      if (!existing || existing.userId !== userId) {
+        res.status(404).json({ message: "Not found" });
+        return;
+      }
+      await storage.deleteTask(req.params.id);
+      res.status(204).end();
+    } catch (err) {
       next(err);
     }
   });
@@ -910,13 +953,8 @@ export async function registerRoutes(
     res.status(204).end();
   });
 
-  // Tasks CRUD
-  const serializeTask = (t: any) => ({
-    ...t,
-    createdAt: t.createdAt ? new Date(t.createdAt).getTime() : undefined,
-    updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : undefined,
-    dueDate: t.dueDate ? new Date(t.dueDate).getTime() : undefined,
-  });
+  // serializeTask definition moved to top of function
+
 
   app.get("/api/tasks", authenticateToken, async (req, res) => {
     const userId = (req as any).userId;
@@ -996,54 +1034,6 @@ export async function registerRoutes(
       await storage.deleteTask(req.params.id);
       res.status(204).end();
     } catch (err) {
-      next(err);
-    }
-  });
-
-  app.patch("/api/notes/:id/public", authenticateToken, async (req, res, next) => {
-    try {
-      console.log('=== PATCH /api/notes/:id/public DEBUG START ===');
-      console.log('Request params:', req.params);
-      console.log('Request body:', req.body);
-      console.log('User ID from token:', (req as any).userId);
-      
-      const userId = (req as any).userId;
-      const existing = await storage.getNote(req.params.id);
-      console.log('Existing note:', existing ? 'found' : 'not found');
-      
-      if (!existing || existing.userId !== userId) {
-        console.log('Note not found or access denied');
-        res.status(404).json({ message: "Not found" });
-        console.log('=== PATCH /api/notes/:id/public DEBUG END (not found) ===');
-        return;
-      }
-      
-      const { isPublic } = req.body;
-      console.log('isPublic value:', isPublic);
-      
-      if (typeof isPublic !== 'boolean') {
-        console.log('Invalid isPublic type');
-        res.status(400).json({ message: "isPublic must be a boolean" });
-        console.log('=== PATCH /api/notes/:id/public DEBUG END (invalid type) ===');
-        return;
-      }
-      
-      // Update the note with isPublic field
-      console.log('Calling storage.updateNote...');
-      const updated = await storage.updateNote(req.params.id, { isPublic });
-      console.log('Update result:', updated ? 'success' : 'failed');
-      
-      const response = { 
-        message: "Public access updated",
-        isPublic: updated?.isPublic ?? isPublic
-      };
-      
-      console.log('Sending response:', response);
-      res.json(response);
-      console.log('=== PATCH /api/notes/:id/public DEBUG END (success) ===');
-    } catch (err) {
-      console.error('API endpoint error:', err);
-      console.log('=== PATCH /api/notes/:id/public DEBUG END (error) ===');
       next(err);
     }
   });

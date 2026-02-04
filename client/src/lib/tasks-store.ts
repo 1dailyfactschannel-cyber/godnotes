@@ -13,6 +13,20 @@ export interface Column {
   title: string;
 }
 
+const normalizeTask = (t: any): Task => ({
+  ...t,
+  description: t?.description ?? undefined,
+  callLink: t?.callLink ?? undefined,
+  status: t?.status ?? undefined,
+  parentId: t?.parentId ?? undefined,
+  dueDate: typeof t?.dueDate === 'number' ? t.dueDate : undefined,
+  notify: t?.notify ?? undefined,
+  isNotified: t?.isNotified ?? undefined,
+  priority: t?.priority ?? undefined,
+  tags: Array.isArray(t?.tags) ? t.tags : undefined,
+  recurring: t?.recurring ?? undefined,
+});
+
 export type Task = {
   id: string;
   content: string;
@@ -74,6 +88,29 @@ export const useTasks = create<TasksState>()(
         chatId: '',
       },
       addTask: (content, parentId, dueDate, notify = false, description, callLink, priority = 'medium', tags = [], recurring) => {
+        const tempId = `temp-${uuidv4()}`;
+        const now = Date.now();
+        const optimistic: Task = {
+          id: tempId,
+          content,
+          description,
+          callLink,
+          isCompleted: false,
+          status: 'todo',
+          parentId,
+          dueDate,
+          createdAt: now,
+          notify,
+          isNotified: false,
+          priority,
+          tags,
+          recurring,
+        };
+
+        set((state) => ({
+          tasks: [...state.tasks, optimistic],
+        }));
+
         const payload: any = {
           content,
           description,
@@ -87,13 +124,19 @@ export const useTasks = create<TasksState>()(
           tags,
           recurring,
         };
+
         apiRequest('POST', '/tasks', payload)
           .then((created) => {
             set((state) => ({
-              tasks: [...state.tasks, created as Task],
+              tasks: state.tasks.map((t) => (t.id === tempId ? normalizeTask(created) : t)),
             }));
           })
-          .catch((err) => console.error('Failed to create task:', err));
+          .catch((err) => {
+            set((state) => ({
+              tasks: state.tasks.filter((t) => t.id !== tempId),
+            }));
+            console.error('Failed to create task:', err);
+          });
       },
       toggleTask: (id) => {
         const state = useTasks.getState();
@@ -144,7 +187,7 @@ export const useTasks = create<TasksState>()(
           };
           apiRequest('POST', '/tasks', nextPayload)
             .then((created) => {
-              set((s) => ({ tasks: [...s.tasks, created as Task] }));
+              set((s) => ({ tasks: [...s.tasks, normalizeTask(created)] }));
             })
             .catch((err) => console.error('Failed to create next recurring task:', err));
         }
@@ -167,26 +210,46 @@ export const useTasks = create<TasksState>()(
         apiRequest('PATCH', `/tasks/${id}`, updates)
           .then((updated) => {
             set((state) => ({
-              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...normalizeTask(updated) } : t)),
             }));
           })
           .catch((err) => console.error('Failed to update task:', err));
       },
       moveTask: (id, status) => {
+        const state = useTasks.getState();
+        const task = state.tasks.find((t) => t.id === id);
+        if (!task) return;
+
+        const prevStatus = task.status;
+        const prevIsCompleted = task.isCompleted;
         const isCompleted = status === 'done';
+
+        set((s) => ({
+          tasks: s.tasks.map((t) =>
+            t.id === id ? { ...t, status, isCompleted } : t,
+          ),
+        }));
+
         apiRequest('PATCH', `/tasks/${id}`, { status, isCompleted })
           .then((updated) => {
-            set((state) => ({
-              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+            set((s) => ({
+              tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...normalizeTask(updated) } : t)),
             }));
           })
-          .catch((err) => console.error('Failed to move task:', err));
+          .catch((err) => {
+            set((s) => ({
+              tasks: s.tasks.map((t) =>
+                t.id === id ? { ...t, status: prevStatus, isCompleted: prevIsCompleted } : t,
+              ),
+            }));
+            console.error('Failed to move task:', err);
+          });
       },
       setTaskDate: (id, date) => {
         apiRequest('PATCH', `/tasks/${id}`, { dueDate: date })
           .then((updated) => {
             set((state) => ({
-              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...normalizeTask(updated) } : t)),
             }));
           })
           .catch((err) => console.error('Failed to set task date:', err));
@@ -198,7 +261,7 @@ export const useTasks = create<TasksState>()(
         apiRequest('PATCH', `/tasks/${id}`, { notify: !task.notify })
           .then((updated) => {
             set((state) => ({
-              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...normalizeTask(updated) } : t)),
             }));
           })
           .catch((err) => console.error('Failed to toggle notify:', err));
@@ -207,7 +270,7 @@ export const useTasks = create<TasksState>()(
         apiRequest('PATCH', `/tasks/${id}`, { isNotified: true })
           .then((updated) => {
             set((state) => ({
-              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updated } : t)),
+              tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...normalizeTask(updated) } : t)),
             }));
           })
           .catch((err) => console.error('Failed to mark notified:', err));
@@ -260,7 +323,7 @@ export const useTasks = create<TasksState>()(
       loadTasks: () => {
         apiRequest('GET', '/tasks')
           .then((tasks) => {
-            set(() => ({ tasks }));
+            set(() => ({ tasks: Array.isArray(tasks) ? tasks.map(normalizeTask) : [] }));
           })
           .catch((err) => console.error('Failed to load tasks:', err));
       },
