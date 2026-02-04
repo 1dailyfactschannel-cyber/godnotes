@@ -190,6 +190,21 @@ export async function registerRoutes(
     res.json({ ok: true, backend });
   });
 
+  app.get("/api/db/ping", async (_req, res) => {
+    const backend = storage.getBackendName();
+    try {
+      const users = await storage.listUsers();
+      res.json({ ok: true, backend, users: users.length });
+    } catch (err: any) {
+      res.status(500).json({
+        ok: false,
+        backend,
+        error: err?.message ?? String(err),
+        code: err?.code,
+      });
+    }
+  });
+
   app.post("/api/config/storage-path", async (req, res) => {
     const { path } = req.body;
     if (path && typeof path === 'string') {

@@ -22,6 +22,14 @@ import { eq, and, gt } from "drizzle-orm";
 import fs from 'fs';
 import path from 'path';
 
+function normalizeDatabaseUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  const withoutDoubleQuotes = trimmed.replace(/^"(.*)"$/, "$1");
+  const withoutQuotes = withoutDoubleQuotes.replace(/^'(.*)'$/, "$1");
+  return withoutQuotes.trim();
+}
+
 // modify the interface with any CRUD methods
 // you might need
 
@@ -65,8 +73,9 @@ export class PostgresStorage implements IStorage {
   private ready: Promise<void>;
 
   constructor(connectionString: string) {
+    const normalized = normalizeDatabaseUrl(connectionString) ?? connectionString;
     this.pool = new Pool({
-      connectionString,
+      connectionString: normalized,
       ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
     });
     this.db = drizzle(this.pool);
@@ -1079,15 +1088,16 @@ function saveStorageConfig(storagePath: string) {
 
 export const storage = new ProxyStorage(
   (() => {
+    const databaseUrl = normalizeDatabaseUrl(process.env.DATABASE_URL);
     console.log('=== STORAGE INITIALIZATION ===');
-    console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+    console.log('DATABASE_URL:', databaseUrl ? 'SET' : 'NOT SET');
     
     // Check if we are running in Vercel Serverless environment
     // Vercel only supports Postgres/database storage, not filesystem persistence
     if (process.env.VERCEL) {
-      if (process.env.DATABASE_URL) {
+      if (databaseUrl) {
         console.log('Using PostgreSQL storage (Vercel)');
-        return new PostgresStorage(process.env.DATABASE_URL);
+        return new PostgresStorage(databaseUrl);
       }
       console.error('DATABASE_URL is required in Vercel environment. Falling back to ephemeral filesystem storage in /tmp.');
       const tmpPath = path.join(STORAGE_BASE_DIR, 'data');
@@ -1109,9 +1119,9 @@ export const storage = new ProxyStorage(
       return new FileSystemStorage(savedPath);
     }
     
-    if (process.env.DATABASE_URL) {
+    if (databaseUrl) {
       console.log('Using PostgreSQL storage');
-      return new PostgresStorage(process.env.DATABASE_URL);
+      return new PostgresStorage(databaseUrl);
     }
 
     // Default to local data folder for persistence
