@@ -1,19 +1,20 @@
 import { isElectron } from "./electron";
 
 export function resolveApiBaseUrl(): string {
+  // Use the build-time injected environment variable
+  // In vite.config.ts, we define process.env.VITE_API_URL
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) return envUrl;
+
   const protocol = typeof window !== 'undefined' ? window.location.protocol : '';
   const isElectronRuntime =
     typeof window !== 'undefined' &&
     (isElectron() || (typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron')));
 
   if (isElectronRuntime && !import.meta.env.DEV) {
+    // If VITE_API_URL is not set, default to the embedded local server in production Electron
     return 'http://127.0.0.1:5002/api';
   }
-
-  // Use the build-time injected environment variable
-  // In vite.config.ts, we define process.env.VITE_API_URL
-  const envUrl = import.meta.env.VITE_API_URL;
-  if (envUrl) return envUrl;
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
