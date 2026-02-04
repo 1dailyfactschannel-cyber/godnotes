@@ -1080,6 +1080,17 @@ export const storage = new ProxyStorage(
   (() => {
     console.log('=== STORAGE INITIALIZATION ===');
     console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+    
+    // Check if we are running in Vercel Serverless environment
+    // Vercel only supports Postgres/database storage, not filesystem persistence
+    if (process.env.VERCEL) {
+      if (!process.env.DATABASE_URL) {
+        throw new Error('DATABASE_URL is required in Vercel environment');
+      }
+      console.log('Using PostgreSQL storage (Vercel)');
+      return new PostgresStorage(process.env.DATABASE_URL);
+    }
+
     console.log('Saved storage config:', loadStorageConfig());
     
     const savedPath = loadStorageConfig();
