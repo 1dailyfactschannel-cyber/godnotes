@@ -1175,6 +1175,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   renameItem: async (id, newName) => {
     const item = get().items.find(i => i.id === id);
     if (!item) return;
+    const originalName = item.name;
 
     // Optimistically update
     set((state) => ({
@@ -1198,12 +1199,94 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
           [item.type === 'folder' ? 'name' : 'title']: newName
       });
     } catch (error: any) {
+      const msg = String(error?.message || error);
+      if (msg.includes('404') && item.type === 'file' && get().isAuthenticated && !get().isOfflineMode) {
+        try {
+          const created = await apiRequest('POST', '/notes', {
+            title: newName,
+            content: item.content ?? "",
+            folderId: item.parentId ?? null,
+            isFavorite: !!(item as any).isFavorite,
+            tags: (item as any).tags || [],
+          });
+          const createdUpdatedAt = new Date(created.updatedAt).getTime();
+          set(s => ({
+            items: s.items.map(i => i.id === id ? {
+              ...i,
+              id: created.id,
+              name: newName,
+              createdAt: new Date(created.createdAt).getTime(),
+              updatedAt: createdUpdatedAt,
+            } : i),
+            activeFileId: s.activeFileId === id ? created.id : s.activeFileId,
+            openFiles: s.openFiles.map(fid => fid === id ? created.id : fid),
+            lastCreatedFileId: s.lastCreatedFileId === id ? created.id : s.lastCreatedFileId,
+            lastSavedFileId: s.lastSavedFileId === id ? created.id : s.lastSavedFileId,
+          }));
+          get().saveToLocalStorage();
+
+          const state = get();
+          if (state.localDocumentsPath && isElectron() && fs) {
+            const oldPath = `${state.localDocumentsPath}/GodNotes/${id}.md`;
+            const newPath = `${state.localDocumentsPath}/GodNotes/${created.id}.md`;
+            try {
+              const existsOld = await fs.exists(oldPath);
+              if (existsOld) {
+                const readRes = await fs.readFile(oldPath);
+                if (readRes.success && typeof readRes.content === 'string') {
+                  await fs.writeFile(newPath, readRes.content);
+                  await fs.deleteFile(oldPath);
+                } else {
+                  await fs.writeFile(newPath, item.content ?? "");
+                }
+              } else {
+                await fs.writeFile(newPath, item.content ?? "");
+              }
+            } catch (fsErr) {
+              console.error('Local file migrate failed:', fsErr);
+            }
+          }
+
+          try {
+            const manifest = { ...get().syncManifest };
+            delete manifest[id];
+            manifest[created.id] = createdUpdatedAt;
+            set({ syncManifest: manifest });
+            await get().saveSyncManifest();
+          } catch (mErr) {
+            console.error('Failed to update sync manifest during id migration:', mErr);
+          }
+
+          try {
+            const prevQueue = get().offlineQueue || [];
+            const migratedQueue = prevQueue.map(q => {
+              if (q.itemId === id || q.endpoint.includes(`/notes/${id}`)) {
+                const newEndpoint = q.endpoint.replace(`/notes/${id}`, `/notes/${created.id}`);
+                return { ...q, itemId: q.itemId === id ? created.id : q.itemId, endpoint: newEndpoint };
+              }
+              return q;
+            });
+            set({ offlineQueue: migratedQueue });
+            localStorage.setItem('offlineQueue', JSON.stringify(migratedQueue));
+          } catch (qErr) {
+            console.error('Failed to rewrite offline queue after id migration:', qErr);
+          }
+
+          return;
+        } catch (createErr: any) {
+          console.error('Fallback create note on rename failed:', createErr);
+          const createMsg = String(createErr?.message || createErr);
+          if (createMsg.includes('401') || (createErr as any)?.code === 401) {
+            set({ isAuthenticated: false, user: null });
+          }
+        }
+      }
       console.error('Failed to rename item:', error);
-      if (error.message?.includes('401')) {
+      if (msg.includes('401') || (error as any)?.code === 401) {
           set({ isAuthenticated: false, user: null });
       }
       set((state) => ({
-        items: state.items.map(i => i.id === id ? { ...i, name: item.name } : i),
+        items: state.items.map(i => i.id === id ? { ...i, name: originalName } : i),
       }));
     }
   },
