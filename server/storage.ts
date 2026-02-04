@@ -14,7 +14,7 @@ import {
   type InsertTask,
   type UpdateTask,
   tasks,
-} from "@shared/schema";
+} from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

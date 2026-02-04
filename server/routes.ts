@@ -9,7 +9,7 @@ import {
   updateNoteSchema,
   insertTaskSchema,
   updateTaskSchema,
-} from "@shared/schema";
+} from "../shared/schema.js";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
